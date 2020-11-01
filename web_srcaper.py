@@ -17,6 +17,22 @@ def main():
 
     all_msg_urls = find_single_page_urls(object)
 
+    nondup_urls = remove_duplicate_urls(all_msg_urls)
+    # get_tableinfo_single_url(test_url)
+
+    for url in nondup_urls:
+        print(url)
+
+    print("Geting table info from every message :")
+    # Iterates over all messges
+    # for url in nondup_urls:
+    #    get_tableinfo_single_url(url)
+
+    # Working on first 3 examples for now
+    for i in range(3):
+        get_tableinfo_single_url(nondup_urls[i])
+
+
 
 def find_single_page_urls(object) -> list:
     """
@@ -35,33 +51,32 @@ def find_single_page_urls(object) -> list:
     return url_list
 
 
-all_msg_urls = find_single_page_urls(object)
-
-
 def remove_duplicate_urls(urls: list) -> list:
-    tmp = []
+    """
+    Function takes string list with duplicate entries and removes all duplicates
+
+    urls: list with strings
+    returns: valid_urls
+    """
+    valid_urls = []
     for url in urls:
-        if url not in tmp:
-            tmp.append(url)
-    return tmp
+        if url not in valid_urls:
+            valid_urls.append(url)
+    return valid_urls
 
 
-nondup_urls = remove_duplicate_urls(all_msg_urls)
+def get_msg_table_info():
+    pass
 
-for url in nondup_urls:
-    print(url)
-
-print("Geting street info:")
-
-test_url = "https://ss.lv/msg/lv/real-estate/flats/ogre-and-reg/ogre/ahdlj.html"
 def get_tableinfo_single_url(single_url: str):
 
     page = requests.get(single_url)
     soup = BeautifulSoup(page.content, "html.parser")
+    opts_names = []
+    opts_values = []
+    opts_prices = []
 
-    # message_text = soup.find("div", {"id": "msg_div_msg"})
-    # print(message_text) # working
-    print("--------- Table names - debug info ----------")
+    # print("--------- Table names - debug info ----------")
     table = soup.find('table', id="page_main")
 
     opts = table.findAll('td', {"class": "ads_opt_name"})
@@ -69,29 +84,31 @@ def get_tableinfo_single_url(single_url: str):
         tostr = str(opt)
         no_front = tostr.split(">", 1)[1]
         name = no_front.split("<")[0]
-        print(name)
+        opts_names.append(name)
 
-    print("--------- Table values - debug info ----------")
+    # print("--------- Table values - debug info ----------")
     data_results = table.findAll('td', {"class": "ads_opt"})
     for result in data_results:
         tostr = str(result)
         nofront = tostr.split('"">', 1)[1]
         value = nofront.split("</", 1)[0]
-        print(value)
+        opts_values.append(value)
 
-    print("--------- Table price - debug info ----------")
+    # print("--------- Table price - debug info ----------")
     prices = table.findAll('td', {"class": "ads_price"})
     for price in prices:
         tostr = str(price)
         nofront = tostr.split('"top">', 1)[1]
         value = nofront.split("</", 1)[0]
-        print(value)
+        opts_prices.append(value)
 
 
-# get_tableinfo_single_url(test_url)
+    for i in range(len(opts_names) - 1):
+        print(opts_names[i], " -> " , opts_values[i] )
+    print("-----> Price:", opts_prices[0])
+    print("")
+    print("")
 
-for url in nondup_urls:
-    get_tableinfo_single_url(url)
 
 
 if __name__ == "__main__":
