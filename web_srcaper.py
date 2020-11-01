@@ -1,5 +1,6 @@
 """
- This is ss.lv web scraper module
+ This is ss.lv web scraper module.
+ Module is adjusted to parse apartments for sale in Ogre city
 """
 
 
@@ -7,21 +8,26 @@ import requests
 from bs4 import BeautifulSoup
 import re
 
-# URL = "ss.lv"
-URL = "http://www.example.com"
-sell_flats_in_ogre = "https://www.ss.lv/lv/real-estate/flats/ogre-and-reg/ogre/sell/"
-# rent_url = "https://www.ss.lv/lv/real-estate/flats/ogre-and-reg/hand_over/"
 
+sell_flats_in_ogre = "https://www.ss.lv/lv/real-estate/flats/ogre-and-reg/ogre/sell/"
 page = requests.get(sell_flats_in_ogre)
 bs_object = BeautifulSoup(page.content, "html.parser")
 
-# print(bs_object) # works
+def main():
+
+    all_msg_urls = find_single_page_urls(object)
 
 
-def find_single_page_urls() -> list:
+def find_single_page_urls(object) -> list:
+    """
+    Function iterates over all a sections and gets all href lines
+
+    object: bs4 object
+    returns:  list of strings with all message URLs
+
+    """
     url_list = []
     for a in bs_object.find_all('a', href=True):
-        # print("DEBUG: Found the URL:", a['href'])
         one_link = "https://ss.lv" + a['href']
         re_match = re.search("msg", one_link)
         if re_match:
@@ -29,7 +35,7 @@ def find_single_page_urls() -> list:
     return url_list
 
 
-filtered_urls = find_single_page_urls()
+all_msg_urls = find_single_page_urls(object)
 
 
 def remove_duplicate_urls(urls: list) -> list:
@@ -40,7 +46,7 @@ def remove_duplicate_urls(urls: list) -> list:
     return tmp
 
 
-nondup_urls = remove_duplicate_urls(filtered_urls)
+nondup_urls = remove_duplicate_urls(all_msg_urls)
 
 for url in nondup_urls:
     print(url)
@@ -86,3 +92,12 @@ def get_tableinfo_single_url(single_url: str):
 
 for url in nondup_urls:
     get_tableinfo_single_url(url)
+
+
+if __name__ == "__main__":
+    main()
+
+"""
+# TODO - implement apartments for rent parsing
+# rent_url = "https://www.ss.lv/lv/real-estate/flats/ogre-and-reg/hand_over/"
+"""
