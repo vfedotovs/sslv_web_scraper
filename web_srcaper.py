@@ -1,6 +1,6 @@
 """
  This is ss.lv web scraper module.
- Module is adjusted to parse apartments for sale in Ogre city
+ Module is adjusted to parse apartments for sale in Ogre or Jelgava city
 """
 
 
@@ -9,13 +9,16 @@ from bs4 import BeautifulSoup
 import re
 
 
-sell_flats_in_ogre = "https://www.ss.lv/lv/real-estate/flats/ogre-and-reg/ogre/sell/"
-page = requests.get(sell_flats_in_ogre)
-bs_object = BeautifulSoup(page.content, "html.parser")
+flats_ogre = "https://www.ss.lv/lv/real-estate/flats/ogre-and-reg/ogre/sell/"
+flats_jelgava = "https://www.ss.lv/lv/real-estate/flats/jelgava-and-reg/jelgava/sell/"
 
 def main():
 
-    nondup_urls = find_single_page_urls(object)
+    jel_object = get_bs_object(flats_jelgava)
+    #ogre_object = get_bs_object(flats_ogre)
+
+    nondup_urls = find_single_page_urls(jel_object)
+    #nondup_urls = find_single_page_urls(ogre_object)
 
     for url in nondup_urls:
         print(url)
@@ -23,7 +26,7 @@ def main():
     print("Geting table info from every message :")
     # Iterates over all messges
 
-    for i in range(3):
+    for i in range(5):
         table_opt_names = get_msg_table_info(nondup_urls[i], "ads_opt_name")
         table_opt_values = get_msg_table_info(nondup_urls[i], "ads_opt")
         table_price = get_msg_table_info(nondup_urls[i], "ads_price")
@@ -33,7 +36,17 @@ def main():
         print("---------->", table_price[0])
 
 
-def find_single_page_urls(object) -> list:
+def get_bs_object(page_url: str):
+    """
+    Function loads webpage from url and returns bs4 object
+    """
+    page = requests.get(page_url)
+    bs_object = BeautifulSoup(page.content, "html.parser")
+    return bs_object
+
+
+
+def find_single_page_urls(bs_object) -> list:
     """
     Function iterates over all a sections and gets all href lines
 
