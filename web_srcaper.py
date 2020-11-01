@@ -15,10 +15,7 @@ bs_object = BeautifulSoup(page.content, "html.parser")
 
 def main():
 
-    all_msg_urls = find_single_page_urls(object)
-
-    nondup_urls = remove_duplicate_urls(all_msg_urls)
-    # get_tableinfo_single_url(test_url)
+    nondup_urls = find_single_page_urls(object)
 
     for url in nondup_urls:
         print(url)
@@ -48,7 +45,12 @@ def find_single_page_urls(object) -> list:
         re_match = re.search("msg", one_link)
         if re_match:
             url_list.append(one_link)
-    return url_list
+
+    valid_urls = []
+    for url in url_list:
+        if url not in valid_urls:
+            valid_urls.append(url)
+    return valid_urls
 
 
 def remove_duplicate_urls(urls: list) -> list:
