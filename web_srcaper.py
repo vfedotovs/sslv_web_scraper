@@ -22,13 +22,15 @@ def main():
 
     print("Geting table info from every message :")
     # Iterates over all messges
-    # for url in nondup_urls:
-    #    get_tableinfo_single_url(url)
 
-    # Working on first 3 examples for now
     for i in range(3):
-        get_tableinfo_single_url(nondup_urls[i])
+        table_opt_names = get_msg_table_info(nondup_urls[i], "ads_opt_name")
+        table_opt_values = get_msg_table_info(nondup_urls[i], "ads_opt")
+        table_price = get_msg_table_info(nondup_urls[i], "ads_price")
 
+        for i in range(len(table_opt_names) - 1):
+            print(table_opt_names[i] , "-->", table_opt_values[i])
+        print("---------->", table_price[0])
 
 
 def find_single_page_urls(object) -> list:
@@ -53,63 +55,30 @@ def find_single_page_urls(object) -> list:
     return valid_urls
 
 
-def remove_duplicate_urls(urls: list) -> list:
+def get_msg_table_info(msg_url: str, td_class: str) ->list:
     """
-    Function takes string list with duplicate entries and removes all duplicates
+    Function parses message page and extracts td_class table fields
 
-    urls: list with strings
-    returns: valid_urls
+    Paramters:
+    msg_url: message web page link
+    td_class: table field name
+
+    returns: str list with table field data
+
     """
-    valid_urls = []
-    for url in urls:
-        if url not in valid_urls:
-            valid_urls.append(url)
-    return valid_urls
-
-
-def get_msg_table_info():
-    pass
-
-def get_tableinfo_single_url(single_url: str):
-
-    page = requests.get(single_url)
+    page = requests.get(msg_url)
     soup = BeautifulSoup(page.content, "html.parser")
-    opts_names = []
-    opts_values = []
-    opts_prices = []
-
-    # print("--------- Table names - debug info ----------")
     table = soup.find('table', id="page_main")
 
-    opts = table.findAll('td', {"class": "ads_opt_name"})
-    for opt in opts:
-        tostr = str(opt)
-        no_front = tostr.split(">", 1)[1]
-        name = no_front.split("<")[0]
-        opts_names.append(name)
+    table_fields = []
 
-    # print("--------- Table values - debug info ----------")
-    data_results = table.findAll('td', {"class": "ads_opt"})
-    for result in data_results:
-        tostr = str(result)
-        nofront = tostr.split('"">', 1)[1]
-        value = nofront.split("</", 1)[0]
-        opts_values.append(value)
-
-    # print("--------- Table price - debug info ----------")
-    prices = table.findAll('td', {"class": "ads_price"})
-    for price in prices:
-        tostr = str(price)
-        nofront = tostr.split('"top">', 1)[1]
-        value = nofront.split("</", 1)[0]
-        opts_prices.append(value)
-
-
-    for i in range(len(opts_names) - 1):
-        print(opts_names[i], " -> " , opts_values[i] )
-    print("-----> Price:", opts_prices[0])
-    print("")
-    print("")
+    table_data = table.findAll('td', {"class": td_class})
+    for data in table_data:
+        tostr = str(data)
+        no_front = tostr.split('">', 1)[1]
+        name = no_front.split("</",1)[0]
+        table_fields.append(name)
+    return table_fields
 
 
 
