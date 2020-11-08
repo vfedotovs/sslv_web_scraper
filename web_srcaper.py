@@ -27,13 +27,22 @@ def main():
     # Iterates over all messges
 
     for i in range(5):
+        current_msg_url = nondup_urls[i] + "\n"
         table_opt_names = get_msg_table_info(nondup_urls[i], "ads_opt_name")
         table_opt_values = get_msg_table_info(nondup_urls[i], "ads_opt")
         table_price = get_msg_table_info(nondup_urls[i], "ads_price")
 
+
+        write_line('This is 5 message report about Ogre flats for sale: \n', 'Ogre-report.txt')
+        print("Debug info: working on message ", i)
+        write_line(current_msg_url, 'Ogre-report.txt')
         for i in range(len(table_opt_names) - 1):
-            print(table_opt_names[i] , "-->", table_opt_values[i])
-        print("---------->", table_price[0])
+            # print(table_opt_names[i] , "-->", table_opt_values[i])
+            text_line = table_opt_names[i] + "-->" + table_opt_values[i] + "\n"
+            write_line(text_line, 'Ogre-report.txt')
+        price_line = "Price:--->" + table_price[0] + "\n"
+        write_line(price_line, 'Ogre-report.txt')
+
 
 
 def get_bs_object(page_url: str):
@@ -92,6 +101,15 @@ def get_msg_table_info(msg_url: str, td_class: str) ->list:
         name = no_front.split("</",1)[0]
         table_fields.append(name)
     return table_fields
+
+
+def write_line(text: str,file_name: str) ->None:
+    """ Append text to end of the file
+
+    """
+    with open(file_name, 'a') as the_file:
+            the_file.write(text)
+
 
 
 

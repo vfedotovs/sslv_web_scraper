@@ -2,8 +2,10 @@
 
 TODO backlog
 1. Add table printed in one line: URL : deatails : price
-    [  ]1.1 Format current outout as one line
-    [  ]1.2 Save output to text file
+    [ ] 1.1 Format current outout as one line 
+        [] 1.1.1 Parse saved text file using regex - new filter report on raw data feature 
+        [] 1.1.2 Save filtered report
+    [X] 1.2 Save non formated table output to text file
 2. Add print message count by flat room count (Filtering feature needed)
 3. Add master page subpage detection and iteration
 4. Add send email results one per day via gmail option
