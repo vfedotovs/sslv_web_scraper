@@ -1,10 +1,13 @@
 import re
 
 def main():
-    oneline_report('Ogre-report.txt', 'test.txt', 'type1')
+
+    text_data = create_oneline_report('Ogre-raw-data-report.txt', 'test.txt', 'type1')
+
+    create_mailer_report(text_data, 'Mailer_report.txt')
 
 
-def oneline_report(source_file: str, dest_file: str, report_type: str) ->None:
+def create_oneline_report(source_file: str, dest_file: str, report_type: str) ->None:
     """ TODO decription
 
     Args:
@@ -50,11 +53,21 @@ def oneline_report(source_file: str, dest_file: str, report_type: str) ->None:
             if not line:
                 break
 
-    # print(urls)
-    # print(room_counts)
-    # print(room_sizes)
     for i in range(len(urls) - 1):
-        oneline = urls[i] + " " + room_counts[i] + " " + room_sizes[i] + room_streets[i] + room_prices[i]
-        print(oneline)
+        oneline = urls[i] + " " + room_counts[i] + " " + room_sizes[i] + " " + room_streets[i] + "   " + room_prices[i]
+        # print(oneline)
+        oneline_report.append(oneline)
+    return oneline_report
+
+
+
+def create_mailer_report(text: list,file_name: str) ->None:
+    """ Writes oneline data text to mailer report file """
+
+    with open(file_name, 'a') as the_file:
+        for line in text:
+            the_file.write(f"{line}\n")
+
+
 
 main()
