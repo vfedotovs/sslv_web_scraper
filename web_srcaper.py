@@ -12,7 +12,7 @@ import re
 flats_ogre = "https://www.ss.lv/lv/real-estate/flats/ogre-and-reg/ogre/sell/"
 flats_jelgava = "https://www.ss.lv/lv/real-estate/flats/jelgava-and-reg/jelgava/sell/"
 
-def main():
+def scrape_website():
     print("Debug info: Starting website parsing module ... ")
     # jel_object = get_bs_object(flats_jelgava)
     print("Debug info: getting BS4 objects ...")
@@ -115,8 +115,5 @@ def write_line(text: str,file_name: str) ->None:
             the_file.write(text)
 
 
-
-
-if __name__ == "__main__":
-    main()
+scrape_website()
 
