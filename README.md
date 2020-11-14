@@ -1,4 +1,14 @@
-# sslv_web_scraper
+# About sslv_web_scraper application:
+Purpouse: This application will parse daily https:/ss.lv website for apartments for sale in specific city of your choice
+and will filter parsed by your condition and  will send it as email
+
+TODO: Add list of features that are implemented
+
+# How to use application:
+1. Clone repo
+2. Update gmailer.py file with your email address
+3. Run app: python3 app.py
+4. Report should arrive to email
 
 # TODO Backlog
 - [x] Parse website and save data as raw-data report file 
@@ -12,9 +22,5 @@
 - [ ] Print min/max/average prices as chart 
 
 
-# How to use application:
-1. Clone repo
-2. Update gmailer.py file with your email address
-3. Run app: python3 app.py
-4. Report should arrive to email
+
   
