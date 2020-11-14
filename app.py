@@ -3,7 +3,7 @@ import data_formater
 import gmailer
 
 
-def main()
+def main():
     web_scraper
     data_formater
     gmailer
