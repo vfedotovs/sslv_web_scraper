@@ -13,35 +13,39 @@ flats_ogre = "https://www.ss.lv/lv/real-estate/flats/ogre-and-reg/ogre/sell/"
 flats_jelgava = "https://www.ss.lv/lv/real-estate/flats/jelgava-and-reg/jelgava/sell/"
 
 def main():
+    print("Debug info: Starting website parsing module ... ")
+    # jel_object = get_bs_object(flats_jelgava)
+    print("Debug info: getting BS4 objects ...")
+    ogre_object = get_bs_object(flats_ogre)
 
-    jel_object = get_bs_object(flats_jelgava)
-    #ogre_object = get_bs_object(flats_ogre)
+    print("Debug info: bulding non-duplicate URL list from BS4 objects ...")
+    # nondup_urls = find_single_page_urls(jel_object)
+    nondup_urls = find_single_page_urls(ogre_object)
+    print("Debug info: found " + str(len(nondup_urls)) + " parsable message URLs ...")
+    # Debug info prints out list of all msg urls
+    # for url in nondup_urls:
+    #     print(url)
 
-    nondup_urls = find_single_page_urls(jel_object)
-    #nondup_urls = find_single_page_urls(ogre_object)
-
-    for url in nondup_urls:
-        print(url)
-
-    print("Geting table info from every message :")
+    # print("Geting table info from every message :")
     # Iterates over all messges
 
-    for i in range(5):
+    # TODO convert this loop to function
+    for i in range(10):
         current_msg_url = nondup_urls[i] + "\n"
         table_opt_names = get_msg_table_info(nondup_urls[i], "ads_opt_name")
         table_opt_values = get_msg_table_info(nondup_urls[i], "ads_opt")
         table_price = get_msg_table_info(nondup_urls[i], "ads_price")
 
 
-        write_line('This is 5 message report about Ogre flats for sale: \n', 'Ogre-report.txt')
-        print("Debug info: working on message ", i)
-        write_line(current_msg_url, 'Ogre-report.txt')
+        write_line('This is 10 message report about Ogre flats for sale: \n', 'Ogre-raw-data-report.txt')
+        print("Debug info: extracting data from message URL ", i + 1)
+        write_line(current_msg_url, 'Ogre-raw-data-report.txt')
         for i in range(len(table_opt_names) - 1):
             # print(table_opt_names[i] , "-->", table_opt_values[i])
             text_line = table_opt_names[i] + "-->" + table_opt_values[i] + "\n"
-            write_line(text_line, 'Ogre-report.txt')
+            write_line(text_line, 'Ogre-raw-data-report.txt')
         price_line = "Price:--->" + table_price[0] + "\n"
-        write_line(price_line, 'Ogre-report.txt')
+        write_line(price_line, 'Ogre-raw-data-report.txt')
 
 
 
@@ -116,7 +120,3 @@ def write_line(text: str,file_name: str) ->None:
 if __name__ == "__main__":
     main()
 
-"""
-# TODO - implement apartments for rent parsing
-# rent_url = "https://www.ss.lv/lv/real-estate/flats/ogre-and-reg/hand_over/"
-"""
