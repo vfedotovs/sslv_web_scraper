@@ -1,9 +1,9 @@
 import re
 
-def main():
+
+def create_mailer_report():
 
     text_data = create_oneline_report('Ogre-raw-data-report.txt', 'test.txt', 'type1')
-
     create_mailer_report(text_data, 'Mailer_report.txt')
 
 
@@ -69,5 +69,4 @@ def create_mailer_report(text: list,file_name: str) ->None:
             the_file.write(f"{line}\n")
 
 
-
-main()
+create_mailer_report()
