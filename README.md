@@ -1,6 +1,6 @@
 # About sslv_web_scraper application:
-Purpouse: This application will parse daily https:/ss.lv website for apartments for sale in specific city of your choice
-and will filter parsed by your condition and  will send it as email
+Purpouse: This application will parse https:/ss.lv website for apartments for sale in specific city of your choice
+(currently its hardcoded for Ogre city please adjust to your needs) and  will send report filtered by your criteria to your gmail address 
 
 TODO: Add list of features that are implemented
 
