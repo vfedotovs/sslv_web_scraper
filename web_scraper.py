@@ -48,6 +48,13 @@ def scrape_website():
         write_line(price_line, 'Ogre-raw-data-report.txt')
 
 
+def extract_subpage_urls(first_page_url: str) -> list:
+    pass
+
+
+def extract_data_from_url(urls: list, dest_file: str) ->None:
+    pass
+
 
 def get_bs_object(page_url: str):
     """
