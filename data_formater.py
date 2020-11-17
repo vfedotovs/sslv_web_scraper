@@ -27,6 +27,7 @@ def create_oneline_report(source_file: str, dest_file: str, report_type: str) ->
     room_sizes = []
     room_streets = []
     room_prices = []
+    room_floors = []
     oneline_report = []
     with open(source_file) as file_handle:
         while True:
@@ -52,12 +53,19 @@ def create_oneline_report(source_file: str, dest_file: str, report_type: str) ->
                 tmp = line.rstrip('\n')
                 sizes = tmp.replace("Platība:", "Platiba:")
                 room_sizes.append(sizes)
+
+            match_room_floor = re.search("Stāvs:", line)
+            if match_room_floor:
+                tmp = line.rstrip('\n')
+                floors = tmp.replace("Stāvs:", "Stavs:")
+                room_floors.append(floors)
+
             if not line:
                 break
 
     for i in range(len(urls) - 1):
         # oneline = urls[i] + " " + room_counts[i] + " " + room_sizes[i] + " " + room_streets[i] + "   " + room_prices[i]
-        oneline = urls[i] + " " + room_counts[i] + " " + room_sizes[i] + "   " + room_prices[i]  # this is workaround for SMTP module ASCI erorrs
+        oneline = urls[i] + " " + room_counts[i] + " " + room_floors[i] + " " + room_sizes[i] + "   " + room_prices[i]  # this is workaround for SMTP module ASCI erorrs
         # print(oneline)
         oneline_report.append(oneline)
     return oneline_report
