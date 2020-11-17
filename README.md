@@ -5,8 +5,8 @@ and will filter parsed by your condition and  will send it as email
 TODO: Add list of features that are implemented
 
 # How to use application:
-1. Clone repo
-2. Update gmailer.py file with your email address
+1. Install requirements python3.7+ , requests, bs4
+2. Update gmailer.py file with your email address and password
 3. Run app: python3 app.py
 4. Report should arrive to email
 
@@ -19,7 +19,7 @@ TODO: Add list of features that are implemented
 - [x] Send email string that was read from text file 
 - [ ] Add feature message filter option by other criteria: example messages only with 2 rooms etc
 - [ ] Add Data sience methods and prittify reports
-- [ ] Print min/max/average prices as chart 
+- [ ] Print min/max/average prices as charts 
 
 
 
