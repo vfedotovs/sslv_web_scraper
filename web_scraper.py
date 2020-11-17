@@ -14,46 +14,38 @@ flats_jelgava = "https://www.ss.lv/lv/real-estate/flats/jelgava-and-reg/jelgava/
 
 def scrape_website():
     print("Debug info: Starting website parsing module ... ")
-    # jel_object = get_bs_object(flats_jelgava)
     print("Debug info: getting BS4 objects ...")
     ogre_object = get_bs_object(flats_ogre)
-
     print("Debug info: bulding non-duplicate URL list from BS4 objects ...")
-    # nondup_urls = find_single_page_urls(jel_object)
-    nondup_urls = find_single_page_urls(ogre_object)
-    print("Debug info: found " + str(len(nondup_urls)) + " parsable message URLs ...")
-    # Debug info prints out list of all msg urls
-    # for url in nondup_urls:
-    #     print(url)
+    valid_msg_urls = find_single_page_urls(ogre_object)
+    print("Debug info: found " + str(len(valid_msg_urls)) + " parsable message URLs ...")
 
-    # print("Geting table info from every message :")
-    # Iterates over all messges
-
-    # TODO convert this loop to function
-    for i in range(10):
-        current_msg_url = nondup_urls[i] + "\n"
-        table_opt_names = get_msg_table_info(nondup_urls[i], "ads_opt_name")
-        table_opt_values = get_msg_table_info(nondup_urls[i], "ads_opt")
-        table_price = get_msg_table_info(nondup_urls[i], "ads_price")
-
-
-        write_line('This is 10 message report about Ogre flats for sale: \n', 'Ogre-raw-data-report.txt')
-        print("Debug info: extracting data from message URL ", i + 1)
-        write_line(current_msg_url, 'Ogre-raw-data-report.txt')
-        for i in range(len(table_opt_names) - 1):
-            # print(table_opt_names[i] , "-->", table_opt_values[i])
-            text_line = table_opt_names[i] + "-->" + table_opt_values[i] + "\n"
-            write_line(text_line, 'Ogre-raw-data-report.txt')
-        price_line = "Price:--->" + table_price[0] + "\n"
-        write_line(price_line, 'Ogre-raw-data-report.txt')
+    # Perform iteration over all first page msg urls extract info and write to file
+    extract_data_from_url(valid_msg_urls, 'Ogre-raw-data-report.txt')
 
 
 def extract_subpage_urls(first_page_url: str) -> list:
     pass
 
 
-def extract_data_from_url(urls: list, dest_file: str) ->None:
-    pass
+def extract_data_from_url(nondup_urls: list, dest_file: str) ->None:
+    """TODO add documentiation
+
+    """
+    msg_url_count = len(nondup_urls)
+    for i in range(msg_url_count):
+        current_msg_url = nondup_urls[i] + "\n"
+        table_opt_names = get_msg_table_info(nondup_urls[i], "ads_opt_name")
+        table_opt_values = get_msg_table_info(nondup_urls[i], "ads_opt")
+        table_price = get_msg_table_info(nondup_urls[i], "ads_price")
+
+        print("Debug info: extracting data from message URL ", i + 1)
+        write_line(current_msg_url, dest_file)
+        for i in range(len(table_opt_names) - 1):
+            text_line = table_opt_names[i] + ">" + table_opt_values[i] + "\n"
+            write_line(text_line, dest_file)
+        price_line = "Price:>" + table_price[0] + "\n"
+        write_line(price_line, dest_file)
 
 
 def get_bs_object(page_url: str):
