@@ -7,7 +7,8 @@ def write_mailer_report() ->None:
         that should be used by gmailer module   """
 
     text_data = create_oneline_report('Ogre-raw-data-report.txt', 'test.txt', 'type1')
-    create_mailer_report(text_data, 'Mailer_report.txt')
+    create_mailer_report(text_data, 'tmp_report.txt')
+    create_filtered_report('tmp_report.txt', 'Mailer_report.txt', 'Istabas:>2')
 
 
 def create_oneline_report(source_file: str, dest_file: str, report_type: str) ->None:
@@ -77,6 +78,18 @@ def create_mailer_report(text: list,file_name: str) ->None:
     with open(file_name, 'a') as the_file:
         for line in text:
             the_file.write(f"{line}\n")
+
+
+def create_filtered_report(source_file: str, dest_file: str, keyword: str) ->None:
+    """ Function imitates bash grep for filtering text file
+
+    """
+    with open(source_file, "r") as sfile:
+        with open(dest_file, "w") as dfile:
+            for line in sfile:
+                if re.search(keyword, line):
+                    dfile.write(line)
+
 
 
 write_mailer_report()
