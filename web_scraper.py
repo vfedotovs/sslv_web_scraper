@@ -19,8 +19,6 @@ def scrape_website():
     print("Debug info: bulding non-duplicate URL list from BS4 objects ...")
     valid_msg_urls = find_single_page_urls(ogre_object)
     print("Debug info: found " + str(len(valid_msg_urls)) + " parsable message URLs ...")
-
-    # Perform iteration over all first page msg urls extract info and write to file
     extract_data_from_url(valid_msg_urls, 'Ogre-raw-data-report.txt')
 
 
@@ -29,7 +27,7 @@ def extract_subpage_urls(first_page_url: str) -> list:
 
 
 def extract_data_from_url(nondup_urls: list, dest_file: str) ->None:
-    """TODO add documentiation
+    """  Iterate over all first page msg urls extract info from each url and write to file
 
     """
     msg_url_count = len(nondup_urls)
