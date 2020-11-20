@@ -8,7 +8,14 @@ def write_mailer_report() ->None:
 
     text_data = create_oneline_report('Ogre-raw-data-report.txt', 'test.txt', 'type1')
     create_mailer_report(text_data, 'tmp_report.txt')
-    create_filtered_report('tmp_report.txt', 'Mailer_report.txt', 'Istabas:>2')
+    create_filtered_report('tmp_report.txt', '1_rooms_tmp.txt', 'Istabas:>1')
+    create_filtered_report('tmp_report.txt', '2_rooms_tmp.txt', 'Istabas:>2')
+    create_filtered_report('tmp_report.txt', '3_rooms_tmp.txt', 'Istabas:>3')
+    create_filtered_report('tmp_report.txt', '4_rooms_tmp.txt', 'Istabas:>4')
+    tmp_reports = ['1_rooms_tmp.txt', '2_rooms_tmp.txt', '3_rooms_tmp.txt', '4_rooms_tmp.txt']
+
+    for report in tmp_reports:
+        merge_reports(report, 'Mailer_report.txt')
 
 
 def create_oneline_report(source_file: str, dest_file: str, report_type: str) ->None:
@@ -90,6 +97,19 @@ def create_filtered_report(source_file: str, dest_file: str, keyword: str) ->Non
                 if re.search(keyword, line):
                     dfile.write(line)
 
+
+def merge_reports(source_file: str, dest_file: str) ->None:
+    """ Function merges multiple tmp reports in final report """
+    room_count = 1
+
+    with open(dest_file, "a") as dfile:
+        with open(source_file, "r") as sfile:
+            dfile.write("\n \n")
+            rooms_title = str(room_count) + " rooms:\n"
+            dfile.write(rooms_title)
+            for line in sfile:
+                dfile.write(line)
+            room_count += 1
 
 
 write_mailer_report()
