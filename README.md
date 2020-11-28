@@ -5,10 +5,11 @@ Purpouse: This application will parse https:/ss.lv website for apartments for sa
 TODO: Add list of features that are implemented
 
 # How to use application:
-1. Install requirements python3.7+ , requests, bs4
-2. Update gmailer.py file with your email address and password
-3. Run app: python3 app.py
-4. Report should arrive to email
+1. Update gmailer.py file with your email address and password
+2. Buld and run basic docker image
+$ docker build -t my-python-app .
+$ docker run -it --rm --name my-running-app my-python-app
+3. Report should arrive to email
 
 # TODO Backlog
 - [x] Parse website and save data as raw-data report file 
@@ -19,7 +20,7 @@ TODO: Add list of features that are implemented
 - [x] Send email string that was read from text file 
 - [ ] Add feature message filter option by other criteria: example messages only with 2 rooms etc
 - [ ] Add Data sience methods and prittify reports
-- [ ] Print min/max/average prices as charts 
+- [ ] Add analitics module find min/max/average prices for your filter rules 
 
 
 
