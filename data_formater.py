@@ -14,8 +14,10 @@ def write_mailer_report() ->None:
     create_filtered_report('tmp_report.txt', '4_rooms_tmp.txt', 'Istabas:>4')
     tmp_reports = ['1_rooms_tmp.txt', '2_rooms_tmp.txt', '3_rooms_tmp.txt', '4_rooms_tmp.txt']
 
+    room_count = 1
     for report in tmp_reports:
-        merge_reports(report, 'Mailer_report.txt')
+        merge_reports(report, 'Mailer_report.txt', room_count)
+        room_count += 1
 
 
 def create_oneline_report(source_file: str, dest_file: str, report_type: str) ->None:
@@ -98,18 +100,17 @@ def create_filtered_report(source_file: str, dest_file: str, keyword: str) ->Non
                     dfile.write(line)
 
 
-def merge_reports(source_file: str, dest_file: str) ->None:
+def merge_reports(source_file: str, dest_file: str, rc: int) ->None:
     """ Function merges multiple tmp reports in final report """
-    room_count = 1
 
     with open(dest_file, "a") as dfile:
         with open(source_file, "r") as sfile:
             dfile.write("\n \n")
-            rooms_title = str(room_count) + " rooms:\n"
+            rooms_title = "Report for " + str(rc) + " rooms:\n"
             dfile.write(rooms_title)
             for line in sfile:
                 dfile.write(line)
-            room_count += 1
+            
 
 
 write_mailer_report()
