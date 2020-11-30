@@ -1,4 +1,5 @@
 import re
+# import pandas as pd
 
 
 def write_mailer_report() ->None:
@@ -29,7 +30,8 @@ def create_oneline_report(source_file: str, dest_file: str, report_type: str) ->
         report_type: str: currently not imlemented
 
     Returns:
-        oneliner_report: str list
+       
+       oneliner_report: str list
 
     """
     urls = []
@@ -72,6 +74,15 @@ def create_oneline_report(source_file: str, dest_file: str, report_type: str) ->
 
             if not line:
                 break
+    
+    # Create pandas df for saving to csv
+    #  dict = {'URL': urls, 'Room_count': room_counts, 'Size_sq_m' : room_sizes, 
+    #            'Floor': room_floors, "Street": room_streets, 'Price': room_prices}
+
+    #df = pd.DataFrame(dict)
+
+    #df.to_csv("pandas_df.csv")
+
 
     for i in range(len(urls) - 1):
         # oneline = urls[i] + " " + room_counts[i] + " " + room_sizes[i] + " " + room_streets[i] + "   " + room_prices[i]
