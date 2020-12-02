@@ -5,9 +5,12 @@ and  will send report filtered by your criteria to your gmail address
 # How to use application:
 1. Update gmailer.py file with your email address and password
 2. Buld and run basic docker image
-    $ docker build -t my-python-app .
-    $ docker run -it --rm --name my-running-app my-python-app
+```bash
+docker build -t my-python-app .
+docker run -it --rm --name my-running-app my-python-app
+```
 3. Report should arrive to email
+
 
 # Currently available features
 - [x] Parse website and save data as raw-data report file (currently hardcoded for Ogre city adjust to your needs)
