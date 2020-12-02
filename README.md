@@ -19,8 +19,8 @@ docker run -it --rm --name my-running-app my-python-app
 - [x] Email report includes filter option by rooms count
 
 # TODO Backlog
-- [ ] Add date field extraction feature
-- [ ] Add view count field extraction feature
+- [x] Add date field extraction feature (not in email report)
+- [x] Add view count field extraction feature (not in email report)
 - [ ] Add feature ability to save raw data as Pandas dataframe in CSV format
 - [ ] Add master page subpage detection and iteration feature
 - [ ] Add Data sience methods and prittify reports
