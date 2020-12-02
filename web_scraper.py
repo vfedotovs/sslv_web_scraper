@@ -45,6 +45,14 @@ def extract_data_from_url(nondup_urls: list, dest_file: str) ->None:
         price_line = "Price:>" + table_price[0] + "\n"
         write_line(price_line, dest_file)
 
+        table_date = get_msg_table_info(nondup_urls[i], "msg_footer")
+        for i in range(len(table_date)):
+            if i == 2:
+                date_str = table_date[i]
+                date_and_time =  date_str.replace("Datums:", "")
+                date_clean = date_and_time.split()[0]
+                date_field =  "Date:>" + str(date_clean) + "\n"
+        write_line(date_field, dest_file)
 
 def get_bs_object(page_url: str):
     """
