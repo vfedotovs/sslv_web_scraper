@@ -42,9 +42,12 @@ def extract_data_from_url(nondup_urls: list, dest_file: str) ->None:
         for i in range(len(table_opt_names) - 1):
             text_line = table_opt_names[i] + ">" + table_opt_values[i] + "\n"
             write_line(text_line, dest_file)
+
+        # Extract message price field
         price_line = "Price:>" + table_price[0] + "\n"
         write_line(price_line, dest_file)
 
+        # Extract message publish date field
         table_date = get_msg_table_info(nondup_urls[i], "msg_footer")
         for i in range(len(table_date)):
             if i == 2:
@@ -53,6 +56,12 @@ def extract_data_from_url(nondup_urls: list, dest_file: str) ->None:
                 date_clean = date_and_time.split()[0]
                 date_field =  "Date:>" + str(date_clean) + "\n"
         write_line(date_field, dest_file)
+
+        # Extract message view count
+        views = get_msg_field_info(nondup_urls[i], "show_cnt_stat")
+        view_count =  "views:>" + str(views) + "\n"
+        write_line(view_count, dest_file)
+
 
 def get_bs_object(page_url: str):
     """
@@ -85,6 +94,14 @@ def find_single_page_urls(bs_object) -> list:
             valid_urls.append(url)
     return valid_urls
 
+def get_msg_field_info(msg_url: str, span_id: str):
+    """ Function finds span id in url and return value """
+
+    r  = requests.get(msg_url)
+    data = r.text
+    soup = BeautifulSoup(data, "html.parser")
+    span = soup.find("span", id=span_id)
+    return span.text
 
 def get_msg_table_info(msg_url: str, td_class: str) ->list:
     """
