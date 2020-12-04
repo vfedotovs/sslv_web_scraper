@@ -19,12 +19,24 @@ docker run -it --rm --name my-running-app my-python-app
 - [x] Email report includes filter option by rooms count
 
 # TODO Backlog
-- [x] Add date field extraction feature (not in email report)
-- [x] Add view count field extraction feature (not in email report)
-- [ ] Add feature ability to save raw data as Pandas dataframe in CSV format
-- [ ] Add master page subpage detection and iteration feature
-- [ ] Add Data sience methods and prittify reports
-- [ ] Add analitics module find min/max/average prices for your filter rules 
+- [x] Add date field extraction feature 
+    - [ ] Bug: date values are incorrect compared to website
+    - [ ] Bug: date field is not included in email report
+    - [ ] Add feature count how many days ago ad was published
+- [x] Add view count field extraction feature
+  - [ ] Bug: view count field value is allways 1 wich is not correct
+  - [ ] Bug: view count field value is not included in email report
+  - [ ] Add feature find bigges view count ads (Will help answer what is hot/trending?)
+- [x] Add feature ability to save raw data as Pandas dataframe in CSV format
+- [x] Add pandas data frame clean-up 
+- [x] Add basic analytics functionality plot graphs and filter and sort data frame
+  - [ ] Add analytics plot export/save to pdf/png/html for further usage by mauler module  
+- [x] Add basic calculations:
+  - [x] Count filtered apartents by room count
+  - [x] Find average apartment price for section filtered apartents by room count
+  - [ ] Find min/max prices
+- [ ] Add master page subpage URL extraction and iteration feature
+
 
 
 
