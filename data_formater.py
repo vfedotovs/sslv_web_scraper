@@ -40,6 +40,7 @@ def create_oneline_report(source_file: str, dest_file: str, report_type: str) ->
     room_streets = []
     room_prices = []
     room_floors = []
+    publish_dates = []
     oneline_report = []
     with open(source_file) as file_handle:
         while True:
@@ -59,6 +60,10 @@ def create_oneline_report(source_file: str, dest_file: str, report_type: str) ->
             match_room_price = re.search("Price:", line)
             if match_room_price:
                 room_prices.append(line.rstrip('\n'))
+   
+            match_pub_date = re.search("Date:", line)
+            if match_pub_date:
+                publish_dates.append(line.rstrip('\n'))
 
             match_room_size = re.search("Platība:", line)
             if match_room_size:
@@ -77,7 +82,7 @@ def create_oneline_report(source_file: str, dest_file: str, report_type: str) ->
     
     #Create pandas df for saving to csv
     dict = {'URL': urls, 'Room_count': room_counts, 'Size_sq_m' : room_sizes, 
-                'Floor': room_floors, "Street": room_streets, 'Price': room_prices}
+            'Floor': room_floors, "Street": room_streets, 'Price': room_prices, 'Pub_date': publish_dates }
 
     df = pd.DataFrame(dict)
 
