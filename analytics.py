@@ -1,6 +1,7 @@
 import pandas as pd
 import matplotlib.pyplot as plt
 
+
 """
 Main features of this module:
 1. Sort/filter data what is read if pandas df csv file
@@ -8,26 +9,29 @@ Main features of this module:
 
 Detailed requirement list:
 1. Filter only 2 room apartments
-2. Sort them by price / get count min max and average price 
+2. Sort them by price / get count min max and average price
 3. Sort them by space / the same as above
 4. Sort tehm by instert date / the same as above
-5. Create charts for 3 steps mentioned above 
+5. Create charts for 3 steps mentioned above
 
 """
 
-
 # loading data to dataframe from csv file
-all = pd.read_csv("pandas_df.csv")
+df_to_clean = pd.read_csv("pandas_df.csv")
 
-# Excluding one cloumn
-no_url = all.loc[:, all.columns != 'URL']
 
-# data cleanup
-clean_room_col = no_url.replace(to_replace=r'Istabas:>', value='', regex=True)
-clean_sqm_col = clean_room_col.replace(to_replace=r'Platiba:>', value='', regex=True)
-clean_floor_col = clean_sqm_col.replace(to_replace=r'Stavs:>', value='', regex=True)
-clean_street_col = clean_floor_col.replace(to_replace=r'Iela:><b>', value='', regex=True)
-clean_price_col = clean_street_col.replace(to_replace=r'Price:>', value='', regex=True)
+def clean_data_frame(df_name):
+    df = df_name.replace(to_replace=r'Istabas:>', value='', regex=True)
+    df.replace(to_replace=r'Platiba:>', value='', regex=True, inplace=True)
+    df.replace(to_replace=r'Stavs:>', value='', regex=True, inplace=True)
+    df.replace(to_replace=r'/lifts', value='', regex=True, inplace=True)
+    df.replace(to_replace=r'Iela:><b>', value='', regex=True, inplace=True)
+    df.replace(to_replace=r'Price:>', value='', regex=True, inplace=True)
+    df.replace(to_replace=r'Date:>', value='', regex=True, inplace=True)
+    return df
+
+
+
 
 # exclude Unamed column
 no_unamed = clean_price_col.loc[:, clean_price_col.columns != 'Unnamed: 0']
@@ -101,7 +105,7 @@ only_two_rooms = sorted_by_sqm[sorted_by_sqm['Room_count']=='2']
 # sorting df by column name
 sorted_by_sqm = clean_lift_col.sort_values(by='Size_sqm', ascending=True)
 
-all_room_prices = sorted_by_sqm['Price_EUR'].tolist() 
+all_room_prices = sorted_by_sqm['Price_EUR'].tolist()
 all_room_price_count = len(all_room_prices)
 avg_all_price = sum(all_room_prices) / all_room_price_count
 print("All room apartment count: ",all_room_price_count )
@@ -122,8 +126,8 @@ only_2_rooms = sorted_by_sqm[sorted_by_sqm['Room_count']=='2']
 
 
 
-# list of values of  column 
-two_room_prices = only_2_rooms['Price_EUR'].tolist() 
+# list of values of  column
+two_room_prices = only_2_rooms['Price_EUR'].tolist()
 two_room_price_count = len(two_room_prices)
 avg_price = sum(two_room_prices) / two_room_price_count
 
@@ -146,7 +150,7 @@ only_2_rooms.groupby(['Size_sqm']).sum().plot(kind='pie',subplots=True,figsize=(
 ### Filter out only 1 room apartments
 only_1_rooms = sorted_by_sqm[sorted_by_sqm['Room_count']=='1']
 
-one_room_prices = only_1_rooms['Price_EUR'].tolist() 
+one_room_prices = only_1_rooms['Price_EUR'].tolist()
 one_room_price_count = len(one_room_prices)
 avg_one_room_price = sum(one_room_prices) / one_room_price_count
 
