@@ -140,20 +140,16 @@ def calculate_stats():
 #TODO: new function create charts by room count and save to png for export
 
 
-### Creating charts
-sorted_by_sqm.plot.scatter(x='Size_sqm',y="Price_EUR",s=100, title="All 1-4 room apartments",grid=True)
+def create_scatter_plot():
+    """ Finction with examples how to create scatter and py chart """
+    # Testing scatter chart
+    sorted_by_sqm.plot.scatter(x='Size_sqm',y="Price_EUR",s=100, title="All 1-4 room apartments",grid=True)
+    only_1_rooms.plot.scatter(x='Size_sqm',y="Price_EUR",s=100, title="Only 1 room apartments",grid=True)
+    only_2_rooms.plot.scatter(x='Size_sqm',y="Price_EUR",s=100, title="Only 2 room apartments",grid=True)
+    only_3_rooms.plot.scatter(x='Size_sqm',y="Price_EUR",s=100, title="Only 3 room apartments",grid=True)
+    # Testing pychart
+    only_2_rooms.groupby(['Size_sqm']).sum().plot(kind='pie',subplots=True,figsize=(7,7), autopct='%1.1f%%')
 
-### Creating charts
-only_2_rooms.plot.scatter(x='Size_sqm',y="Price_EUR",s=100, title="Only 2 room apartments",grid=True)
-
-# Testing pychart
-only_2_rooms.groupby(['Size_sqm']).sum().plot(kind='pie',subplots=True,figsize=(7,7), autopct='%1.1f%%')
-
-### Creating charts
-only_1_rooms.plot.scatter(x='Size_sqm',y="Price_EUR",s=100, title="Only 1 room apartments",grid=True)
-
-### Creating charts
-only_3_rooms.plot.scatter(x='Size_sqm',y="Price_EUR",s=100, title="Only 3 room apartments",grid=True)
 
 
 
