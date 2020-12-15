@@ -120,70 +120,37 @@ def create_pdf_reprot():
     pdf.output(name="report.pdf") # generate pdf file
 
 
+def calculate_stats():
+    """ Convert df column to list  and calculate basics stats """
+    all_room_prices = sorted_by_sqm['Price_EUR'].tolist()
+    all_room_price_count = len(all_room_prices)
+    avg_all_price = sum(all_room_prices) / all_room_price_count
+    print("All room apartment count: ",all_room_price_count )
+    print("All room average price: ",avg_all_price )
 
-### Analytics Start Here ###
 
-# sorting df by column name
-sorted_by_sqm = clean_lift_col.sort_values(by='Size_sqm', ascending=True)
+# TODO : refactor calculate stats function
+# filter df by room count
 
-all_room_prices = sorted_by_sqm['Price_EUR'].tolist()
-all_room_price_count = len(all_room_prices)
-avg_all_price = sum(all_room_prices) / all_room_price_count
-print("All room apartment count: ",all_room_price_count )
-print("All room average price: ",avg_all_price )
+### Filter out only 2 room apartments
+# only_2_rooms = sorted_by_sqm[sorted_by_sqm['Room_count']=='2']
+# 1. print apartment count filtered by room count
+# 2. print min, max, average price
+
+#TODO: new function create charts by room count and save to png for export
 
 
 ### Creating charts
 sorted_by_sqm.plot.scatter(x='Size_sqm',y="Price_EUR",s=100, title="All 1-4 room apartments",grid=True)
-#sorted_by_sqm.plot.scatter(x='Size_sqm',y="Room_count")
-#sorted_by_sqm.plot.scatter(x='Price_EUR',y="Room_count")
-
-
-
-### Filter out only 2 room apartments
-only_2_rooms = sorted_by_sqm[sorted_by_sqm['Room_count']=='2']
-
-# only_2_room_sqm = only_2_rooms.loc[:, only_2_rooms.columns == 'Size_sqm']
-
-
-
-# list of values of  column
-two_room_prices = only_2_rooms['Price_EUR'].tolist()
-two_room_price_count = len(two_room_prices)
-avg_price = sum(two_room_prices) / two_room_price_count
-
-
-
 
 ### Creating charts
 only_2_rooms.plot.scatter(x='Size_sqm',y="Price_EUR",s=100, title="Only 2 room apartments",grid=True)
 
-## TODO add labels as variables
-print("2 room apartment count: ",two_room_price_count )
-print("2 room average price: ",avg_price )
-
-
 # Testing pychart
 only_2_rooms.groupby(['Size_sqm']).sum().plot(kind='pie',subplots=True,figsize=(7,7), autopct='%1.1f%%')
 
-
-
-### Filter out only 1 room apartments
-only_1_rooms = sorted_by_sqm[sorted_by_sqm['Room_count']=='1']
-
-one_room_prices = only_1_rooms['Price_EUR'].tolist()
-one_room_price_count = len(one_room_prices)
-avg_one_room_price = sum(one_room_prices) / one_room_price_count
-
-print("1 room apartment count: ",one_room_price_count )
-print("1 room average price: ", avg_one_room_price )
-
 ### Creating charts
 only_1_rooms.plot.scatter(x='Size_sqm',y="Price_EUR",s=100, title="Only 1 room apartments",grid=True)
-
-
-### Filter out only 3 room apartments
-only_3_rooms = sorted_by_sqm[sorted_by_sqm['Room_count']=='3']
 
 ### Creating charts
 only_3_rooms.plot.scatter(x='Size_sqm',y="Price_EUR",s=100, title="Only 3 room apartments",grid=True)
