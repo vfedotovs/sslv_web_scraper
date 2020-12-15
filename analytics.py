@@ -31,6 +31,17 @@ def clean_data_frame(df_name):
     return df
 
 
+def clean_sqm_column(df_name):
+    # Sptitting column value in to new columns by separator
+    df = df_name["Size_sq_m"].str.split(" ", n = 1, expand = True) # n =1 == in 2 slices
+
+    # Create new column and sourcing data from 0th split index
+    df_name["Size_sqm"]= df[0] # 0 - index at separation
+
+    df = df_name.loc[:, df_name.columns != 'Size_sq_m'] # Drop old split column
+    clean_df = df.loc[:, df.columns != 'Unnamed: 0'] # Drop duplicate  column
+    return clean_df
+
 
 
 # exclude Unamed column
