@@ -81,6 +81,14 @@ def clean_sqm_eur_col(df_name):
     return final_df
 
 
+def save_clean_df():
+    """ Cleans df, sorts df by price in EUR, save to csv file """
+    clean_df = clean_data_frame(df_to_clean)
+    clean_sqm_col = clean_sqm_column(clean_df)
+    clean_price_col = split_price_column(clean_sqm_col)
+    clean_df  = clean_sqm_eur_col(clean_price_col)
+    sorted_df = clean_df.sort_values(by='Price_in_eur', ascending=True)
+    sorted_df.to_csv("cleaned-sorted-df.csv")
 
 
 
