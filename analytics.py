@@ -84,27 +84,6 @@ def clean_sqm_eur_col(df_name):
 
 
 
-# exclude old SQ_M_EUR column == rady for save and export and analytics
-final_df = clean_df.loc[:, clean_df.columns != 'SQ_M_EUR']
-
-
-sorted_by_sqm = final_df.sort_values(by='SQ_meter_price', ascending=True)
-
-
-only_two_rooms = sorted_by_sqm[sorted_by_sqm['Room_count']=='2']
-#only_two_rooms
-
-#TODO:  add date incertion in data_formater feature for df (will calculate how many days old is ad)
-#TODO: convert othewhise plotting does not work
-# convert column values to int
-
-
-
-# convert str to int
-#clean_lift_col['Price_EUR'] = clean_lift_col['Price_EUR'].astype(int)
-#clean_lift_col["Price_EUR"].dtypes
-
-
 ### Analytics Start Here ###
 
 # sorting df by column name
