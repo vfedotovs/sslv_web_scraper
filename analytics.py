@@ -63,6 +63,22 @@ def split_price_column(df_name):
     return final_df
 
 
+def clean_sqm_eur_col(df_name):
+    # Split value at EUR  symbol
+    new = df_name["SQ_M_EUR"].str.split("€", n = 1, expand = True)
+
+    # Create new column with from split df  and use only 0 index
+    df_name["SQ_meter_price"]= new[0]
+
+    # Remvoe space from clumn value strings
+    df_name['SQ_meter_price'] = df_name['SQ_meter_price'].str.replace(' ', '')
+
+    # Convert to float
+    df_name['SQ_meter_price'] = df_name['SQ_meter_price'].astype(float)
+
+    # Drop old SQ_M_EUR column
+    final_df = df_name.loc[:, df_name.columns != 'SQ_M_EUR']
+    return final_df
 
 
 
