@@ -43,51 +43,29 @@ def clean_sqm_column(df_name):
     return clean_df
 
 
+def split_price_column(df_name):
+    # Sptitting and cleanup for price columo value in to new columns by separator
+    new = df_name["Price"].str.split("(", n = 1, expand = True)
 
-# exclude Unamed column
-no_unamed = clean_price_col.loc[:, clean_price_col.columns != 'Unnamed: 0']
+    # Creating separate columns for price and SQM new data frame
+    df_name["Price_EUR"]= new[0]
+    df_name["SQ_M_EUR"]= new[1]
 
-### Sptitting columo value in to new columns by separator
-new = no_unamed["Size_sq_m"].str.split(" ", n = 1, expand = True)
+    # Remove EUR sign in price column and remove space (split at 3 slices)
+    no_euro_symb = df_name["Price_EUR"].str.split(" ", n = 2, expand = True)
 
-# making separate first name column from new data frame
-no_unamed["Size_sqm"]= new[0] # 0 - index at separation
+    # Creates new column and combines 2 indexes
+    df_name["Price_in_eur"]= no_euro_symb[0] + no_euro_symb[1]
 
-# drop old split column
-new = no_unamed.loc[:, no_unamed.columns != 'Size_sq_m']
-
-# cleanup lift column
-clean_lift_col = new.replace(to_replace=r'/lifts', value='', regex=True)
-
-### Sptitting price columo value in to new columns by separator
-new_price = clean_lift_col["Price"].str.split("(", n = 1, expand = True)
-
-# making separate first name column from new data frame
-clean_lift_col["Price_EUR"]= new_price[0]
-clean_lift_col["SQ_M_EUR"]= new_price[1]
+    # drop old split columns
+    df = df_name.loc[:, df_name.columns != 'Price']
+    final_df = df.loc[:, df.columns != 'Price_EUR']
+    return final_df
 
 
-# remove EUR sign in price column and remove space
-no_euro_symb = clean_lift_col["Price_EUR"].str.split(" ", n = 2, expand = True)
-clean_lift_col["Price_in_eur"]= no_euro_symb[0] + no_euro_symb[1]
-
-# drop old split column
-clean_df_tmp = clean_lift_col.loc[:, clean_lift_col.columns != 'Price']
-clean_df = clean_df_tmp.loc[:, clean_df_tmp.columns != 'Price_EUR']
 
 
-# cleanup SQ_M_EUR - done
-# split at EUR simbol
-split_at_euro_symb = clean_df["SQ_M_EUR"].str.split("€", n = 1, expand = True)
-# create new column with from split df and use only 0 index
-clean_df["SQ_meter_price"]= split_at_euro_symb[0]
 
-
-# remve space from clumn value strings
-clean_df['SQ_meter_price'] = clean_df['SQ_meter_price'].str.replace(' ', '')
-
-# convert to float
-clean_df['SQ_meter_price'] = clean_df['SQ_meter_price'].astype(float)
 
 
 # exclude old SQ_M_EUR column == rady for save and export and analytics
