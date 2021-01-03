@@ -1,3 +1,7 @@
 *.txt
 *.csv
 __pycache__/
+env/
+*.png
+*.pdf
+
