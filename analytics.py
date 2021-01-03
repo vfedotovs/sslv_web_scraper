@@ -15,7 +15,6 @@ Detailed requirement list:
 3. Sort them by space / the same as above
 4. Sort tehm by instert date / the same as above
 5. Create charts for 3 steps mentioned above
-
 """
 
 # loading data to dataframe from csv file
@@ -92,7 +91,6 @@ def save_clean_df():
     sorted_df = clean_df.sort_values(by='Price_in_eur', ascending=True)
     sorted_df.to_csv("cleaned-sorted-df.csv")
 
-
 def save_df_to_png():
     """ TODO: Description """
     df = pd.read_csv("cleaned-sorted-df.csv")
@@ -102,7 +100,7 @@ def save_df_to_png():
     fig.savefig('test.png')
 
 
-def create_pdf_reprot():
+def create_pdf_report():
     """ TODO: Description """
     # librarry help https://pyfpdf.readthedocs.io/en/latest/reference/image/index.html
     pdf = FPDF() # A4 (210 by 297 mm)
@@ -118,6 +116,14 @@ def create_pdf_reprot():
     save_df_to_png() # calling function to generate png from df
     pdf.image("test.png") # inserts png to pdf
     pdf.output(name="report.pdf") # generate pdf file
+
+
+# Main module code driver
+save_clean_df()
+save_df_to_png()
+create_pdf_report()
+
+# Module draft code is ready up to this line
 
 
 def calculate_stats():
@@ -149,8 +155,5 @@ def create_scatter_plot():
     only_3_rooms.plot.scatter(x='Size_sqm',y="Price_EUR",s=100, title="Only 3 room apartments",grid=True)
     # Testing pychart
     only_2_rooms.groupby(['Size_sqm']).sum().plot(kind='pie',subplots=True,figsize=(7,7), autopct='%1.1f%%')
-
-
-
 
 
