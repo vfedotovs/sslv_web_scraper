@@ -1,143 +1,79 @@
 import pandas as pd
-import matplotlib.pyplot as plt
-from fpdf import FPDF
-import plotly.figure_factory as ff
 
 
-"""
-Main features of this module:
-1. Sort/filter data what is read if pandas df csv file
-2. Create charts that can be converted to pdf and attached to email
-
-Detailed requirement list:
-1. Filter only 2 room apartments
-2. Sort them by price / get count min max and average price
-3. Sort them by space / the same as above
-4. Sort tehm by instert date / the same as above
-5. Create charts for 3 steps mentioned above
-"""
-
-# loading data to dataframe from csv file
-df_to_clean = pd.read_csv("pandas_df.csv")
+# What needs to be done for analysis
+#0. load df from cleaned df - done 
+all_ads_df = pd.read_csv("cleaned-sorted-df.csv",index_col=False)
 
 
-def clean_data_frame(df_name):
-    df = df_name.replace(to_replace=r'Istabas:>', value='', regex=True)
-    df.replace(to_replace=r'Platiba:>', value='', regex=True, inplace=True)
-    df.replace(to_replace=r'Stavs:>', value='', regex=True, inplace=True)
-    df.replace(to_replace=r'/lifts', value='', regex=True, inplace=True)
-    df.replace(to_replace=r'Iela:><b>', value='', regex=True, inplace=True)
-    df.replace(to_replace=r'Price:>', value='', regex=True, inplace=True)
-    df.replace(to_replace=r'Date:>', value='', regex=True, inplace=True)
-    return df
+#1. filter by room count 4 dfs  - crete 4 arrays - done
+only_1_rooms = all_ads_df[all_ads_df['Room_count']==1]
+only_2_rooms = all_ads_df[all_ads_df['Room_count']==2]
+only_3_rooms = all_ads_df[all_ads_df['Room_count']==3]
+only_4_rooms = all_ads_df[all_ads_df['Room_count']==4]
 
 
-def clean_sqm_column(df_name):
-    # Sptitting column value in to new columns by separator
-    df = df_name["Size_sq_m"].str.split(" ", n = 1, expand = True) # n =1 == in 2 slices
-
-    # Create new column and sourcing data from 0th split index
-    df_name["Size_sqm"]= df[0] # 0 - index at separation
-
-    df = df_name.loc[:, df_name.columns != 'Size_sq_m'] # Drop old split column
-    clean_df = df.loc[:, df.columns != 'Unnamed: 0'] # Drop duplicate  column
-    return clean_df
+cat_list = [only_1_rooms, only_2_rooms, only_3_rooms, only_4_rooms, all_ads_df]
 
 
-def split_price_column(df_name):
-    # Sptitting and cleanup for price columo value in to new columns by separator
-    new = df_name["Price"].str.split("(", n = 1, expand = True)
+def mini_report(df_name):
+    """ Convert df column to list  and calculate basics stats """
+    # extracts only EUR price colum valuses and adds to list
+    lines = []
+    filter_col = 'Price_in_eur'
+    price_list = df_name[filter_col].tolist() 
+    print("Debug info: ", price_list)
+    avg_price = sum(price_list) / len(price_list)
+    min_price = min(price_list)
+    max_price = max(price_list)
+    price_range = max_price - min_price
+    
+    print("Advertisement count: ",  len(price_list))
+    str_ac = "Advertisement count: " + str(len(price_list))
+    lines.append(str_ac)
+    print(f'Average price: {avg_price} EUR')
+    str_avp = "Average price: " + str(avg_price) + " EUR"
+    lines.append(str_avp)
+    print(f'Min price: {min_price} EUR')
+    str_minp = "Min price: " + str(min_price) + " EUR"
+    lines.append(str_minp)
+    print(f'Max price: {max_price} EUR')
+    str_maxp = "Max price: " + str(max_price) + " EUR"
+    lines.append(str_maxp)
+    print(f'Price range: {price_range} ')
+    return lines
+    
+    
+txt_reprots = []    
+for i, cat in enumerate(cat_list):
+    if i < 4:
+        print(f'--- Title: {i + 1} rooms for sale advertisements  ---')        
+        cat_report = mini_report(cat)
+        txt_reprots.append(cat_report)
 
-    # Creating separate columns for price and SQM new data frame
-    df_name["Price_EUR"]= new[0]
-    df_name["SQ_M_EUR"]= new[1]
+    else:
+        print(f'--- Title: all rooms for sale advertisements  ---')
+        cat_report = mini_report(cat)
+        txt_reprots.append(cat_report)
 
-    # Remove EUR sign in price column and remove space (split at 3 slices)
-    no_euro_symb = df_name["Price_EUR"].str.split(" ", n = 2, expand = True)
-
-    # Creates new column and combines 2 indexes
-    df_name["Price_in_eur"]= no_euro_symb[0] + no_euro_symb[1]
-
-    # drop old split columns
-    df = df_name.loc[:, df_name.columns != 'Price']
-    final_df = df.loc[:, df.columns != 'Price_EUR']
-    return final_df
-
-
-def clean_sqm_eur_col(df_name):
-    # Split value at EUR  symbol
-    new = df_name["SQ_M_EUR"].str.split("€", n = 1, expand = True)
-
-    # Create new column with from split df  and use only 0 index
-    df_name["SQ_meter_price"]= new[0]
-
-    # Remvoe space from clumn value strings
-    df_name['SQ_meter_price'] = df_name['SQ_meter_price'].str.replace(' ', '')
-
-    # Convert to float
-    df_name['SQ_meter_price'] = df_name['SQ_meter_price'].astype(float)
-
-    # Drop old SQ_M_EUR column
-    final_df = df_name.loc[:, df_name.columns != 'SQ_M_EUR']
-    return final_df
-
-
-def save_clean_df():
-    """ Cleans df, sorts df by price in EUR, save to csv file """
-    clean_df = clean_data_frame(df_to_clean)
-    clean_sqm_col = clean_sqm_column(clean_df)
-    clean_price_col = split_price_column(clean_sqm_col)
-    clean_df  = clean_sqm_eur_col(clean_price_col)
-    sorted_df = clean_df.sort_values(by='Price_in_eur', ascending=True)
-    sorted_df.to_csv("cleaned-sorted-df.csv")
+print("----- debug info ----")
+for i, r in enumerate(txt_reprots):
+    print(" report number " , i + 1)
+    print(r)
 
 
-def save_df_to_png():
-    """ This is draft test function  TODO: Description """
-    df = pd.read_csv("cleaned-sorted-df.csv")
-    ax = df.plot.scatter(x='Size_sqm', 
-                         y="Price_in_eur",
-                         s=100, 
-                         title="All 1-4 room apartments", 
-                         grid=True)
-    fig = ax.get_figure()
-    # fi.show() # for debugging
-    fig.savefig('test.png')
+# Category 1 advert price analisys
+#2. I have interested in 1  and 2 rooms
+#3. get count of apartments for sale - done 
+#4. get price range for each room category  - done 
+#5. get min / max / average price - done 
 
+# Category 2 advert SQ meter analisys
+#6. get min / max / average sqm size
+#7. print chart price sqm 
 
-def create_pdf_report():
-    """ This is draft function to test ability to write to create and write pdf file """
-    # librarry help https://pyfpdf.readthedocs.io/en/latest/reference/image/index.html
-    pdf = FPDF() # A4 (210 by 297 mm)
-    pdf.add_page()
-    pdf.set_font('Arial', 'B', 14)
-    pdf.write(5, "City Apartments Analytics Report")  # write str text to pdf
-    pdf.image("test.png", 20,10, 150) # inserts png to pdf
-    pdf.ln(60)  # ads new lines
-    pdf.add_page() # adds new page
-    pdf.write(3, "Basic statistics about apartments")
-    save_df_to_png() # calling function to generate png from df
-    pdf.image("test.png") # inserts png to pdf
-    pdf.output(name="report.pdf") # generate pdf file
-
-
-# Main module code driver
-save_clean_df()
-save_df_to_png()
-create_pdf_report()
-
-# Module draft code is ready up to this line
-
-
-
-def create_scatter_plot():
-    """ Finction with examples how to create scatter and py chart """
-    # Testing scatter chart
-    sorted_by_sqm.plot.scatter(x='Size_sqm',y="Price_EUR",s=100, title="All 1-4 room apartments",grid=True)
-    only_1_rooms.plot.scatter(x='Size_sqm',y="Price_EUR",s=100, title="Only 1 room apartments",grid=True)
-    only_2_rooms.plot.scatter(x='Size_sqm',y="Price_EUR",s=100, title="Only 2 room apartments",grid=True)
-    only_3_rooms.plot.scatter(x='Size_sqm',y="Price_EUR",s=100, title="Only 3 room apartments",grid=True)
-    # Testing pychart
-    only_2_rooms.groupby(['Size_sqm']).sum().plot(kind='pie',subplots=True,figsize=(7,7), autopct='%1.1f%%')
-
+# Category 3 advert floor location analisys
+# Category 4 advert street location analisys
+# Category 5 listed date analisys - requires correct datapoint fix bug
+# Category 6 advert view count analisys - requires correct datapoint fix bug
 
