@@ -91,28 +91,31 @@ def save_clean_df():
     sorted_df = clean_df.sort_values(by='Price_in_eur', ascending=True)
     sorted_df.to_csv("cleaned-sorted-df.csv")
 
+
 def save_df_to_png():
-    """ TODO: Description """
+    """ This is draft test function  TODO: Description """
     df = pd.read_csv("cleaned-sorted-df.csv")
-    ax = df.plot.scatter(x='Size_sqm',y="Price_in_eur",s=100, title="All 1-4 room apartments",grid=True)
+    ax = df.plot.scatter(x='Size_sqm', 
+                         y="Price_in_eur",
+                         s=100, 
+                         title="All 1-4 room apartments", 
+                         grid=True)
     fig = ax.get_figure()
     # fi.show() # for debugging
     fig.savefig('test.png')
 
 
 def create_pdf_report():
-    """ TODO: Description """
+    """ This is draft function to test ability to write to create and write pdf file """
     # librarry help https://pyfpdf.readthedocs.io/en/latest/reference/image/index.html
     pdf = FPDF() # A4 (210 by 297 mm)
     pdf.add_page()
     pdf.set_font('Arial', 'B', 14)
-
     pdf.write(5, "City Apartments Analytics Report")  # write str text to pdf
     pdf.image("test.png", 20,10, 150) # inserts png to pdf
     pdf.ln(60)  # ads new lines
     pdf.add_page() # adds new page
     pdf.write(3, "Basic statistics about apartments")
-
     save_df_to_png() # calling function to generate png from df
     pdf.image("test.png") # inserts png to pdf
     pdf.output(name="report.pdf") # generate pdf file
@@ -125,25 +128,6 @@ create_pdf_report()
 
 # Module draft code is ready up to this line
 
-
-def calculate_stats():
-    """ Convert df column to list  and calculate basics stats """
-    all_room_prices = sorted_by_sqm['Price_EUR'].tolist()
-    all_room_price_count = len(all_room_prices)
-    avg_all_price = sum(all_room_prices) / all_room_price_count
-    print("All room apartment count: ",all_room_price_count )
-    print("All room average price: ",avg_all_price )
-
-
-# TODO : refactor calculate stats function
-# filter df by room count
-
-### Filter out only 2 room apartments
-# only_2_rooms = sorted_by_sqm[sorted_by_sqm['Room_count']=='2']
-# 1. print apartment count filtered by room count
-# 2. print min, max, average price
-
-#TODO: new function create charts by room count and save to png for export
 
 
 def create_scatter_plot():
