@@ -1,14 +1,20 @@
+"""
+write_report is used for pdf format report generation form csv dataframe file as source
+pdf report file be used as atachment in email sending module
+"""
 import pandas as pd
 from fpdf import FPDF
 
 
-# This module requires:
-# 1. Write custom report name
-# 2. include date when report created
-# 3. include report summary 6 categories
-# 4. write text to each category 
-# 5. write png graphs to each category 
-# 4. write raw df to each category 
+# This module functional requirements:
+# 1. [x] Load data from csv file exported with python pandas df
+# 2. [ ] Ability to create pdf file
+#   - [ ] functionality change report titles and data frames ( example multiple cities)   
+#   - [x] functionality to create charts (scatter plots) from data frame
+#   - [x] functionality to ave scatter plot to png file
+#   - [x] functionality to Import/add .png file to pdf file 
+#   - [ ] functionality to write text from data frame to pdf file
+#   - [ ] functionality to Include file created date in pdf report
 
 
 def create_pdf_report(city_name: str, cdate: str) -> None:
@@ -34,10 +40,10 @@ def create_pdf_report(city_name: str, cdate: str) -> None:
 def test_save_df_to_png():
     """ This is draft test function to crete graph from df ans ave to png """
     df = pd.read_csv("cleaned-sorted-df.csv")
-    ax = df.plot.scatter(x='Size_sqm', 
+    ax = df.plot.scatter(x='Size_sqm',
                            y="Price_in_eur",
-                           s=100, 
-                           title="All 1-4 room apartments", 
+                           s=100,
+                           title="All 1-4 room apartments",
                            grid=True)
     fig = ax.get_figure()
     # fi.show() # for debugging
@@ -46,7 +52,7 @@ def test_save_df_to_png():
 
 def test_create_scatter_plot():
     """ Function with examples how to create scatter and py chart """
-    # Testing scatter chart$     
+    # Testing scatter chart$
     # sorted_by_sqm.plot.scatter(x='Size_sqm',y="Price_EUR",s=100,
     #                           title="All 1-4 room apartments",grid=True)
     # only_1_rooms.plot.scatter(x='Size_sqm',y="Price_EUR",s=100,
