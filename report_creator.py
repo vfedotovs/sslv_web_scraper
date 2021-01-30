@@ -9,12 +9,49 @@ from fpdf import FPDF
 # This module functional requirements:
 # 1. [x] Load data from csv file exported with python pandas df
 # 2. [ ] Ability to create pdf file
-#   - [ ] functionality change report titles and data frames ( example multiple cities)   
+#   - [ ] functionality change report titles and data frames ( example multiple cities)
 #   - [x] functionality to create charts (scatter plots) from data frame
 #   - [x] functionality to ave scatter plot to png file
-#   - [x] functionality to Import/add .png file to pdf file 
+#   - [x] functionality to Import/add .png file to pdf file
 #   - [ ] functionality to write text from data frame to pdf file
 #   - [ ] functionality to Include file created date in pdf report
+
+def main_function():
+    """ Main module function """
+    data_frame = load_data_frame('cleaned-sorted-df.csv')
+    create_png_plot(data_frame, 'Size_sqm', "Price_in_eur",
+            "All 1-4 room apartments", '1-4_rooms.png')
+    # only_1_rooms.plot.scatter(x='Size_sqm',y="Price_EUR",s=100,
+    #                          title="Only 1 room apartments",grid=True)
+    # only_2_rooms.plot.scatter(x='Size_sqm',y="Price_EUR",s=100,
+    #                          title="Only 2 room apartments",grid=True)
+    # only_3_rooms.plot.scatter(x='Size_sqm',y="Price_EUR",s=100,
+    #                          title="Only 3 room apartments",grid=True)
+
+
+def load_data_frame(source_file: str):
+    """ reads data frame ffrm csv file to memory"""
+    df = pd.read_csv(source_file) # cleaned-sorted-df.csv
+    return df
+
+
+def create_png_plot(df,
+                x_keyword: str,
+                y_keyword: str,
+                title: str,
+                file_to_save: str) -> None:
+    """ This function generates scatter plots from dataframe
+    based on x and y keywords and saves chart to png file"""
+    ax = df.plot.scatter(x=x_keyword, y=y_keyword, s=100,
+                           title=title, grid=True)
+    fig = ax.get_figure()
+    # fi.show() # for debugging
+    fig.savefig(file_to_save)
+
+
+def create_pdf(data_frame, title: str, date: str, file_to_save: str) -> None:
+    """ This function will build report from report parts"""
+    pass
 
 
 def create_pdf_report(city_name: str, cdate: str) -> None:
@@ -69,5 +106,6 @@ def test_create_scatter_plot():
 
 
 # main code driver
-create_pdf_report("Ogre", "2021-02-03")
-test_save_df_to_png()
+# create_pdf_report("Ogre", "2021-02-03") - basics are working
+# test_save_df_to_png() - works
+main_function()
