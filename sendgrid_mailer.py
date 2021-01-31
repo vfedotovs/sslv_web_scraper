@@ -13,9 +13,9 @@ from sendgrid import SendGridAPIClient
 message = Mail(
     from_email=(os.environ.get('SRC_EMAIL')),
     to_emails=(os.environ.get('DEST_EMAIL')),
-    subject='Sending with Twilio SendGrid is Fun',
-    html_content='<strong>and easy to do anywhere, even with Python</strong>')
-file_path = 'report.pdf'
+    subject='Ogre City Apartments for sale from ss.lv webscraper',
+    html_content='<strong>Please find report in attachment</strong>')
+file_path = 'Ogre_city_report.pdf'
 with open(file_path, 'rb') as f:
     data = f.read()
     f.close()
@@ -23,7 +23,7 @@ encoded = base64.b64encode(data).decode()
 attachment = Attachment()
 attachment.file_content = FileContent(encoded)
 attachment.file_type = FileType('application/pdf')
-attachment.file_name = FileName('report.pdf')
+attachment.file_name = FileName('Ogre_city_report.pdf')
 attachment.disposition = Disposition('attachment')
 attachment.content_id = ContentId('Example Content ID')
 message.attachment = attachment
