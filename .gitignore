@@ -6,3 +6,6 @@ env/
 *.pdf
 *.ipynb
 .ipynb_checkpoints/
+sendgrid.env
+src_email.env
+dest_email.env
