@@ -5,9 +5,9 @@ It calculates basic statistics and saves in text format for furthure pdf_creator
 import pandas as pd
 
 
-# Load df from cleaned df csv file 
+# Load df from cleaned df csv file
 all_ads_df = pd.read_csv("cleaned-sorted-df.csv", index_col=False)
-# Split all apartment dataframe in 4 categories 
+# Split all apartment dataframe in 4 categories
 # Create 4 dataFrames filtered by room count
 only_1_rooms = all_ads_df[all_ads_df['Room_count'] == 1]
 only_2_rooms = all_ads_df[all_ads_df['Room_count'] == 2]
@@ -41,7 +41,7 @@ def mini_report(df_name):
 
 
 def iterate_reports() -> None:
-    """ Function iterates over cat_list objects and prints basic stats to STDOUT 
+    """ Function iterates over cat_list objects and prints basic stats to STDOUT
     Example of printout:
     # print("Advertisement count: ",  len(price_list))
     # print(f'Average price: {avg_price} EUR')
@@ -49,20 +49,32 @@ def iterate_reports() -> None:
     # print(f'Max price: {max_price} EUR')
     # print(f'Price range: {price_range} ')
     """
-    #TODO: implement that every printed sectin is saved in separate txt file for firther import in pdf creator
+    stats_report_lines = []
     txt_reports = []
     for i, cat in enumerate(cat_list):
         cat_report = mini_report(cat)
         txt_reports.append(cat_report)
-    print("----- debug info ----")
     for i, reports in enumerate(txt_reports):
-        print("")
-        print(str(i + 1) + " room apartment  price analysis")
+        # print("")
+        # print(str(i + 1) + " room apartment  price analysis")
+        empty_line = ' '
+        title_line = (str(i + 1) + " room apartment  price analysis")
+        stats_report_lines.append(empty_line)
+        stats_report_lines.append(title_line)
         for line in reports:
-            print(line)
+            # print(line)
+            stats_report_lines.append(line)
+    return stats_report_lines
 
 
-iterate_reports()
+def write_lines(text_lines: list, file_name: str) -> None:
+    """ Function writes text lines to file"""
+    with open(file_name, 'w') as filehandle:
+        filehandle.writelines("%s\n" % line for line in text_lines)
+
+
+txt_lines_for_save = iterate_reports()
+write_lines(txt_lines_for_save, 'basic_price_stats.txt')
 
 
 # Category 1 advert price analysis
