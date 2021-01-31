@@ -21,6 +21,10 @@ def main_function():
     data_frame = load_data_frame('cleaned-sorted-df.csv')
     create_png_plot(data_frame, 'Size_sqm', "Price_in_eur",
             "All 1-4 room apartments", '1-4_rooms.png')
+
+    report_txt_lines =  read_file_to_list('basic_price_stats.txt')
+    create_pdf_report("Ogre", "2021-02-03", report_txt_lines)
+
     # only_1_rooms.plot.scatter(x='Size_sqm',y="Price_EUR",s=100,
     #                          title="Only 1 room apartments",grid=True)
     # only_2_rooms.plot.scatter(x='Size_sqm',y="Price_EUR",s=100,
@@ -54,7 +58,7 @@ def create_pdf(data_frame, title: str, date: str, file_to_save: str) -> None:
     pass
 
 
-def create_pdf_report(city_name: str, cdate: str) -> None:
+def create_pdf_report(city_name: str, cdate: str, text_lines: list) -> None:
     """ This is draft function to test ability to write to create and write pdf file """
     # library help https://pyfpdf.readthedocs.io/en/latest/reference/image/index.html
     pdf = FPDF()  # A4 (210 by 297 mm)
@@ -65,6 +69,10 @@ def create_pdf_report(city_name: str, cdate: str) -> None:
     pdf.write(5, report_title)  # write str text to pdf
     pdf.ln(5)
     pdf.write(5, date_created)  # write str text to pdf
+    for line in text_lines:
+        str_line = str(line)
+        pdf.write(5, str_line)
+
     # pdf.image("test.png", 20,10, 150) # inserts png to pdf
     pdf.ln(20)  # ads new lines
     pdf.add_page()  # adds new page
@@ -87,6 +95,12 @@ def test_save_df_to_png():
     fig.savefig('test.png')
 
 
+def read_file_to_list(file_name: str) -> list:
+    """ Function opens tx file and reads all lines and return as list"""
+    with open(file_name, 'r') as filehandle:
+        return [curr_line.rstrip() for curr_line in filehandle.readlines()]
+
+
 def test_create_scatter_plot():
     """ Function with examples how to create scatter and py chart """
     # Testing scatter chart$
@@ -106,6 +120,5 @@ def test_create_scatter_plot():
 
 
 # main code driver
-# create_pdf_report("Ogre", "2021-02-03") - basics are working
 # test_save_df_to_png() - works
 main_function()
