@@ -19,19 +19,19 @@ from fpdf import FPDF
 def main_function():
     """ Main module function """
     data_frame = load_data_frame('cleaned-sorted-df.csv')
+    one_room_df = filter_df_by(data_frame, 'Room_count', 1)
+    two_room_df = filter_df_by(data_frame, 'Room_count', 2)
+
     create_png_plot(data_frame, 'Size_sqm', "Price_in_eur",
             "All 1-4 room apartments", '1-4_rooms.png')
+    create_png_plot(one_room_df, 'Size_sqm', "Price_in_eur",
+            "Single room apartments", '1_rooms.png')
+    create_png_plot(two_room_df, 'Size_sqm', "Price_in_eur",
+            "Double room apartments", '2_rooms.png')
 
     report_txt_lines = read_file_to_list('basic_price_stats.txt')
     one_room_apt_txt_lines = read_file_to_list('1_rooms_tmp.txt')
     create_pdf_report("Ogre", "2021-02-03", report_txt_lines, one_room_apt_txt_lines)
-
-    # only_1_rooms.plot.scatter(x='Size_sqm',y="Price_EUR",s=100,
-    #                          title="Only 1 room apartments",grid=True)
-    # only_2_rooms.plot.scatter(x='Size_sqm',y="Price_EUR",s=100,
-    #                          title="Only 2 room apartments",grid=True)
-    # only_3_rooms.plot.scatter(x='Size_sqm',y="Price_EUR",s=100,
-    #                          title="Only 3 room apartments",grid=True)
 
 
 def load_data_frame(source_file: str):
@@ -93,7 +93,12 @@ def create_pdf_report(city_name: str, cdate: str,
     test_save_df_to_png()  # calling function to generate png from df
     pdf.ln(10)  # ads new lines
     pdf.ln(10)  # ads new lines
-    pdf.image("test.png", 20,10, 150) # inserts png to pdf
+    # pdf.image("test.png", 20,10, 150) # inserts png to pdf
+    pdf.image("1_rooms.png", 20,10, 150) # inserts png to pdf
+    pdf.add_page()  # adds new page
+    pdf.image("2_rooms.png", 20,10, 150) # inserts png to pdf
+    pdf.add_page()  # adds new page
+    pdf.image("1-4_rooms.png", 20,10, 150) # inserts png to pdf
     pdf.ln(10)  # ads new lines
    
     # TODO: fix codec error
@@ -115,6 +120,12 @@ def test_save_df_to_png():
     fig = ax.get_figure()
     # fi.show() # for debugging
     fig.savefig('test.png')
+
+
+def filter_df_by(data_frame, col_name: str, value):
+    """ Filters data frame by keyword """
+    filtered_df = data_frame.loc[data_frame[col_name] == value]
+    return filtered_df
 
 
 def read_file_to_list(file_name: str) -> list:
