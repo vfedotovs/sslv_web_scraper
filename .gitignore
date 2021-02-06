@@ -5,6 +5,7 @@ env/
 *.png
 *.pdf
 *.ipynb
+.DS_Store
 .ipynb_checkpoints/
 sendgrid.env
 src_email.env
