@@ -63,15 +63,25 @@ def create_pdf_report(city_name: str, cdate: str, text_lines: list) -> None:
     # library help https://pyfpdf.readthedocs.io/en/latest/reference/image/index.html
     pdf = FPDF()  # A4 (210 by 297 mm)
     pdf.add_page()
-    pdf.set_font('Arial', 'B', 14)
-    report_title = city_name + "city apartments for sale analytics report"
+    pdf.set_font('Arial', 'B', 10)
+
+    # Adding content to page
+    # add title and date
+    report_title = city_name + " city apartments for sale analytics report"
     date_created = "Report created: " + cdate
     pdf.write(5, report_title)  # write str text to pdf
     pdf.ln(5)
     pdf.write(5, date_created)  # write str text to pdf
+    pdf.ln(5)
+    pdf.ln(5)
+    pdf.ln(5)
+
+
+    # writing text lines to page from text_line list
     for line in text_lines:
         str_line = str(line)
         pdf.write(5, str_line)
+        pdf.ln(5)
 
     # pdf.image("test.png", 20,10, 150) # inserts png to pdf
     pdf.ln(20)  # ads new lines
