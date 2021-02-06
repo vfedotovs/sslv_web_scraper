@@ -22,8 +22,9 @@ def main_function():
     create_png_plot(data_frame, 'Size_sqm', "Price_in_eur",
             "All 1-4 room apartments", '1-4_rooms.png')
 
-    report_txt_lines =  read_file_to_list('basic_price_stats.txt')
-    create_pdf_report("Ogre", "2021-02-03", report_txt_lines)
+    report_txt_lines = read_file_to_list('basic_price_stats.txt')
+    one_room_apt_txt_lines = read_file_to_list('1_rooms_tmp.txt')
+    create_pdf_report("Ogre", "2021-02-03", report_txt_lines, one_room_apt_txt_lines)
 
     # only_1_rooms.plot.scatter(x='Size_sqm',y="Price_EUR",s=100,
     #                          title="Only 1 room apartments",grid=True)
@@ -58,7 +59,8 @@ def create_pdf(data_frame, title: str, date: str, file_to_save: str) -> None:
     pass
 
 
-def create_pdf_report(city_name: str, cdate: str, text_lines: list) -> None:
+def create_pdf_report(city_name: str, cdate: str,
+                      text_lines: list, msg_txt_lines: list) -> None:
     """ This is draft function to test ability to write to create and write pdf file """
     # library help https://pyfpdf.readthedocs.io/en/latest/reference/image/index.html
     pdf = FPDF()  # A4 (210 by 297 mm)
@@ -92,6 +94,13 @@ def create_pdf_report(city_name: str, cdate: str, text_lines: list) -> None:
     pdf.ln(10)  # ads new lines
     pdf.ln(10)  # ads new lines
     pdf.image("test.png", 20,10, 150) # inserts png to pdf
+    pdf.ln(10)  # ads new lines
+   
+    # TODO: fix codec error
+    #for line in msg_txt_lines:
+    #    str_line = str(line)
+    #    pdf.write(5, str_line)
+    #    pdf.ln(5)
     pdf.output(name="Ogre_city_report.pdf")  # generate pdf files
 
 
