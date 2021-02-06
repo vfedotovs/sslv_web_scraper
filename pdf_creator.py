@@ -9,11 +9,11 @@ from fpdf import FPDF
 # This module functional requirements:
 # 1. [x] Load data from csv file exported with python pandas df
 # 2. [ ] Ability to create pdf file
-#   - [ ] functionality change report titles and data frames ( example multiple cities)
+#   - [x] functionality change report titles and data frames ( example multiple cities)
 #   - [x] functionality to create charts (scatter plots) from data frame
 #   - [x] functionality to ave scatter plot to png file
 #   - [x] functionality to Import/add .png file to pdf file
-#   - [ ] functionality to write text from data frame to pdf file
+#   - [x] functionality to write text from data frame to pdf file
 #   - [ ] functionality to Include file created date in pdf report
 
 def main_function():
@@ -84,11 +84,14 @@ def create_pdf_report(city_name: str, cdate: str, text_lines: list) -> None:
         pdf.ln(5)
 
     # pdf.image("test.png", 20,10, 150) # inserts png to pdf
-    pdf.ln(20)  # ads new lines
+    pdf.ln(10)  # ads new lines
+
+
     pdf.add_page()  # adds new page
-    pdf.write(3, "Basic statistics about apartments")
     test_save_df_to_png()  # calling function to generate png from df
-    pdf.image("test.png")  # inserts png to pdf
+    pdf.ln(10)  # ads new lines
+    pdf.ln(10)  # ads new lines
+    pdf.image("test.png", 20,10, 150) # inserts png to pdf
     pdf.output(name="Ogre_city_report.pdf")  # generate pdf files
 
 
