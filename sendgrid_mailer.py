@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 """
 sendgrid_mailer is used for sending emails with pdf attachments
 """
