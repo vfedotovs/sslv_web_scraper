@@ -1,5 +1,24 @@
+""" data_formater.py Module.
+
+This module main 4 main functions:
+    1. Take as input file Ogre-raw-data-report.txt and crete as output file
+    Mailer_report.txt
+    2. Ogre-raw-data-report.txt does not have pretty oneline fromtting for each
+    message  this module converts multiline message information to single line
+    3. Mailer_report.txt is later used by gmailer.py module to message insert
+    more user frendly oneline messages in email
+    4. Creates Pandas data frame file  pandas_df.csv that is used in
+    analitics.py module
+
+TODO:
+     1.FIXME failure to handle Latvian characters in email
+     Due to Latian characters (āčēģīķļņšūž) triggers ACSI error
+     durin send email process and fails to sond email
+     Currently as workaround apartment sreet info is not included in
+      Mailer_report.txt
+"""
 import re
-# import pandas as pd
+import pandas as pd
 
 
 def write_mailer_report() -> None:
