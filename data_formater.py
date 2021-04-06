@@ -32,6 +32,8 @@ def create_mailer_report() -> None:
     # Export to txt for gmailer.py consumable txt file
     data_for_save = format_text_to_oneline(msg_data_frame)
     save_text_report_to_file(data_for_save, 'Mailer_report.txt')
+    # Creates file for pdf_creator.py module
+    filer_df_by_value_in_column(msg_data_frame, 'Istabas:>1', '1_rooms_tmp.txt')
 
 
 def create_oneline_report(source_file: str):
@@ -55,35 +57,28 @@ def create_oneline_report(source_file: str):
             match_url = re.search("https", line)
             if match_url:
                 urls.append(line.rstrip('\n'))
-
             match_room_count = re.search("Istabas:", line)
             if match_room_count:
                 room_counts.append(line.rstrip('\n'))
-
             match_room_street_count = re.search("Iela:", line)
             if match_room_street_count:
                 room_streets.append(line.rstrip('\n'))
-
             match_room_price = re.search("Price:", line)
             if match_room_price:
                 room_prices.append(line.rstrip('\n'))
-
             match_pub_date = re.search("Date:", line)
             if match_pub_date:
                 publish_dates.append(line.rstrip('\n'))
-
             match_room_size = re.search("Platība:", line)
             if match_room_size:
                 tmp = line.rstrip('\n')
                 sizes = tmp.replace("Platība:", "Platiba:")
                 room_sizes.append(sizes)
-
             match_room_floor = re.search("Stāvs:", line)
             if match_room_floor:
                 tmp = line.rstrip('\n')
                 floors = tmp.replace("Stāvs:", "Stavs:")
                 room_floors.append(floors)
-
             if not line:
                 break
 
@@ -95,9 +90,28 @@ def create_oneline_report(source_file: str):
             "Street": room_streets,
             'Price': room_prices,
             'Pub_date': publish_dates }
-
     df = pd.DataFrame(mydict)
     return df
+
+
+def filer_df_by_value_in_column(data_frame, keyword, file_name: str) -> None:
+    """ Filters df rows for keyword and saves to txt file
+    - requred for pfd_generator module """
+    filtered_lines = []
+    filtered_df = data_frame.loc[data_frame['Room_count'] == keyword]
+    for index, row in filtered_df.iterrows():
+        url_str = row["URL"]
+        sqm_str = row["Size_sq_m"]
+        floor_str = row["Floor"]
+        total_price = row["Price"]
+        rooms_str = row['Room_count']
+        ad_in_oneline = url_str + " " + \
+                        rooms_str + " " + \
+                        sqm_str + " " + \
+                        total_price
+        filtered_lines.append(ad_in_oneline)
+    #Save filtered_lines to file 1_rooms_tmp.txt
+    save_text_report_to_file(filtered_lines, file_name)
 
 
 def format_text_to_oneline(data_frame) -> list:
