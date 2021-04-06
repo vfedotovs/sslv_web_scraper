@@ -1,2 +1,7 @@
 requests
 bs4
+pandas 
+matplotlib 
+fpdf 
+plotly
+sendgrid
