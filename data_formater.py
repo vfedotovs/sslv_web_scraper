@@ -1,5 +1,4 @@
 """ data_formater.py Module.
-
 This module main 4 main functions:
     1. Take as input file Ogre-raw-data-report.txt and crete as output file
     Mailer_report.txt
@@ -9,44 +8,38 @@ This module main 4 main functions:
     more user frendly oneline messages in email
     4. Creates Pandas data frame file  pandas_df.csv that is used in
     analitics.py module
-
 TODO:
-     1.FIXME failure to handle Latvian characters in email
-     Due to Latian characters (āčēģīķļņšūž) triggers ACSI error
-     durin send email process and fails to sond email
-     Currently as workaround apartment sreet info is not included in
-      Mailer_report.txt
+    1.FIXME failure to handle Latvian characters in email
+    Due to Latian characters (āčēģīķļņšūž) triggers ACSI error
+    durin send email process and fails to sond email
+    Currently as workaround apartment sreet info is not included in
+    Mailer_report.txt
 """
 import re
 import pandas as pd
 
 
-def write_mailer_report() -> None:
-    """ This function will use *raw-data-report.txt
-        will format data in one line and will create Mailer_report.txt
-        that should be used by gmailer module   """
-
-    text_data = create_oneline_report('Ogre-raw-data-report.txt')
-    create_mailer_report(text_data, 'tmp_report.txt')
-    create_filtered_report('tmp_report.txt', '1_rooms_tmp.txt', 'Istabas:>1')
-    create_filtered_report('tmp_report.txt', '2_rooms_tmp.txt', 'Istabas:>2')
-    create_filtered_report('tmp_report.txt', '3_rooms_tmp.txt', 'Istabas:>3')
-    create_filtered_report('tmp_report.txt', '4_rooms_tmp.txt', 'Istabas:>4')
-    tmp_reports = ['1_rooms_tmp.txt', '2_rooms_tmp.txt',
-                   '3_rooms_tmp.txt', '4_rooms_tmp.txt']
-
-    room_count = 1
-    for report in tmp_reports:
-        merge_reports(report, 'Mailer_report.txt', room_count)
-        room_count += 1
+def create_mailer_report() -> None:
+    """ Main module function
+    Function will use for example Ogre-raw-data-report.txt will load data to
+    pandas data frame and save to pandas_df.csv file and
+    will format data in one line and will create Mailer_report.txt
+    that will be used by gmailer.py module """
+    # Load text from raw data file to df in memmory
+    msg_data_frame = create_oneline_report('Ogre-raw-data-report.txt')
+    # Saves to csv for other module usage
+    msg_data_frame.to_csv("pandas_df.csv")
+    # Export to txt for gmailer.py consumable txt file
+    data_for_save = format_text_to_oneline(msg_data_frame)
+    save_text_report_to_file(data_for_save, 'Mailer_report.txt')
 
 
-def create_oneline_report(source_file: str) -> list:
-    """ Converts raw-data-report to oneline report in memory
+def create_oneline_report(source_file: str):
+    """ Converts multiline advert data from  txt to Python data frame object
     Args:
         source_file: raw-data text file for example Ogre-raw-data-report.txt
-
-    Returns: str list
+    Returns:
+       df: Pandas data frame object
     """
     urls = []
     room_counts = []
@@ -54,6 +47,7 @@ def create_oneline_report(source_file: str) -> list:
     room_streets = []
     room_prices = []
     room_floors = []
+    publish_dates = []
     oneline_report = []
     with open(source_file) as file_handle:
         while True:
@@ -74,6 +68,10 @@ def create_oneline_report(source_file: str) -> list:
             if match_room_price:
                 room_prices.append(line.rstrip('\n'))
 
+            match_pub_date = re.search("Date:", line)
+            if match_pub_date:
+                publish_dates.append(line.rstrip('\n'))
+
             match_room_size = re.search("Platība:", line)
             if match_room_size:
                 tmp = line.rstrip('\n')
@@ -88,57 +86,62 @@ def create_oneline_report(source_file: str) -> list:
 
             if not line:
                 break
-    
-    # Create pandas df for saving to csv
-    # dict = {'URL': urls, 'Room_count': room_counts,
-    #         'Size_sq_m' : room_sizes, 'Floor': room_floors,
-    #         'Street': room_streets, 'Price': room_prices}
-    # df = pd.DataFrame(dict)
-    # df.to_csv("pandas_df.csv")
 
-    for i in range(len(urls) - 1):
-        # oneline = urls[i] + " " + room_counts[i] + " " + room_sizes[i] + " "
-        #           + room_streets[i] + "   " + room_prices[i]
+    # Create pandas data frame
+    mydict = {'URL': urls,
+            'Room_count': room_counts,
+            'Size_sq_m' : room_sizes,
+            'Floor': room_floors,
+            "Street": room_streets,
+            'Price': room_prices,
+            'Pub_date': publish_dates }
 
-        # this is workaround for SMTP module ASCI errors
-        oneline = urls[i] + " " + room_counts[i] + " " + room_floors[i] \
-                  + " " + room_sizes[i] + "   " + room_prices[i]
-
-        # print(oneline)
-        oneline_report.append(oneline)
-    return oneline_report
+    df = pd.DataFrame(mydict)
+    return df
 
 
-def create_mailer_report(text: list, file_name: str) -> None:
+def format_text_to_oneline(data_frame) -> list:
+    """ Function will format text to oneline format and create 2 output files from data frame:
+        1. txt_export_file - save data frame to txt for gmailer.py module
+        2. TODO: habdle Latvian characters
+    Required  Format for email
+    Report for 1 rooms:
+    URL:: Istabas:>1 Stavs:>2/9 Platiba:>30 m sq   Price:>33 000  EUR (1 100  EUR/m sq)
+    TODO:
+        match with re and replace EUR sign to EUR word - handled in gmailer.py
+        match m2 wiht re and replace with sqm - handled in gmailer.py
+        implement: LV charater cleanup and address include to email
+    """
+    text_data = []
+    filter_kywords = ['Istabas:>1' , 'Istabas:>2', 'Istabas:>3', 'Istabas:>4'] # quick and ditry way
+    count = 1
+    for keyword in filter_kywords:
+        filtered_df = data_frame.loc[data_frame['Room_count'] == keyword]
+        room_count_line = "\n Room count: " + str(count)
+        text_data.append(room_count_line)
+        for index, row in filtered_df.iterrows():
+            url_str = row["URL"]
+            sqm_str = row["Size_sq_m"]
+            floor_str = row["Floor"]
+            total_price = row["Price"]
+            rooms_str = row['Room_count']
+            ad_in_oneline = url_str + " " + \
+                            rooms_str + " " + \
+                            sqm_str + " " + \
+                            total_price
+            text_data.append(ad_in_oneline)
+        print("")
+        count += 1
+    return text_data
+
+
+def save_text_report_to_file(text: list,file_name: str) ->None:
     """ Writes oneline data text to mailer report file """
-
     with open(file_name, 'a') as the_file:
         for line in text:
             the_file.write(f"{line}\n")
 
 
-def create_filtered_report(source_file: str,
-                           dest_file: str, keyword: str) -> None:
-    """ Function imitates bash grep for filtering text file
+# Main code driver function of module
+create_mailer_report()
 
-    """
-    with open(source_file, "r") as sfile:
-        with open(dest_file, "w") as dfile:
-            for line in sfile:
-                if re.search(keyword, line):
-                    dfile.write(line)
-
-
-def merge_reports(source_file: str, dest_file: str, rc: int) -> None:
-    """ Function merges multiple tmp reports in final report """
-
-    with open(dest_file, "a") as dfile:
-        with open(source_file, "r") as sfile:
-            dfile.write("\n \n")
-            rooms_title = "Report for " + str(rc) + " rooms:\n"
-            dfile.write(rooms_title)
-            for line in sfile:
-                dfile.write(line)
-            
-
-write_mailer_report()
