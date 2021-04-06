@@ -16,27 +16,43 @@ from sendgrid.helpers.mail import (
     FileType, Disposition, ContentId)
 from sendgrid import SendGridAPIClient
 
+
 message = Mail(
     from_email=(os.environ.get('SRC_EMAIL')),
     to_emails=(os.environ.get('DEST_EMAIL')),
     subject='Ogre City Apartments for sale from ss.lv webscraper',
-    html_content='<strong>Please find report in attachment</strong>')
+    html_content= '<strong> Email send by sendgrid <strong>')
+
 
 # Include pdf file attachment
 file_path = 'Ogre_city_report.pdf'
 with open(file_path, 'rb') as f:
     data = f.read()
     f.close()
-
-
 encoded = base64.b64encode(data).decode()
-attachment = Attachment()
-attachment.file_content = FileContent(encoded)
-attachment.file_type = FileType('application/pdf')
-attachment.file_name = FileName('Ogre_city_report.pdf')
-attachment.disposition = Disposition('attachment')
-attachment.content_id = ContentId('Example Content ID')
-message.attachment = attachment
+# Creates instance of attachment
+attachment = Attachment(file_content = FileContent(encoded),
+                         file_type = FileType('application/pdf'),
+                         file_name = FileName('Ogre_city_report.pdf'),
+                         disposition = Disposition('attachment'),
+                         content_id = ContentId('Example Content ID'))
+
+
+# Second file for attchment
+with open('report.html', 'rb') as f:
+    html_data = f.read()
+    f.close()
+encoded_file = base64.b64encode(html_data).decode()
+# Creates second instance attachedFile
+attachedFile = Attachment(
+            FileContent(encoded_file),
+            FileName('Report.html'),
+            FileType('application/html'),
+            Disposition('attachment'))
+message.attachment = attachment  # attaches pdf binary 
+message.attachment = attachedFile  # attached second file Report.html
+
+
 try:
     sendgrid_client = SendGridAPIClient(os.environ.get('SENDGRID_API_KEY'))
     response = sendgrid_client.send(message)
