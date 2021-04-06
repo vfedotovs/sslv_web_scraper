@@ -16,12 +16,21 @@ from sendgrid.helpers.mail import (
     FileType, Disposition, ContentId)
 from sendgrid import SendGridAPIClient
 
+# read file for plain_text
+with open('Mailer_report.txt') as f:
+    content = f.readlines()
+# you may also want to remove whitespace characters like `\n` at the end of each line
+#plain_text = [x.strip() for x in content]
+str_text = '\n'.join([i for i in content[1:]])
+
+
 
 message = Mail(
     from_email=(os.environ.get('SRC_EMAIL')),
     to_emails=(os.environ.get('DEST_EMAIL')),
     subject='Ogre City Apartments for sale from ss.lv webscraper',
-    html_content= '<strong> Email send by sendgrid <strong>')
+    #html_content= '<strong> Email send by sendgrid <strong>')
+    plain_text_content=str_text)
 
 
 # Include pdf file attachment
