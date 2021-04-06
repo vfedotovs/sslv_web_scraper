@@ -1,2 +1,22 @@
+# Exclude all these files
 *.txt
+*.csv
+*.ipynb
+*.pdf
+*.png
+
+# Exclude these folders
 __pycache__/
+env/
+.DS_Store
+.ipynb_checkpoints/
+
+
+# Exclude these secret env files
+sendgrid.env
+src_email.env
+dest_email.env
+
+# Do not exclude
+!TODO_items.txt
+
