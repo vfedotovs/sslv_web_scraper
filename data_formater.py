@@ -34,6 +34,8 @@ def create_mailer_report() -> None:
     save_text_report_to_file(data_for_save, 'Mailer_report.txt')
     # Creates file for pdf_creator.py module
     filer_df_by_value_in_column(msg_data_frame, 'Istabas:>1', '1_rooms_tmp.txt')
+    # Save df to html
+    format_df_to_html(msg_data_frame, 'report.html' )
 
 
 def create_oneline_report(source_file: str):
@@ -92,6 +94,17 @@ def create_oneline_report(source_file: str):
             'Pub_date': publish_dates }
     df = pd.DataFrame(mydict)
     return df
+
+
+def format_df_to_html(data_frame, html_file: str ) -> None:
+    """ Save df as html for sendgrid mailer  #"""
+    # render dataframe as html
+    html = data_frame.to_html()
+
+    # write html to file
+    text_file = open(html_file, "w")
+    text_file.write(html)
+    text_file.close()
 
 
 def filer_df_by_value_in_column(data_frame, keyword, file_name: str) -> None:
