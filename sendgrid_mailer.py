@@ -17,7 +17,8 @@ from sendgrid.helpers.mail import (
 from sendgrid import SendGridAPIClient
 
 # read file for plain_text
-with open('Mailer_report.txt') as f:
+#with open('Mailer_report.txt') as f:
+with open('mrv2.txt') as f:
     content = f.readlines()
 # you may also want to remove whitespace characters like `\n` at the end of each line
 #plain_text = [x.strip() for x in content]
