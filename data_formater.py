@@ -17,7 +17,7 @@ TODO:
 """
 import re
 import pandas as pd
-
+import df_cleaner
 
 def create_mailer_report() -> None:
     """ Main module function
@@ -36,6 +36,10 @@ def create_mailer_report() -> None:
     filer_df_by_value_in_column(msg_data_frame, 'Istabas:>1', '1_rooms_tmp.txt')
     # Save df to html
     format_df_to_html(msg_data_frame, 'report.html' )
+
+    # run data frame cleaner to generate file thats needed for next function
+    df_cleaner
+
     # create new mailer report
     all_ads_df = pd.read_csv("cleaned-sorted-df.csv", index_col=False)
     create_new_mailer_report(all_ads_df, 'mrv2.txt')

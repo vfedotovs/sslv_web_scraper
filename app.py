@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """
-appv2 is 2.0 release of ss.lv web scraper
-New features:
+app.py  is 1.2.0 release of ss.lv web scraper
+
+New release features:
     - Extract and save raw data as txt file for specific city apartments for sale advert information
     - Extracts 2 new attributes of advert - date inserted advert and view count is 1 (known issue)
     - Clean and save data as python data frame in csv format
@@ -20,7 +21,7 @@ import sendgrid_mailer
 def main():
     web_scraper
     data_formater
-    df_cleaner
+    #df_cleaner
     analytics
     pdf_creator
     sendgrid_mailer
