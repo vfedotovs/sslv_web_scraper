@@ -4,6 +4,7 @@
 *.ipynb
 *.pdf
 *.png
+*.html
 
 # Exclude these folders
 __pycache__/
