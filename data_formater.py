@@ -159,7 +159,7 @@ def create_new_mailer_report(clean_data_frame, file_name: str) -> None:
                           str(sqm_str) + "   " + \
                           str(total_price) + "    " + \
                           str(sqm_price) + "   " + \
-                          str(street_str) + " " + \
+                          str(street_str) + "   " + \
                           str(pub_date_str) + " " + \
                           str(url_str)
             email_body_txt.append(report_line)
