@@ -137,21 +137,14 @@ def filer_df_by_value_in_column(data_frame, keyword, file_name: str) -> None:
 def create_new_mailer_report(clean_data_frame, file_name: str) -> None:
     """ Function will iterate over cleaned data frame cleaned-sorted-df.csv  rows and will
     crete improved mailer_report2.txt """
-    # TODO
-    #1. filter by room count 1,2,3,4 (will split report in 4 sections)
-    #2. each seciton title (room count, apt_size, apt_price, apt_street, pub_date , \n , url)
-    email_body_txt = []
-    print("New mailer report v2 ")
-    for room_count in range(3):
+    email_body_txt = ['Mailer v1.2 report:']
+    for room_count in range(4):
         room_count_str = str(room_count + 1)
-        #print(str(room_count_str + " room apartment section: "))
         section_line = str(room_count_str + " room apartment section: ")
         email_body_txt.append(section_line)
         filtered_by_room_count = clean_data_frame.loc[clean_data_frame['Room_count'] == int(room_count_str)]
-        #print("[Rooms, Floor, Size , Price, SQM Price, Apartment Street  URL]")
         colum_line = "[Rooms, Floor, Size , Price, SQM Price, Apartment Street, Pub_date,  URL]"
         email_body_txt.append(colum_line)
-        #print(filtered_by_room_count.head())
         for index, row in filtered_by_room_count.iterrows():
             url_str = row["URL"]
             sqm_str = row["Size_sqm"]
@@ -161,7 +154,6 @@ def create_new_mailer_report(clean_data_frame, file_name: str) -> None:
             rooms_str = row['Room_count']
             street_str = row['Street']
             pub_date_str = row['Pub_date']
-            #          print("[Room_count, Floor, Size, Price, SQM Price,  Apartment Street, URL]")
             report_line = "  " + str(rooms_str) + "     " + \
                           str(floor_str) + "    " + \
                           str(sqm_str) + "   " + \
@@ -170,13 +162,7 @@ def create_new_mailer_report(clean_data_frame, file_name: str) -> None:
                           str(street_str) + " " + \
                           str(pub_date_str) + " " + \
                           str(url_str)
-            #print(report_line)
-            #print(url_str)
             email_body_txt.append(report_line)
-            #email_body_txt.append(url_str)
-        #print("\n\n")
-        #two_new_lines = "\n\n"
-        #email_body_txt.append(two_new_lines)
     save_text_report_to_file(email_body_txt, file_name)
 
 
