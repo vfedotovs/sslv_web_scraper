@@ -3,44 +3,43 @@
 
 Main usage case for this module:
     1. Send email using sendmail gateway
-    2. Include pdf file as attachment (new feature comparing with release 1.0)
-    3. Add ad oneline information in email body - not implemented yet
+    2. Include pdf file as attachment (new feature comparing with Milestone 1)
+    3. Add ad oneline information about each apartment in email body 
     4. Use environemt varibales for source/destination email and API key (new feature comparing with release 1.0)
 """
 import base64
 import os
-
-
-from sendgrid.helpers.mail import (
-    Mail, Attachment, FileContent, FileName,
-    FileType, Disposition, ContentId)
+from sendgrid.helpers.mail import ( Mail, Attachment, FileContent, FileName,
+                                    FileType, Disposition, ContentId)
 from sendgrid import SendGridAPIClient
 
-# read file for plain_text
-#with open('Mailer_report.txt') as f:
+
+print("Debug info: Starting sendgrid mailer module ... ")
+# Read text file for including plain text as email content
+# TODO: fix bad file naming convention mrv2.txt  
 with open('mrv2.txt') as f:
     content = f.readlines()
-# you may also want to remove whitespace characters like `\n` at the end of each line
-#plain_text = [x.strip() for x in content]
 str_text = '\n'.join([i for i in content[1:]])
 
 
-
-message = Mail(
-    from_email=(os.environ.get('SRC_EMAIL')),
-    to_emails=(os.environ.get('DEST_EMAIL')),
-    subject='Ogre City Apartments for sale from ss.lv webscraper',
-    #html_content= '<strong> Email send by sendgrid <strong>')
-    plain_text_content=str_text)
+# Creates Mail object instance
+message = Mail(from_email=(os.environ.get('SRC_EMAIL')),
+               to_emails=(os.environ.get('DEST_EMAIL')),
+               subject='Ogre City Apartments for sale from ss.lv webscraper',
+               plain_text_content=str_text)
 
 
-# Include pdf file attachment
+# Read pdf file file for  attachment
 file_path = 'Ogre_city_report.pdf'
 with open(file_path, 'rb') as f:
     data = f.read()
     f.close()
+
+# Encodes binary pdf file data to base64 for email attachment    
 encoded = base64.b64encode(data).decode()
-# Creates instance of attachment
+
+
+# Creates instance of Attachment object
 attachment = Attachment(file_content = FileContent(encoded),
                          file_type = FileType('application/pdf'),
                          file_name = FileName('Ogre_city_report.pdf'),
@@ -48,17 +47,20 @@ attachment = Attachment(file_content = FileContent(encoded),
                          content_id = ContentId('Example Content ID'))
 
 
-# Second file for attchment
+# Reads Second file for attchment
 with open('report.html', 'rb') as f:
     html_data = f.read()
     f.close()
+# Encodes binary html file data to base64 for email attachment    
 encoded_file = base64.b64encode(html_data).decode()
-# Creates second instance attachedFile
-attachedFile = Attachment(
-            FileContent(encoded_file),
-            FileName('Report.html'),
-            FileType('application/html'),
-            Disposition('attachment'))
+
+# Creates second instance Attachement object
+attachedFile = Attachment(FileContent(encoded_file),
+                          FileName('Report.html'),
+                          FileType('application/html'),
+                          Disposition('attachment'))
+
+# Calls attachment method for message instance 
 message.attachment = attachment  # attaches pdf binary 
 message.attachment = attachedFile  # attached second file Report.html
 
@@ -66,9 +68,10 @@ message.attachment = attachedFile  # attached second file Report.html
 try:
     sendgrid_client = SendGridAPIClient(os.environ.get('SENDGRID_API_KEY'))
     response = sendgrid_client.send(message)
-    print(response.status_code)
-    print(response.body)
-    print(response.headers)
+    print("Email sent response code:", response.status_code)
+    #print(response.body)  # enable for debugging 
+    #print(response.headers) # enable for debugging
 except Exception as e:
     print(e.message)
 
+print("Debug info: Completed website parsing module ... ")
