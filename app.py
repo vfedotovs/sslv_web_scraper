@@ -16,15 +16,15 @@ import df_cleaner
 import analytics
 import pdf_creator
 import sendgrid_mailer
-
+import data_file_cleaner
 
 def main():
     web_scraper
     data_formater
-    #df_cleaner
     analytics
     pdf_creator
     sendgrid_mailer
+    data_file_cleaner
 
 
 if __name__ == "__main__":
