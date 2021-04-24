@@ -7,7 +7,7 @@ Main features of this module:
 """
 import pandas as pd
 
-
+print("Debug info: Starting data frame cleaning module ... ")
 # loading data to dataframe from csv file
 df_to_clean = pd.read_csv("pandas_df.csv")
 
@@ -71,6 +71,7 @@ def save_clean_df():
     clean_df = clean_sqm_eur_col(clean_price_col)
     sorted_df = clean_df.sort_values(by='Price_in_eur', ascending=True)
     sorted_df.to_csv("cleaned-sorted-df.csv")
+    print("Debug info: Completed dat_formater module ... ")
 
 
 # Main module code driver

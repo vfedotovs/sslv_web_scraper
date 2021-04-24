@@ -25,6 +25,7 @@ from fpdf import FPDF
 
 def main_function():
     """ Main module function """
+    print("Debug info: Starting pdf creator module ... ")
     data_frame = load_data_frame('cleaned-sorted-df.csv')
     one_room_df = filter_df_by(data_frame, 'Room_count', 1)
     two_room_df = filter_df_by(data_frame, 'Room_count', 2)
@@ -39,6 +40,7 @@ def main_function():
     report_txt_lines = read_file_to_list('basic_price_stats.txt')
     one_room_apt_txt_lines = read_file_to_list('1_rooms_tmp.txt')
     create_pdf_report("Ogre", "2021-02-03", report_txt_lines, one_room_apt_txt_lines)
+    print("Debug info: Completed pdf creator module module ... ")
 
 
 def load_data_frame(source_file: str):

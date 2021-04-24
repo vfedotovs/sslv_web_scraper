@@ -24,6 +24,7 @@ def create_mailer_report() -> None:
     pandas data frame and save to pandas_df.csv file and
     will format data in one line and will create Mailer_report.txt
     that will be used by gmailer.py module """
+    print("Debug info: Started dat_formater module ... ")
     # Load text from raw data file to df in memmory
     msg_data_frame = create_oneline_report('Ogre-raw-data-report.txt')
     # Saves to csv for other module usage
@@ -43,9 +44,11 @@ def create_mailer_report() -> None:
     # run data frame cleaner to generate file thats needed for next function
     df_cleaner
 
+
     # create new mailer report
     all_ads_df = pd.read_csv("cleaned-sorted-df.csv", index_col=False)
     create_new_mailer_report(all_ads_df, 'mrv2.txt')
+    print("Debug info: Ended data_formater module ... ")
 
 
 def create_oneline_report(source_file: str):

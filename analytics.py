@@ -9,6 +9,7 @@ This module  main functionality:
 import pandas as pd
 
 
+print("Debug info: Starting analitics module ... ")
 # Load df from cleaned df csv file
 all_ads_df = pd.read_csv("cleaned-sorted-df.csv", index_col=False)
 # Split all apartment dataframe in 4 categories
@@ -77,6 +78,8 @@ def write_lines(text_lines: list, file_name: str) -> None:
 
 txt_lines_for_save = iterate_reports()
 write_lines(txt_lines_for_save, 'basic_price_stats.txt')
+print("Debug info: Completed analitics  module ... ")
+
 
 # Module functional requirements
 # Category 1 - analysis by advert price:
