@@ -17,7 +17,6 @@ TODO:
 """
 import re
 import pandas as pd
-import df_cleaner
 
 def create_mailer_report() -> None:
     """ Main module function
@@ -29,6 +28,10 @@ def create_mailer_report() -> None:
     msg_data_frame = create_oneline_report('Ogre-raw-data-report.txt')
     # Saves to csv for other module usage
     msg_data_frame.to_csv("pandas_df.csv")
+
+
+    import df_cleaner  #TODO: fix this circural import
+
     # Export to txt for gmailer.py consumable txt file
     data_for_save = format_text_to_oneline(msg_data_frame)
     save_text_report_to_file(data_for_save, 'Mailer_report.txt')
