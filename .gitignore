@@ -5,6 +5,7 @@
 *.pdf
 *.png
 *.html
+__init__.pyc
 
 # Exclude these folders
 __pycache__/
@@ -21,3 +22,4 @@ dest_email.env
 # Do not exclude
 !TODO_items.txt
 !requirements.txt
+!project_data.txt
