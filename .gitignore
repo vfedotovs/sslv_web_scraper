@@ -7,6 +7,9 @@
 *.html
 __init__.pyc
 
+# postgress data base settings
+database.ini
+
 # Exclude these folders
 __pycache__/
 env/
