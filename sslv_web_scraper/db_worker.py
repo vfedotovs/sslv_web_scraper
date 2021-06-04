@@ -77,6 +77,7 @@ def db_worker_test_tables(csv_files: list) -> None:
         print(f" -- {file_count} csv file(s) is getting processed or iteration in loop --")
         print("Stage1: Get and categorize hashes to (new, existing, removed) categories")
         categorized_hashes = categorize_hashes(csv_file)
+        # 6 lines below needed only for debugging
         new_hashes = categorized_hashes[0]
         existing_hashes = categorized_hashes[1]
         removed_hashes = categorized_hashes[2]
@@ -95,8 +96,9 @@ def db_worker_test_tables(csv_files: list) -> None:
         print("- inserting removed dict to removed-ads table")
         insert_data_to_removed(removed_data)
         print("- (TODO:) updating listed_ads table days_count_listed value for  existing hashes")
-        print("- (TODO:) deleting records from listed_ads table based on removed hashes")
+        print("- deleting records from listed_ads table based on removed hashes")
         # TODO: implement function remove delisted data rows from listed_ads table
+        delete_db_table_rows(removed_hashes)
 
         file_count += 1
         print("")
@@ -201,7 +203,6 @@ def create_db_table() -> None:
     finally:
         if conn is not None:
             conn.close()
-
 
 
 def get_delisted_data(delisted_hashes: list) -> dict:
@@ -370,11 +371,26 @@ def insert_data_to_removed(data: dict) -> None:
             conn.close()
 
 
-def delete_data_from_db(new_ads: list) -> None:
-    """ ads need to be removed from listed table
-    after data is moved to removed_ads table"""
-    #TODO: implement this function required for db_worker model MVP
-    pass
+def delete_db_table_rows(delisted_hashes: list):
+    """ deleted removed hashes from listed_ads table"""
+    conn = None
+    try:
+        params = config()
+        conn = psycopg2.connect(**params)
+        cur = conn.cursor()
+        cur.execute("SELECT * FROM listed_ads")
+        for delisted_hash in delisted_hashes:
+            print(delisted_hash)
+            del_row = "DELETE FROM listed_ads WHERE url_hash = "
+            full_cmd = del_row + "'" + delisted_hash + "'"
+            cur.execute(full_cmd)
+        conn.commit()
+        cur.close()
+    except (Exception, psycopg2.DatabaseError) as error:
+        print(error)
+    finally:
+        if conn is not None:
+            conn.close()
 
 
 def list_data_in_table() -> None:
