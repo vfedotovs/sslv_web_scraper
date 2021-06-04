@@ -14,12 +14,12 @@ import psycopg2
 from config import config
 
 
-def looped_main():
+def testing_main():
     """ this function is for testing porpuses only """
     data_frames = ['cleaned-sorted-df-d1.csv',
                    'cleaned-sorted-df-d2.csv',
                    'cleaned-sorted-df-d3.csv']
-    looped_test(data_frames)
+    db_worker_test_tables(data_frames)
 
 
 def db_worker_main() -> None:
@@ -409,4 +409,4 @@ def clean_db_hashes(hash_list: list) -> list:
 
 if __name__ == '__main__':
     #db_worker_main()
-    db_worker_test_tables()
+    testing_main()
