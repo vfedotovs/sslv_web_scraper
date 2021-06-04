@@ -75,6 +75,7 @@ def db_worker_test_tables(csv_files: list) -> None:
     file_count = 1
     for csv_file in csv_files:
         print(f" -- {file_count} csv file(s) is getting processed or iteration in loop --")
+        print("Stage1: Get and categorize hashes to (new, existing, removed) categories")
         categorized_hashes = categorize_hashes(csv_file)
         new_hashes = categorized_hashes[0]
         existing_hashes = categorized_hashes[1]
@@ -82,18 +83,21 @@ def db_worker_test_tables(csv_files: list) -> None:
         print("New hashe count or not seen in listed_ads table:", len(new_hashes))
         print("Existing hashes count in db listed_ads table:", len(existing_hashes))
         print("Delisted hashe count based on categorization:" , len(removed_hashes))
-
+        print("Stage2: get dicts from new hashes and removed hashes")
         # Dict Data structure need to be inserted in DB listed table
-        new_data = filter_df_by_hash(csv_file, new_hashes)
-        # Inserting new data to db listed table
-        # print("DEBUG: listing database content before inserting new data ...")
+        data_for_db_inserts = prepare_data(categorized_hashes, csv_file)
+        new_data = data_for_db_inserts[0]
+        removed_data = data_for_db_inserts[1]
+        print("Stage3: actioning data: ")
+        print("- insertnig new dict to listed_ads table")
         # list_data_in_table()
         insert_data_to_db(new_data)
-        # list_data_in_table()
-        removed_data = get_delisted_data(removed_hashes)
-        # insert_data_to_db('delisted_ads', data_for_removed_table)
+        print("- inserting removed dict to removed-ads table")
         insert_data_to_removed(removed_data)
+        print("- (TODO:) updating listed_ads table days_count_listed value for  existing hashes")
+        print("- (TODO:) deleting records from listed_ads table based on removed hashes")
         # TODO: implement function remove delisted data rows from listed_ads table
+
         file_count += 1
         print("")
         print("Sleepin 3 sec ...")
@@ -111,6 +115,20 @@ def categorize_hashes(df_file_name: str) -> list:
     string_listed_hashes = clean_db_hashes(tuple_listed_hashes)
     grouped_hashes = compare_df_to_db(df_hashes, string_listed_hashes)
     return grouped_hashes
+
+
+def prepare_data(categorized_hashes: list, df_file_name: str) ->list:
+    """ funtion takes as input list of lists categorized_hashes
+    and returns df hash:data dict, removed_ads hash:data dict)
+    function returns list of 2 dicts """
+    data_for_db_inserts = []
+    new_hashes = categorized_hashes[0]
+    removed_hashes = categorized_hashes[2]
+    df_data = filter_df_by_hash(df_file_name, new_hashes)
+    removed_data = get_delisted_data(removed_hashes)
+    data_for_db_inserts.append(df_data)
+    data_for_db_inserts.append(removed_data)
+    return data_for_db_inserts
 
 
 def get_data_frame_hashes(df_filename: str) -> list:
