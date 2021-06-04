@@ -8,8 +8,8 @@ Main module functionalities:
     4. Daily read new info from csv file compare wit data in databse and
     update database with new information
 """
-import pandas as pd
 import time
+import pandas as pd
 import psycopg2
 from config import config
 
@@ -403,13 +403,13 @@ def get_hashes_from_table() -> None:
 
 
 def clean_db_hashes(hash_list: list) -> list:
+    """ removes unnecesary characters from hashe list and returns only
+    string list with clean hashes """
     clean_hashes = []
     for element in hash_list:
         str_element =  ''.join(element)
-        x = str_element.replace("'", "")
-        y = x.replace(")", "")
-        z = y.replace("(", "")
-        clean_hash = z.replace(",", "")
+        clean_element = str_element.replace("'", "").replace(")", "")
+        clean_hash = clean_element.replace("(", "").replace(",", "")
         clean_hashes.append(clean_hash)
     return clean_hashes
 
