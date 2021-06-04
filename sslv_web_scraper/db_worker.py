@@ -92,7 +92,7 @@ def db_worker_test_tables(csv_files: list) -> None:
         # list_data_in_table()
         removed_data = get_delisted_data(removed_hashes)
         # insert_data_to_db('delisted_ads', data_for_removed_table)
-        insert_data_to_removed(delisted_data)
+        insert_data_to_removed(removed_data)
         # TODO: implement function remove delisted data rows from listed_ads table
         file_count += 1
         print("")
@@ -262,7 +262,7 @@ def compare_df_to_db(df_hashes: list, db_hashes: list) ->list:
     return all_ads
 
 
-def insert_data_to_db(table_name: str, data: dict) -> None:
+def insert_data_to_db(data: dict) -> None:
     """ insert data to database table """
     conn = None
     try:
