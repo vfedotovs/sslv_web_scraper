@@ -35,9 +35,8 @@ def db_worker_main() -> None:
         database data reporting functionality """
     print("DEBUG: Satrting db_worker module ...")
     print("DEBUG: Loaded cleaned-sorted-df.csv to dataframe in memory ...")
-    df_hashes = get_data_frame_hashes('cleaned-sorted-df-d1.csv')
+    df_hashes = get_data_frame_hashes('cleaned-sorted-df.csv')
     print("DEBUG: calculated hashes from data fame URLs ...")
-    
     tuple_listed_hashes = get_hashes_from_table()
     string_listed_hashes = clean_db_hashes(tuple_listed_hashes)
     print("DEBUG: Extracted from table listed_ads URL hashes  ...")
@@ -46,8 +45,6 @@ def db_worker_main() -> None:
     new_hashes = grouped_hashes[0]
     still_listed_hashes = grouped_hashes[1]
     delisted_hashes = grouped_hashes[2]
-
-
     # dict {hash: [row of data from all dataframe clumns]}
     new_inserts = filter_df_by_hash('cleaned-sorted-df-d1.csv', new_hashes)
     still_listed = filter_df_by_hash('cleaned-sorted-df-d1.csv', still_listed_hashes)
@@ -78,25 +75,22 @@ def db_worker_test_tables(csv_files: list) -> None:
     file_count = 1
     for csv_file in csv_files:
         print(f" -- {file_count} csv file(s) is getting processed or iteration in loop --")
-        df_hashes = get_data_frame_hashes(csv_file)
-        tuple_listed_hashes = get_hashes_from_table('sometable')
-        string_listed_hashes = clean_db_hashes(tuple_listed_hashes)
-        grouped_hashes = compare_df_to_db(df_hashes, string_listed_hashes)
-        new_hashes = grouped_hashes[0]
-        still_listed_hashes = grouped_hashes[1]
-        delisted_hashes = grouped_hashes[2]
-        print("")
-        print("New hashe count or not seen in db table:", len(new_hashes))
-        print("Existing hashes count in db table:", len(still_listed_hashes))
-        print("Delisted hashe count:" , len(delisted_hashes))
-        #Dict Data structure need to be inserted in DB listed table
-        new_inserts = filter_df_by_hash(csv_file, new_hashes)
+        categorized_hashes = categorize_hashes(csv_file)
+        new_hashes = categorized_hashes[0]
+        existing_hashes = categorized_hashes[1]
+        removed_hashes = categorized_hashes[2]
+        print("New hashe count or not seen in listed_ads table:", len(new_hashes))
+        print("Existing hashes count in db listed_ads table:", len(existing_hashes))
+        print("Delisted hashe count based on categorization:" , len(removed_hashes))
+
+        # Dict Data structure need to be inserted in DB listed table
+        new_data = filter_df_by_hash(csv_file, new_hashes)
         # Inserting new data to db listed table
-        #print("DEBUG: listing database content before inserting new data ...")
-        #list_data_in_table('some_table_name')
-        insert_data_to_db('some_table_name', new_inserts)
-        #list_data_in_table('some_table_name')
-        delisted_data = get_delisted_data(delisted_hashes)
+        # print("DEBUG: listing database content before inserting new data ...")
+        # list_data_in_table()
+        insert_data_to_db(new_data)
+        # list_data_in_table()
+        removed_data = get_delisted_data(removed_hashes)
         # insert_data_to_db('delisted_ads', data_for_removed_table)
         insert_data_to_removed(delisted_data)
         # TODO: implement function remove delisted data rows from listed_ads table
@@ -104,6 +98,19 @@ def db_worker_test_tables(csv_files: list) -> None:
         print("")
         print("Sleepin 3 sec ...")
         time.sleep(3)
+
+
+def categorize_hashes(df_file_name: str) -> list:
+    """ loads df to memory extracts hashes and iterates over listed_ads table
+    extracts hashed and capegorizes to 3 categories:
+    1. new_hashes = grouped_hashes[0]
+    2. existing_hashes = grouped_hashes[1]
+    3. removed_hashes = grouped_hashes[2] """
+    df_hashes = get_data_frame_hashes(df_file_name)
+    tuple_listed_hashes = get_hashes_from_table()
+    string_listed_hashes = clean_db_hashes(tuple_listed_hashes)
+    grouped_hashes = compare_df_to_db(df_hashes, string_listed_hashes)
+    return grouped_hashes
 
 
 def get_data_frame_hashes(df_filename: str) -> list:
@@ -348,7 +355,7 @@ def insert_data_to_removed(data: dict) -> None:
 def delete_data_from_db(new_ads: list) -> None:
     """ ads need to be removed from listed table
     after data is moved to removed_ads table"""
-    #TODO: implement this function required for db_worker model MVP  
+    #TODO: implement this function required for db_worker model MVP
     pass
 
 
