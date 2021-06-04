@@ -24,7 +24,8 @@ def looped_main():
 
 def db_worker_main() -> None:
     """ MVP TODO: db_worker.py module software functionality
-    - function add days listed column to listed table
+    - function add days listed column to listed table for tracking
+        how many days since added to listed_ads table
     - function insert delisted ads to delisted table
         - include days listed count : delist date
     - function increment / update data in listed table
@@ -36,9 +37,8 @@ def db_worker_main() -> None:
     print("DEBUG: Loaded cleaned-sorted-df.csv to dataframe in memory ...")
     df_hashes = get_data_frame_hashes('cleaned-sorted-df-d1.csv')
     print("DEBUG: calculated hashes from data fame URLs ...")
-    create_db_table()
-    print("DEBUG: Created listed_ads table ...")
-    tuple_listed_hashes = get_hashes_from_table('sometable')
+    
+    tuple_listed_hashes = get_hashes_from_table()
     string_listed_hashes = clean_db_hashes(tuple_listed_hashes)
     print("DEBUG: Extracted from table listed_ads URL hashes  ...")
     grouped_hashes = compare_df_to_db(df_hashes, string_listed_hashes)
@@ -46,6 +46,8 @@ def db_worker_main() -> None:
     new_hashes = grouped_hashes[0]
     still_listed_hashes = grouped_hashes[1]
     delisted_hashes = grouped_hashes[2]
+
+
     # dict {hash: [row of data from all dataframe clumns]}
     new_inserts = filter_df_by_hash('cleaned-sorted-df-d1.csv', new_hashes)
     still_listed = filter_df_by_hash('cleaned-sorted-df-d1.csv', still_listed_hashes)
@@ -59,7 +61,20 @@ def db_worker_main() -> None:
     list_data_in_table('some_table_name')
 
 
-def looped_test(csv_files: list) -> None:
+def db_worker_test_tables(csv_files: list) -> None:
+    """ function simulates n day (csv file count)  iterations to ensure
+        to ensure that there is chance to test listed_ads and removed_ads table
+        functionality:
+            1. Load df frame to memory and iterate over df to extract hashes(new)
+            2. Itreate over listed_ads table and extract hashes(existing)
+            3. Compare new and existing hased allows to identify hashes (delisted)
+                and allow to categorise hasshes [new, existing, delisted]
+            4. Action data based on hashe category
+                4.1 insert (new category) in listed_ads table
+                4.2 increment listed_day_count value for (existing category) #TODO: implement this feature
+                4.3 insert (delisted category) to removed_ads table
+                4.4 delete (delisted category) from listed_ads table  #TODO: implement this feature
+            """
     file_count = 1
     for csv_file in csv_files:
         print(f" -- {file_count} csv file(s) is getting processed or iteration in loop --")
@@ -394,4 +409,4 @@ def clean_db_hashes(hash_list: list) -> list:
 
 if __name__ == '__main__':
     #db_worker_main()
-    looped_main()
+    db_worker_test_tables()
