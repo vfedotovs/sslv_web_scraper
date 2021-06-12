@@ -1,23 +1,19 @@
-sudo: required
-services:
-  - docker
-
-before_install:
-  - docker build -t DEPLOYTEST -f Dockerfile 
-
-script: 
-  - docker run DEPLOYTEST pytest
-
-deploy:
-  provider: elasticbeanstalk
-  region: "eu-west-1"
-  app: "travis-ci-demo"
-  env: "Traviscidemo-env"
-  bucket_name: "elasticbeanstalk-eu-west-1-370162467217"
-  bucket_path: "travis-ci-demo"
-  on:
-    branch: master
+before_install: 
+  - "docker build -t DEPLOYTEST -f Dockerfile"
+deploy: 
   access_key_id: $AWS_ACCESS_KEY
-  secret_access_key:
-  	secure: "$AWS_SECRET_KEY"
-
+  app: travis-ci-demo
+  bucket_name: elasticbeanstalk-eu-west-1-370162467217
+  bucket_path: travis-ci-demo
+  env: Traviscidemo-env
+  provider: elasticbeanstalk
+  region: eu-west-1
+  secret_access_key: 
+    secure: $AWS_SECRET_KEY
+  true: 
+    branch: master
+script: 
+  - "docker run DEPLOYTEST pytest"
+services: 
+  - docker
+sudo: required
