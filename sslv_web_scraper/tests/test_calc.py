@@ -1,4 +1,4 @@
-import calc
+from sslv_web_scraper import calc
 
 
 def test_calc_addition():
