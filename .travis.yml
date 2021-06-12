@@ -1,5 +1,5 @@
 before_install: 
-  - "docker build -t vfedotovsdocker/awsdeploytest -f Dockerfile"
+  - "docker build -t awsdeploytest -f Dockerfile"
 deploy: 
   access_key_id: $AWS_ACCESS_KEY
   app: travis-ci-demo
@@ -13,7 +13,7 @@ deploy:
   true: 
     branch: master
 script: 
-  - "docker run vfedotovsdocker/awsdeploytest pytest"
+  - "docker run awsdeploytest pytest"
 services: 
   - docker
 sudo: required
