@@ -1,10 +1,23 @@
-language: python
-python:
-  - "3.7"
+sudo: required
+services:
+  - docker
 
-# command to install dependencies
-install:
-  - pip install -r requirements.txt
+before_install:
+  - docker build -t DEPLOYTEST -f Dockerfile 
 
-# command to run tests
-script: pytest
+script: 
+  - docker run DEPLOYTEST pytest
+
+deploy:
+  provider: elasticbeanstalk
+  region: "eu-west-1"
+  app: "travis-ci-demo"
+  env: "Traviscidemo-env"
+  bucket_name: "elasticbeanstalk-eu-west-1-370162467217"
+  bucket_path: "travis-ci-demo"
+  on:
+    branch: master
+  ascess_key_id: $AWS_ACCESS_KEY
+  secret_access_key:
+  	secure: "$AWS_SECRET_KEY"
+
