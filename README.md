@@ -1,9 +1,11 @@
 [![Build Status](https://travis-ci.com/vfedotovs/sslv_web_scraper.svg?branch=main)](https://travis-ci.com/vfedotovs/sslv_web_scraper)
-# About sslv_web_scraper application:
+# SS.LV Web Scraper
+
+## About application:
 Purpose: This application will parse information from ss.lv website from apartments for sale category in specific city of your choice
 and  will send report filtered by your criteria to your gmail address 
 
-# How to use application:
+## How to use application:
 1. API KEY is needed from https://sendgrid.com/ for sending emails
 2. Bulid docker image and run container
 ```bash
@@ -17,7 +19,7 @@ docker run -it --name my-app-name \
 3. Report should arrive to email
 
 
-# Currently available features
+## Currently available features
 - [x] Parse ss.lv website and extract information from section apartments for sale (currently hardcoded for Ogre city adjust to your needs)
 - [x] Generate basic user frendly report in formated of one line for each advertisement
 - [x] Send email via sendgrid email gateway with report  
