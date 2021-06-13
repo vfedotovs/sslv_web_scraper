@@ -1,3 +1,4 @@
+[![Build Status](https://travis-ci.com/vfedotovs/sslv_web_scraper.svg?branch=main)](https://travis-ci.com/vfedotovs/sslv_web_scraper)
 # About sslv_web_scraper application:
 Purpose: This application will parse information from ss.lv website from apartments for sale category in specific city of your choice
 and  will send report filtered by your criteria to your gmail address 

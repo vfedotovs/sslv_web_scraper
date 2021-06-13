@@ -3,19 +3,19 @@ python:
   - "3.7"
 before_install: 
   - "docker build -t awsdeploytest -f Dockerfile ."
-deploy: 
-  access_key_id: $AWS_ACCESS_KEY
-  app: travis-ci-demo
-  bucket_name: elasticbeanstalk-eu-west-1-370162467217
-  bucket_path: travis-ci-demo
-  env: Traviscidemo-env
-  provider: elasticbeanstalk
-  region: eu-west-1
-  secret_access_key: $AWS_SECRET_KEY
-  true: 
-    branch: main
+#deploy: 
+#  access_key_id: $AWS_ACCESS_KEY
+#  app: travis-ci-demo
+#  bucket_name: elasticbeanstalk-eu-west-1-370162467217
+#  bucket_path: travis-ci-demo
+#  env: Traviscidemo-env
+#  provider: elasticbeanstalk
+#  region: eu-west-1
+#  secret_access_key: $AWS_SECRET_KEY
+#  true: 
+#    branch: main
 script: 
-  - "docker run awsdeploytest pytest"
+  - "docker run awsdeploytest pytest -v"
 services: 
   - docker
 sudo: required
