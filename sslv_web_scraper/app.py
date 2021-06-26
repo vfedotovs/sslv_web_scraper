@@ -15,20 +15,18 @@ import data_formater
 import df_cleaner
 import analytics
 import pdf_creator
-import sendgrid_mailer
+import db_worker
+# import sendgrid_mailer
 import data_file_cleaner
-import time
 
 
 def main():
-    while True:
         web_scraper
         data_formater
         analytics
         pdf_creator
-        sendgrid_mailer
+        db_worker
         data_file_cleaner
-        time.sleep(86400) # Sleep for 1 day
 
 
 if __name__ == "__main__":
