@@ -31,7 +31,30 @@ from config import config
 
 def db_worker_main() -> None:
     """db_worker.py module main finction"""
-    pass
+    print("DEBUG: Satrting db_worker module ...")
+    print("DEBUG: Loaded cleaned-sorted-df.csv to dataframe in memory ...")
+    df_hashes = get_data_frame_hashes('cleaned-sorted-df.csv')
+    print("DEBUG: calculated hashes from data fame URLs ...")
+
+
+def get_data_frame_hashes(df_filename: str) -> list:
+    """Read csv to pandas data frame and return URL uniq hashes as list"""
+    df_hashes = []
+    df = pd.read_csv(df_filename)
+    urls = df['URL'].tolist()
+    for url in urls:
+        url_hash = extract_hash(url)
+        df_hashes.append(url_hash)
+    return df_hashes
+
+
+def extract_hash(full_url: str) -> str:
+    """ Exctracts 5 caracter hash from URL link and returns hash"""
+    chunks = full_url.split("/", 9)
+    last_chunk = chunks[9]
+    split_chunk = last_chunk.split(".")
+    url_hash = split_chunk[0]
+    return url_hash
 
 
 db_worker_main()
