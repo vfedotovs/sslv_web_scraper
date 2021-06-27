@@ -10,7 +10,7 @@ Todo functionality:
     1.[x] Load daily csv data to data frame
     2.[x] Extract ad hashes from data frame
     3.[x] Extract ad hashes from database listed_ads table
-    4.[] Categorize hases in 3 categories
+    4.[x] Categorize hases in 3 categories
         - new hashes (for insert to listed_ads table)
         - seen hashes but not delisted yet (increment listed days value)
         - delisted hashes (for insert to delisted_ads and remove from
@@ -38,6 +38,14 @@ def db_worker_main() -> None:
     tuple_listed_hashes = get_hashes_from_table()
     string_listed_hashes = clean_db_hashes(tuple_listed_hashes)
     print("DEBUG: Extracted from table listed_ads URL hashes  ...")
+    print("Stage1: Get and categorize hashes to (new, existing, removed) categories")
+    categorized_hashes = categorize_hashes('cleaned-sorted-df.csv')
+    new_hashes = categorized_hashes[0]
+    existing_hashes = categorized_hashes[1]
+    removed_hashes = categorized_hashes[2]
+    print("New hashe count or not seen in listed_ads table:", len(new_hashes))
+    print("Existing hashe count in db listed_ads table:", len(existing_hashes))
+    print("Delisted hashe count based on categorization:" , len(removed_hashes))
 
 
 def get_data_frame_hashes(df_filename: str) -> list:
@@ -92,6 +100,46 @@ def clean_db_hashes(hash_list: list) -> list:
         clean_hash = clean_element.replace("(", "").replace(",", "")
         clean_hashes.append(clean_hash)
     return clean_hashes
+
+
+def categorize_hashes(df_file_name: str) -> list:
+    """Loads df to memory extracts hashes and iterates over listed_ads table
+    extracts hashed and capegorizes to 3 categories:
+    1. new_hashes = grouped_hashes[0]
+    2. existing_hashes = grouped_hashes[1]
+    3. removed_hashes = grouped_hashes[2]
+    """
+    df_hashes = get_data_frame_hashes(df_file_name)
+    tuple_listed_hashes = get_hashes_from_table()
+    string_listed_hashes = clean_db_hashes(tuple_listed_hashes)
+    grouped_hashes = compare_df_to_db(df_hashes, string_listed_hashes)
+    return grouped_hashes
+
+
+def compare_df_to_db(df_hashes: list, db_hashes: list) -> list:
+    """Compare to string lists and return list of lists with hashes all_ads
+    new_ads = in df not in db -> new mesges -> for insert in db listed_ads
+    existing_ads = in df and in db -> to update day count in listed_ads table
+    removed_ads = not df in db
+        -> delete record from db listed table
+        -> inserd record to delisted table
+    """
+    all_ads = []
+    new_ads = []
+    existing_ads = []
+    removed_ads = []
+    for df_hash in df_hashes:
+        if df_hash in db_hashes:
+            existing_ads.append(df_hash)
+        if df_hash not in db_hashes:
+            new_ads.append(df_hash)
+    for db_hash in db_hashes:
+        if db_hash not in df_hashes:
+            removed_ads.append(db_hash)
+    all_ads.append(new_ads)
+    all_ads.append(existing_ads)
+    all_ads.append(removed_ads)
+    return all_ads
 
 
 db_worker_main()
