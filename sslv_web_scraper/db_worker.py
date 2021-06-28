@@ -20,7 +20,7 @@ Todo functionality:
     7.[x] Insert dictionary to listed_ads table
     8.[x] Insert dictionary to removed_ads table
     9.[ ] Increment listed days value in listed_ads table
-    10.[ ] Remove delisted ads from listed_ads
+    10.[x] Remove ads inserted in removed_ads table from listed_ads table
     11.[ ] Monthly activity (new ads inserted count, removed ads count,
     average days of listed state for removed ads)
 """
@@ -70,6 +70,12 @@ def db_worker_main() -> None:
     list_data_in_rm_table()
     print("Listing data in delisted_ads table after inserts")
     list_data_in_rm_table()
+    print("Stage3.3: Removing delisted ads from listed_ads table")
+    print("Listing data in listed_ads table before removal")
+    list_data_in_table()
+    delete_db_table_rows(removed_hashes)
+    print("Listing data in listed_ads table after removal")
+    list_data_in_table()
 
 
 def get_data_frame_hashes(df_filename: str) -> list:
@@ -445,6 +451,28 @@ def list_data_in_rm_table() -> None:
         while row is not None:
             print(row)
             row = cur.fetchone()
+        cur.close()
+    except (Exception, psycopg2.DatabaseError) as error:
+        print(error)
+    finally:
+        if conn is not None:
+            conn.close()
+
+
+def delete_db_table_rows(delisted_hashes: list) -> None:
+    """Deletes rows from listed_ads table based on removed ads hashes"""
+    conn = None
+    try:
+        params = config()
+        conn = psycopg2.connect(**params)
+        cur = conn.cursor()
+        cur.execute("SELECT * FROM listed_ads")
+        for delisted_hash in delisted_hashes:
+            print(delisted_hash)
+            del_row = "DELETE FROM listed_ads WHERE url_hash = "
+            full_cmd = del_row + "'" + delisted_hash + "'"
+            cur.execute(full_cmd)
+        conn.commit()
         cur.close()
     except (Exception, psycopg2.DatabaseError) as error:
         print(error)
