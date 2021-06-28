@@ -17,11 +17,11 @@ Todo functionality:
         listed_ads table)
     5.[x] Extract data as dictionary from data frame
     6.[x] Extract data as dictionary from listed_ads table
-    7.[] Insert dictionary to listed_ads table
-    8.[] Insert dictionary to delisted_ads table
-    9.[] Increment listed days value in listed_ads table
-    10.[] Remove delisted ads from listed_ads
-    11.[] Monthly activity (new ads inserted count, removed ads count,
+    7.[x] Insert dictionary to listed_ads table
+    8.[ ] Insert dictionary to delisted_ads table
+    9.[ ] Increment listed days value in listed_ads table
+    10.[ ] Remove delisted ads from listed_ads
+    11.[ ] Monthly activity (new ads inserted count, removed ads count,
     average days of listed state for removed ads)
 """
 import pandas as pd
@@ -54,10 +54,17 @@ def db_worker_main() -> None:
     #   - second dict is for inserts to removed_ads table
     data_for_db_inserts = prepare_data(categorized_hashes,'cleaned-sorted-df.csv')
     new_data = data_for_db_inserts[0]
-    print(new_data)
+    print(new_data) 
     print("Stage2.2: Extracting data as dict from listed_ads database table based on removed_hashes")
     removed_data = data_for_db_inserts[1]
     print(removed_data)
+    
+    print("Stage3.1: Actioning data inserting dict to listed_ads")
+    print("Listing data in listed_ads table before inserts")
+    list_data_in_table()
+    insert_data_to_db(new_data)
+    print("Listing data in listed_ads table after inserts")
+    list_data_in_table()
 
 
 def get_data_frame_hashes(df_filename: str) -> list:
@@ -236,6 +243,116 @@ def get_delisted_data(delisted_hashes: list) -> dict:
         if conn is not None:
             conn.close()
     return delisted_mesages
+
+
+def list_data_in_table() -> None:
+    """ iterate over all records in listed_ads table and print them"""
+    conn = None
+    try:
+        params = config()
+        conn = psycopg2.connect(**params)
+        cur = conn.cursor()
+        cur.execute("SELECT * FROM listed_ads WHERE price < 150000 ORDER BY price")
+        print("The number of ads in listed_ads table: ", cur.rowcount)
+        row = cur.fetchone()
+        while row is not None:
+            print(row)
+            row = cur.fetchone()
+        cur.close()
+    except (Exception, psycopg2.DatabaseError) as error:
+        print(error)
+    finally:
+        if conn is not None:
+            conn.close()
+
+def insert_data_to_db(data: dict) -> None:
+    """ insert data to database table """
+    conn = None
+    try:
+        params = config()
+        conn = psycopg2.connect(**params)
+        cur = conn.cursor()
+        for k, v in data.items():
+            url_hash = k
+            room_count = v[0]
+            house_floors = v[1]
+            apt_floor = v[2]
+            price = v[3]
+            sqm = v[4]
+            sqm_price = v[5]
+            apt_address = v[6]
+            list_date = v[7]
+            cur.execute(""" INSERT INTO listed_ads
+                  (url_hash,
+                  room_count,
+                  house_floors,
+                  apt_floor,
+                  price,
+                  sqm,
+                  sqm_price,
+                  apt_address,
+                  list_date)
+                  VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s) """,
+                 (url_hash,
+                  room_count,
+                  house_floors,
+                  apt_floor,
+                  price,
+                  sqm,
+                  sqm_price,
+                  apt_address,
+                  list_date))
+        conn.commit()
+        cur.close()
+    except (Exception, psycopg2.DatabaseError) as error:
+        print(error)
+    finally:
+        if conn is not None:
+            conn.close()
+
+
+def insert_data_to_removed(data: dict) -> None:
+    """ insert data to database removed_ads table """
+    conn = None
+    try:
+        params = config()
+        conn = psycopg2.connect(**params)
+        cur = conn.cursor()
+        for key, value in data.items():
+            url_hash = key
+            room_count = value[0]
+            house_floors = value[1]
+            apt_floor = value[2]
+            price = value[3]
+            sqm = value[4]
+            sqm_price = value[5]
+            apt_address = value[6]
+            list_date = value[7]
+            cur.execute(""" INSERT INTO removed_ads
+                  (url_hash,
+                  room_count,
+                  house_floors,
+                  apt_floor,
+                  price,
+                  sqm,
+                  sqm_price,
+                  apt_address)
+                  VALUES (%s, %s, %s, %s, %s, %s, %s, %s) """,
+                 (url_hash,
+                  room_count,
+                  house_floors,
+                  apt_floor,
+                  price,
+                  sqm,
+                  sqm_price,
+                  apt_address))
+        conn.commit()
+        cur.close()
+    except (Exception, psycopg2.DatabaseError) as error:
+        print(error)
+    finally:
+        if conn is not None:
+            conn.close()
 
 
 db_worker_main()
