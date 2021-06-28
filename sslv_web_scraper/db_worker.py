@@ -2,7 +2,7 @@
 
 """
 db_worker module is used to connect with postgres database and store data in
-2 tables listed_ads and delisted_ads for tracking currently listed ads,
+2 tables listed_ads and removed_ads for tracking currently listed ads,
 tracking how many days they stay in listed state, move ads to delisted_ads
 table after ads are removed from website and reporting capability.
 
@@ -13,12 +13,12 @@ Todo functionality:
     4.[x] Categorize hases in 3 categories
         - new hashes (for insert to listed_ads table)
         - seen hashes but not delisted yet (increment listed days value)
-        - delisted hashes (for insert to delisted_ads and remove from
+        - delisted hashes (for insert to removed_ads and remove from
         listed_ads table)
     5.[x] Extract data as dictionary from data frame
     6.[x] Extract data as dictionary from listed_ads table
     7.[x] Insert dictionary to listed_ads table
-    8.[ ] Insert dictionary to delisted_ads table
+    8.[x] Insert dictionary to removed_ads table
     9.[ ] Increment listed days value in listed_ads table
     10.[ ] Remove delisted ads from listed_ads
     11.[ ] Monthly activity (new ads inserted count, removed ads count,
@@ -59,12 +59,17 @@ def db_worker_main() -> None:
     removed_data = data_for_db_inserts[1]
     print(removed_data)
     
-    print("Stage3.1: Actioning data inserting dict to listed_ads")
+    print("Stage3.1: Actioning data - inserting dict to listed_ads table")
     print("Listing data in listed_ads table before inserts")
     list_data_in_table()
     insert_data_to_db(new_data)
     print("Listing data in listed_ads table after inserts")
     list_data_in_table()
+    print("Stage3.2: Actioning data - inserting dict to removed_ads table")
+    print("Listing data in delisted_ads table before inserts")
+    list_data_in_rm_table()
+    print("Listing data in delisted_ads table after inserts")
+    list_data_in_rm_table()
 
 
 def get_data_frame_hashes(df_filename: str) -> list:
@@ -347,6 +352,99 @@ def insert_data_to_removed(data: dict) -> None:
                   sqm_price,
                   apt_address))
         conn.commit()
+        cur.close()
+    except (Exception, psycopg2.DatabaseError) as error:
+        print(error)
+    finally:
+        if conn is not None:
+            conn.close()
+
+
+def insert_data_to_removed(data: dict) -> None:
+    """Function inserts data dict  to database removed_ads table"""
+    conn = None
+    try:
+        params = config()
+        conn = psycopg2.connect(**params)
+        cur = conn.cursor()
+        for key, value in data.items():
+            url_hash = key
+            room_count = value[0]
+            house_floors = value[1]
+            apt_floor = value[2]
+            price = value[3]
+            sqm = value[4]
+            sqm_price = value[5]
+            apt_address = value[6]
+            list_date = value[7]
+            cur.execute(""" INSERT INTO removed_ads
+                  (url_hash,
+                  room_count,
+                  house_floors,
+                  apt_floor,
+                  price,
+                  sqm,
+                  sqm_price,
+                  apt_address)
+                  VALUES (%s, %s, %s, %s, %s, %s, %s, %s) """,
+                 (url_hash,
+                  room_count,
+                  house_floors,
+                  apt_floor,
+                  price,
+                  sqm,
+                  sqm_price,
+                  apt_address))
+        conn.commit()
+        cur.close()
+    except (Exception, psycopg2.DatabaseError) as error:
+        print(error)
+    finally:
+        if conn is not None:
+            conn.close()
+
+
+def create_db_table() -> None:
+    """Creates listed_ads table in the PostgreSQL database"""
+    command = (""" CREATE TABLE listed_ads
+                   (url_hash TEXT,
+                    room_count INTEGER,
+                    house_floors INTEGER,
+                    apt_floor INTEGER,
+                    price INTEGER,
+                    sqm INTEGER,
+                    sqm_price INTEGER,
+                    apt_address TEXT,
+                    list_date TEXT )""")
+    conn = None
+    try:
+        params = config()                 # read the connection parameters
+        conn = psycopg2.connect(**params) # connect to the PostgreSQL server
+        cur = conn.cursor()
+        cur.execute(command)               # execute data base command statements
+        print("listed_ads TABLE was created with success ")
+        cur.close()                        # close communication with the PostgreSQL database server
+        conn.commit()                      # commit the changes
+    except (Exception, psycopg2.DatabaseError) as error:
+        print(error)
+    finally:
+        if conn is not None:
+            conn.close()
+
+
+def list_data_in_rm_table() -> None:
+    """Iterates over all records in delisted_ads table and print them"""
+    conn = None
+    try:
+        params = config()
+        conn = psycopg2.connect(**params)
+        cur = conn.cursor()
+        cur.execute("SELECT * FROM removed_ads WHERE price < 150000 ORDER BY price")
+        print("The number of ads in delisted_ads table: ", cur.rowcount)
+        row = cur.fetchone()
+        while row is not None:
+            print(row)
+            row = cur.fetchone()
         cur.close()
     except (Exception, psycopg2.DatabaseError) as error:
         print(error)
