@@ -27,11 +27,21 @@ Todo functionality:
 import pandas as pd
 import psycopg2
 from config import config
+import logging
+from logging.handlers import RotatingFileHandler
+
+logger = logging.getLogger('db_worker')
+logger.setLevel(logging.INFO)
+fh = logging.handlers.RotatingFileHandler('dbworker.log', maxBytes=1000000, backupCount=10)
+fh.setLevel(logging.INFO)
+formatter = logging.Formatter('%(asctime)s: %(name)s: %(levelname)s: %(funcName)s: %(lineno)d: %(message)s')
+fh.setFormatter(formatter)
+logger.addHandler(fh)
 
 
 def db_worker_main() -> None:
-    """db_worker.py module main finction"""
-    print("DEBUG: Satrting db_worker module ...")
+    """db_worker.py module main function"""
+    logger.info(" --- Satrting db_worker module ---")
     print("DEBUG: Loaded cleaned-sorted-df.csv to dataframe in memory ...")
     df_hashes = get_data_frame_hashes('cleaned-sorted-df.csv')
     print("DEBUG: calculated hashes from data fame URLs ...")
