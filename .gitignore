@@ -5,6 +5,7 @@
 *.pdf
 *.png
 *.html
+*.log
 __init__.pyc
 
 # postgress data base settings
