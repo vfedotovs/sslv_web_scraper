@@ -48,49 +48,38 @@ def db_worker_main() -> None:
     except IOError:
         logger.error('There was an error opening the file cleaned-sorted-df.csv or file does not exist!')
         sys.exit()
-
-    print("DEBUG: Loaded cleaned-sorted-df.csv to dataframe in memory ...")
+    try:
+        file = open('database.ini', 'r')
+    except IOError:
+        logger.error('There was an error opening the file database.ini or file does not exist!')
     df_hashes = get_data_frame_hashes('cleaned-sorted-df.csv')
-    print("DEBUG: calculated hashes from data fame URLs ...")
     tuple_listed_hashes = get_hashes_from_table()
     string_listed_hashes = clean_db_hashes(tuple_listed_hashes)
-    print("DEBUG: Extracted from table listed_ads URL hashes  ...")
-    print("Stage1: Get and categorize hashes to (new, existing, removed) categories")
     categorized_hashes = categorize_hashes('cleaned-sorted-df.csv')
     new_hashes = categorized_hashes[0]
     existing_hashes = categorized_hashes[1]
     removed_hashes = categorized_hashes[2]
-    print("New hashe count or not seen in listed_ads table:", len(new_hashes))
-    print("Existing hashe count in db listed_ads table:", len(existing_hashes))
-    print("Delisted hashe count based on categorization:" , len(removed_hashes))
-    print("Stage2.1: Extracting data as dict from data frame based new hashes")
+    logger.info(f' new: {len(new_hashes)}, existing: {len(existing_hashes)}, removed: {len(removed_hashes)} hashes')
+    logger.info("Extracting data in dict fromat from pandas data frame")
     # data_for_db_inserts is list of 2 dicts:
     #   - first dict is for inserts to listed_ads table
     #   - second dict is for inserts to removed_ads table
     data_for_db_inserts = prepare_data(categorized_hashes,'cleaned-sorted-df.csv')
     new_data = data_for_db_inserts[0]
-    print(new_data)
-    print("Stage2.2: Extracting data as dict from listed_ads database table based on removed_hashes")
+    # print(new_data)
+    logger.info("Extracting data as dict from listed_ads database table based on removed_hashes")
     removed_data = data_for_db_inserts[1]
-    print(removed_data)
-    print("Stage3.1: Actioning data - inserting dict to listed_ads table")
-    print("Listing data in listed_ads table before inserts")
+    # print(removed_data)
     # list_data_in_table()
     insert_data_to_db(new_data)
-    print("Listing data in listed_ads table after inserts")
     # list_data_in_table()
-    print("Stage3.2: Actioning data - inserting dict to removed_ads table")
-    print("Listing data in delisted_ads table before inserts")
     # list_data_in_rm_table()
     insert_data_to_removed(removed_data)
-    print("Listing data in delisted_ads table after inserts")
     # list_data_in_rm_table()
-    print("Stage3.3: Removing delisted ads from listed_ads table")
-    print("Listing data in listed_ads table before removal")
     # list_data_in_table()
     delete_db_table_rows(removed_hashes)
-    print("Listing data in listed_ads table after removal")
     # list_data_in_table()
+    logger.info(' --- Finished db_worker module ---')
 
 
 def get_data_frame_hashes(df_filename: str) -> list:
@@ -101,6 +90,7 @@ def get_data_frame_hashes(df_filename: str) -> list:
     for url in urls:
         url_hash = extract_hash(url)
         df_hashes.append(url_hash)
+    logger.info(f'Extracted {len(df_hashes)} hashes from pandas data frame')
     return df_hashes
 
 
@@ -144,6 +134,7 @@ def clean_db_hashes(hash_list: list) -> list:
         clean_element = str_element.replace("'", "").replace(")", "")
         clean_hash = clean_element.replace("(", "").replace(",", "")
         clean_hashes.append(clean_hash)
+    logger.info(f'Extracted and cleaned {len(clean_hashes)} hashes from listed_ads table')
     return clean_hashes
 
 
@@ -154,6 +145,7 @@ def categorize_hashes(df_file_name: str) -> list:
     2. existing_hashes = grouped_hashes[1]
     3. removed_hashes = grouped_hashes[2]
     """
+    logger.info('Categorizing hashes based on listed_ads table hashes and and new df hashes')
     df_hashes = get_data_frame_hashes(df_file_name)
     tuple_listed_hashes = get_hashes_from_table()
     string_listed_hashes = clean_db_hashes(tuple_listed_hashes)
@@ -222,6 +214,7 @@ def prepare_data(categorized_hashes: list, df_file_name: str) -> list:
     removed_data = get_delisted_data(removed_hashes)
     data_for_db_inserts.append(df_data)
     data_for_db_inserts.append(removed_data)
+    logger.info('Prepared dict for new listed_ads and dict for removed_ads table')
     return data_for_db_inserts
 
 
@@ -295,6 +288,7 @@ def insert_data_to_db(data: dict) -> None:
     """ insert data to database table """
     conn = None
     try:
+        logger.info("Actioning data - inserting dict to listed_ads table")
         params = config()
         conn = psycopg2.connect(**params)
         cur = conn.cursor()
@@ -341,6 +335,7 @@ def insert_data_to_removed(data: dict) -> None:
     """ insert data to database removed_ads table """
     conn = None
     try:
+        logger.info("Actioning data - inserting dict to removed_ads table")
         params = config()
         conn = psycopg2.connect(**params)
         cur = conn.cursor()
@@ -434,6 +429,7 @@ def delete_db_table_rows(delisted_hashes: list) -> None:
     """Deletes rows from listed_ads table based on removed ads hashes"""
     conn = None
     try:
+        logger.info("Deleting romoved ads from listed_ads table")
         params = config()
         conn = psycopg2.connect(**params)
         cur = conn.cursor()
