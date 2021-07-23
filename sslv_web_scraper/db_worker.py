@@ -24,11 +24,12 @@ Todo functionality:
     11.[ ] Monthly activity (new ads inserted count, removed ads count,
     average days of listed state for removed ads)
 """
+import sys
+import logging
+from logging.handlers import RotatingFileHandler
 import pandas as pd
 import psycopg2
 from config import config
-import logging
-from logging.handlers import RotatingFileHandler
 
 logger = logging.getLogger('db_worker')
 logger.setLevel(logging.INFO)
@@ -42,6 +43,12 @@ logger.addHandler(fh)
 def db_worker_main() -> None:
     """db_worker.py module main function"""
     logger.info(" --- Satrting db_worker module ---")
+    try:
+        file = open('cleaned-sorted-df.csv', 'r')
+    except IOError:
+        logger.error('There was an error opening the file cleaned-sorted-df.csv or file does not exist!')
+        sys.exit()
+
     print("DEBUG: Loaded cleaned-sorted-df.csv to dataframe in memory ...")
     df_hashes = get_data_frame_hashes('cleaned-sorted-df.csv')
     print("DEBUG: calculated hashes from data fame URLs ...")
