@@ -59,7 +59,7 @@ def db_worker_main() -> None:
     new_hashes = categorized_hashes[0]
     existing_hashes = categorized_hashes[1]
     removed_hashes = categorized_hashes[2]
-    logger.info(f' new: {len(new_hashes)}, existing: {len(existing_hashes)}, removed: {len(removed_hashes)} hashes')
+    logger.info(f'Current state new: {len(new_hashes)}, existing: {len(existing_hashes)}, removed: {len(removed_hashes)} hashes')
     logger.info("Extracting data in dict fromat from pandas data frame")
     # data_for_db_inserts is list of 2 dicts:
     #   - first dict is for inserts to listed_ads table
@@ -86,6 +86,7 @@ def get_data_frame_hashes(df_filename: str) -> list:
     """Read csv to pandas data frame and return URL uniq hashes as list"""
     df_hashes = []
     df = pd.read_csv(df_filename)
+    logger.info(f'Loaded {df_filename} file to pandas data frame in memory')
     urls = df['URL'].tolist()
     for url in urls:
         url_hash = extract_hash(url)
@@ -134,7 +135,7 @@ def clean_db_hashes(hash_list: list) -> list:
         clean_element = str_element.replace("'", "").replace(")", "")
         clean_hash = clean_element.replace("(", "").replace(",", "")
         clean_hashes.append(clean_hash)
-    logger.info(f'Extracted and cleaned {len(clean_hashes)} hashes from listed_ads table')
+    logger.info(f'Extracted {len(clean_hashes)} hashes from database listed_ads table')
     return clean_hashes
 
 
@@ -145,7 +146,7 @@ def categorize_hashes(df_file_name: str) -> list:
     2. existing_hashes = grouped_hashes[1]
     3. removed_hashes = grouped_hashes[2]
     """
-    logger.info('Categorizing hashes based on listed_ads table hashes and and new df hashes')
+    logger.info('Categorizing hashes based on listed_ads table hashes and new df hashes')
     df_hashes = get_data_frame_hashes(df_file_name)
     tuple_listed_hashes = get_hashes_from_table()
     string_listed_hashes = clean_db_hashes(tuple_listed_hashes)
@@ -288,7 +289,7 @@ def insert_data_to_db(data: dict) -> None:
     """ insert data to database table """
     conn = None
     try:
-        logger.info("Actioning data - inserting dict to listed_ads table")
+        logger.info(f'Inserting {len(data)} messages to listed_ads table')
         params = config()
         conn = psycopg2.connect(**params)
         cur = conn.cursor()
@@ -335,7 +336,7 @@ def insert_data_to_removed(data: dict) -> None:
     """ insert data to database removed_ads table """
     conn = None
     try:
-        logger.info("Actioning data - inserting dict to removed_ads table")
+        logger.info(f'Inserting {len(data)} messages to removed_ads table')
         params = config()
         conn = psycopg2.connect(**params)
         cur = conn.cursor()
@@ -429,7 +430,7 @@ def delete_db_table_rows(delisted_hashes: list) -> None:
     """Deletes rows from listed_ads table based on removed ads hashes"""
     conn = None
     try:
-        logger.info("Deleting romoved ads from listed_ads table")
+        logger.info("Deleting {len(delisted_hashes)} removed messages from listed_ads table")
         params = config()
         conn = psycopg2.connect(**params)
         cur = conn.cursor()
