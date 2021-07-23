@@ -366,50 +366,6 @@ def insert_data_to_removed(data: dict) -> None:
             conn.close()
 
 
-def insert_data_to_removed(data: dict) -> None:
-    """Function inserts data dict  to database removed_ads table"""
-    conn = None
-    try:
-        params = config()
-        conn = psycopg2.connect(**params)
-        cur = conn.cursor()
-        for key, value in data.items():
-            url_hash = key
-            room_count = value[0]
-            house_floors = value[1]
-            apt_floor = value[2]
-            price = value[3]
-            sqm = value[4]
-            sqm_price = value[5]
-            apt_address = value[6]
-            list_date = value[7]
-            cur.execute(""" INSERT INTO removed_ads
-                  (url_hash,
-                  room_count,
-                  house_floors,
-                  apt_floor,
-                  price,
-                  sqm,
-                  sqm_price,
-                  apt_address)
-                  VALUES (%s, %s, %s, %s, %s, %s, %s, %s) """,
-                 (url_hash,
-                  room_count,
-                  house_floors,
-                  apt_floor,
-                  price,
-                  sqm,
-                  sqm_price,
-                  apt_address))
-        conn.commit()
-        cur.close()
-    except (Exception, psycopg2.DatabaseError) as error:
-        print(error)
-    finally:
-        if conn is not None:
-            conn.close()
-
-
 def create_db_table() -> None:
     """Creates listed_ads table in the PostgreSQL database"""
     command = (""" CREATE TABLE listed_ads
