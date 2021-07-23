@@ -430,7 +430,7 @@ def delete_db_table_rows(delisted_hashes: list) -> None:
     """Deletes rows from listed_ads table based on removed ads hashes"""
     conn = None
     try:
-        logger.info("Deleting {len(delisted_hashes)} removed messages from listed_ads table")
+        logger.info(f'Deleting {len(delisted_hashes)} removed messages from listed_ads table')
         params = config()
         conn = psycopg2.connect(**params)
         cur = conn.cursor()
