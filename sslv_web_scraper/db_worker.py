@@ -38,7 +38,6 @@ def db_worker_main() -> None:
     tuple_listed_hashes = get_hashes_from_table()
     string_listed_hashes = clean_db_hashes(tuple_listed_hashes)
     print("DEBUG: Extracted from table listed_ads URL hashes  ...")
-    
     print("Stage1: Get and categorize hashes to (new, existing, removed) categories")
     categorized_hashes = categorize_hashes('cleaned-sorted-df.csv')
     new_hashes = categorized_hashes[0]
@@ -47,35 +46,34 @@ def db_worker_main() -> None:
     print("New hashe count or not seen in listed_ads table:", len(new_hashes))
     print("Existing hashe count in db listed_ads table:", len(existing_hashes))
     print("Delisted hashe count based on categorization:" , len(removed_hashes))
-    
     print("Stage2.1: Extracting data as dict from data frame based new hashes")
     # data_for_db_inserts is list of 2 dicts:
     #   - first dict is for inserts to listed_ads table
     #   - second dict is for inserts to removed_ads table
     data_for_db_inserts = prepare_data(categorized_hashes,'cleaned-sorted-df.csv')
     new_data = data_for_db_inserts[0]
-    print(new_data) 
+    print(new_data)
     print("Stage2.2: Extracting data as dict from listed_ads database table based on removed_hashes")
     removed_data = data_for_db_inserts[1]
     print(removed_data)
-    
     print("Stage3.1: Actioning data - inserting dict to listed_ads table")
     print("Listing data in listed_ads table before inserts")
-    list_data_in_table()
+    # list_data_in_table()
     insert_data_to_db(new_data)
     print("Listing data in listed_ads table after inserts")
-    list_data_in_table()
+    # list_data_in_table()
     print("Stage3.2: Actioning data - inserting dict to removed_ads table")
     print("Listing data in delisted_ads table before inserts")
-    list_data_in_rm_table()
+    # list_data_in_rm_table()
+    insert_data_to_removed(removed_data)
     print("Listing data in delisted_ads table after inserts")
-    list_data_in_rm_table()
+    # list_data_in_rm_table()
     print("Stage3.3: Removing delisted ads from listed_ads table")
     print("Listing data in listed_ads table before removal")
-    list_data_in_table()
+    # list_data_in_table()
     delete_db_table_rows(removed_hashes)
     print("Listing data in listed_ads table after removal")
-    list_data_in_table()
+    # list_data_in_table()
 
 
 def get_data_frame_hashes(df_filename: str) -> list:
