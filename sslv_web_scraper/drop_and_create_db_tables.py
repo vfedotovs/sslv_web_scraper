@@ -38,7 +38,9 @@ def create_db_listed_table() -> None:
                     sqm INTEGER,
                     sqm_price INTEGER,
                     apt_address TEXT,
-                    list_date TEXT )""");
+                    list_date TEXT,
+                    days_listed INTEGER,
+                    view_count INTEGER)""");
     conn = None
     try:
         params = config()                 # read the connection parameters
@@ -66,8 +68,9 @@ def create_removed_db_table() -> None:
                    sqm INTEGER,
                    sqm_price INTEGER,
                    apt_address TEXT,
+                   days_listed INTEGER,
                    removed_date TEXT,
-                   days_listed INTEGER)""");
+                   view_count INTEGER)""");
     conn = None
     try:
         params = config()                 # read the connection parameters
