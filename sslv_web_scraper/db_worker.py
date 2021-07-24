@@ -189,6 +189,14 @@ def rotate_date(date: str) -> str:
     return yyyy + "." + mm + "."+ dd
 
 
+def gen_listed_day_obj(date: str):
+    """converts date in string format to datetime object"""
+    yyyy = int(date[6:10])
+    mm = int(date[3:5])
+    dd = int(date[0:2])
+    return datetime(yyyy, mm, dd)
+
+
 def filter_df_by_hash(df_filename: str, hashes: list) -> dict:
     """ Extract data from df and return as dict hash: (list column data for hash row)"""
     df = pd.read_csv(df_filename)
@@ -210,6 +218,11 @@ def filter_df_by_hash(df_filename: str, hashes: list) -> dict:
             pub_date = row['Pub_date']
             rotated_pub_date = rotate_date(pub_date)
             row_data.append(rotated_pub_date)
+            today = datetime.now()
+            listed = gen_listed_day_obj(pub_date)
+            delta = str(today - listed)
+            days_count = delta.split()[0]
+            row_data.append(days_count)
             if url_hash == hash_str:
                 data_dict[url_hash] = row_data
     return data_dict
@@ -314,6 +327,7 @@ def insert_data_to_db(data: dict) -> None:
             sqm_price = v[5]
             apt_address = v[6]
             list_date = v[7]
+            days_listed = v[8]
             cur.execute(""" INSERT INTO listed_ads
                   (url_hash,
                   room_count,
@@ -323,8 +337,9 @@ def insert_data_to_db(data: dict) -> None:
                   sqm,
                   sqm_price,
                   apt_address,
-                  list_date)
-                  VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s) """,
+                  list_date,
+                  days_listed)
+                  VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s) """,
                  (url_hash,
                   room_count,
                   house_floors,
@@ -333,7 +348,8 @@ def insert_data_to_db(data: dict) -> None:
                   sqm,
                   sqm_price,
                   apt_address,
-                  list_date))
+                  list_date,
+                  days_listed))
         conn.commit()
         cur.close()
     except (Exception, psycopg2.DatabaseError) as error:
