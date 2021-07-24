@@ -30,6 +30,7 @@ from logging.handlers import RotatingFileHandler
 import pandas as pd
 import psycopg2
 from config import config
+from datetime import datetime
 
 logger = logging.getLogger('db_worker')
 logger.setLevel(logging.INFO)
@@ -180,6 +181,14 @@ def compare_df_to_db(df_hashes: list, db_hashes: list) -> list:
     return all_ads
 
 
+def rotate_date(date: str) -> str:
+    """In 01.07.2021 -> out 2021.07.01"""
+    yyyy = date[6:10]
+    mm = date[3:5]
+    dd = date[0:2]
+    return yyyy + "." + mm + "."+ dd
+
+
 def filter_df_by_hash(df_filename: str, hashes: list) -> dict:
     """ Extract data from df and return as dict hash: (list column data for hash row)"""
     df = pd.read_csv(df_filename)
@@ -198,7 +207,9 @@ def filter_df_by_hash(df_filename: str, hashes: list) -> dict:
             row_data.append(row['Size_sqm'])
             row_data.append(row['SQ_meter_price'])
             row_data.append(row['Street'])
-            row_data.append(row['Pub_date'])
+            pub_date = row['Pub_date']
+            rotated_pub_date = rotate_date(pub_date)
+            row_data.append(rotated_pub_date)
             if url_hash == hash_str:
                 data_dict[url_hash] = row_data
     return data_dict
