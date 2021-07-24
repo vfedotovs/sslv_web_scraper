@@ -70,6 +70,9 @@ def db_worker_main() -> None:
     # print(new_data)
     logger.info("Extracting data as dict from listed_ads database table based on removed_hashes")
     removed_data = data_for_db_inserts[1]
+
+
+
     # print(removed_data)
     # list_data_in_table()
     insert_data_to_db(new_data)
@@ -197,6 +200,11 @@ def gen_listed_day_obj(date: str):
     return datetime(yyyy, mm, dd)
 
 
+def gen_removed_date() -> str:
+    today = str(datetime.now())
+    return today.split()[0].replace("-",".")
+
+
 def filter_df_by_hash(df_filename: str, hashes: list) -> dict:
     """ Extract data from df and return as dict hash: (list column data for hash row)"""
     df = pd.read_csv(df_filename)
@@ -268,7 +276,8 @@ def get_delisted_data(delisted_hashes: list) -> dict:
                     sqm_price = table_rows[i][6]
                     apt_address = table_rows[i][7]
                     list_date = table_rows[i][8]
-                    removed_date = '31.05.2021' # FIXME placeholder for now
+                    removed_date = gen_removed_date()
+                    days_listed = table_rows[i][9]
                     data_values = []
                     data_values.append(room_count)
                     data_values.append(house_floor_count)
@@ -279,6 +288,7 @@ def get_delisted_data(delisted_hashes: list) -> dict:
                     data_values.append(apt_address)
                     data_values.append(list_date)
                     data_values.append(removed_date)
+                    data_values.append(days_listed)
                     delisted_mesages[curr_row_hash] = data_values
         cur.close()
     except (Exception, psycopg2.DatabaseError) as error:
@@ -376,7 +386,9 @@ def insert_data_to_removed(data: dict) -> None:
             sqm = value[4]
             sqm_price = value[5]
             apt_address = value[6]
-            list_date = value[7]
+            listed_date = value[7]
+            removed_date = value[8]
+            days_listed = value[9]
             cur.execute(""" INSERT INTO removed_ads
                   (url_hash,
                   room_count,
@@ -385,8 +397,11 @@ def insert_data_to_removed(data: dict) -> None:
                   price,
                   sqm,
                   sqm_price,
-                  apt_address)
-                  VALUES (%s, %s, %s, %s, %s, %s, %s, %s) """,
+                  apt_address,
+                  listed_date,
+                  removed_date,
+                  days_listed)
+                  VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s) """,
                  (url_hash,
                   room_count,
                   house_floors,
@@ -394,10 +409,14 @@ def insert_data_to_removed(data: dict) -> None:
                   price,
                   sqm,
                   sqm_price,
-                  apt_address))
+                  apt_address,
+                  listed_date,
+                  removed_date,
+                  days_listed))
         conn.commit()
         cur.close()
     except (Exception, psycopg2.DatabaseError) as error:
+        logger.error(error)
         print(error)
     finally:
         if conn is not None:
@@ -463,7 +482,6 @@ def delete_db_table_rows(delisted_hashes: list) -> None:
         cur = conn.cursor()
         cur.execute("SELECT * FROM listed_ads")
         for delisted_hash in delisted_hashes:
-            print(delisted_hash)
             del_row = "DELETE FROM listed_ads WHERE url_hash = "
             full_cmd = del_row + "'" + delisted_hash + "'"
             cur.execute(full_cmd)
