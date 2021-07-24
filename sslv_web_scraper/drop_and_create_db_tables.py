@@ -68,8 +68,9 @@ def create_removed_db_table() -> None:
                    sqm INTEGER,
                    sqm_price INTEGER,
                    apt_address TEXT,
-                   days_listed INTEGER,
+                   listed_date TEXT,
                    removed_date TEXT,
+                   days_listed INTEGER,
                    view_count INTEGER)""");
     conn = None
     try:
