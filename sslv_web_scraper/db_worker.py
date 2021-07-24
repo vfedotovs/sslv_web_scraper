@@ -44,15 +44,12 @@ logger.addHandler(fh)
 def db_worker_main() -> None:
     """db_worker.py module main function"""
     logger.info(" --- Satrting db_worker module ---")
-    try:
-        file = open('cleaned-sorted-df.csv', 'r')
-    except IOError:
-        logger.error('There was an error opening the file cleaned-sorted-df.csv or file does not exist!')
-        sys.exit()
-    try:
-        file = open('database.ini', 'r')
-    except IOError:
-        logger.error('There was an error opening the file database.ini or file does not exist!')
+    requred_files = ['cleaned-sorted-df.csv','database.ini']
+    check_files(requred_files)
+    df = load_csv_to_df('cleaned-sorted-df.csv')
+    url_hashes_from_df = extract_url_hashes(df)
+
+
     df_hashes = get_data_frame_hashes('cleaned-sorted-df.csv')
     tuple_listed_hashes = get_hashes_from_table()
     string_listed_hashes = clean_db_hashes(tuple_listed_hashes)
@@ -62,35 +59,51 @@ def db_worker_main() -> None:
     removed_hashes = categorized_hashes[2]
     logger.info(f'Current state new: {len(new_hashes)}, existing: {len(existing_hashes)}, removed: {len(removed_hashes)} hashes')
     logger.info("Extracting data in dict fromat from pandas data frame")
-    # data_for_db_inserts is list of 2 dicts:
-    #   - first dict is for inserts to listed_ads table
-    #   - second dict is for inserts to removed_ads table
     data_for_db_inserts = prepare_data(categorized_hashes,'cleaned-sorted-df.csv')
     new_data = data_for_db_inserts[0]
-    # print(new_data)
     logger.info("Extracting data as dict from listed_ads database table based on removed_hashes")
     removed_data = data_for_db_inserts[1]
-
-
-
-    # print(removed_data)
     # list_data_in_table()
-    insert_data_to_db(new_data)
-    # list_data_in_table()
+    insert_data_to_db(new_data)  # inserts dict (hash : message info) in to listed_ads table
+    insert_data_to_removed(removed_data)  # inserts dict (hash : message info) in to removed_ads table
     # list_data_in_rm_table()
-    insert_data_to_removed(removed_data)
-    # list_data_in_rm_table()
-    # list_data_in_table()
-    delete_db_table_rows(removed_hashes)
+    delete_db_table_rows(removed_hashes) # deleted table rows that match removed ads hash list
     # list_data_in_table()
     logger.info(' --- Finished db_worker module ---')
+
+
+def load_csv_to_df(csv_file_name: str):
+    """reads csv file and return pandas data frame"""
+    df = pd.read_csv(csv_file_name)
+    logger.info(f'Loaded {csv_file_name} file to pandas data frame in memory')
+    return df
+
+
+def check_files(file_names: list) -> None:
+    """Testing if file exists and can be opened"""
+    for f in file_names:
+        try:
+            file = open(f, 'r')
+        except IOError:
+            logger.error(f'There was an error opening the file {f} or file does not exist!')
+            sys.exit()
+
+
+def extract_url_hashes(data_frame) -> list:
+    """extracts unique message url hashes from all data frame rows"""
+    df_hashes = []
+    urls = data_frame['URL'].tolist()
+    for url in urls:
+        url_hash = extract_hash(url)
+        df_hashes.append(url_hash)
+    logger.info(f'Extracted {len(df_hashes)} hashes from pandas data frame')
+    return df_hashes
 
 
 def get_data_frame_hashes(df_filename: str) -> list:
     """Read csv to pandas data frame and return URL uniq hashes as list"""
     df_hashes = []
     df = pd.read_csv(df_filename)
-    logger.info(f'Loaded {df_filename} file to pandas data frame in memory')
     urls = df['URL'].tolist()
     for url in urls:
         url_hash = extract_hash(url)
