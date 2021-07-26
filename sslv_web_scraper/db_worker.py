@@ -183,14 +183,23 @@ def extract_new_msg_data(df, new_msg_hashes: list) -> dict:
             pub_date = row['Pub_date']
             rotated_pub_date = rotate_date(pub_date)
             row_data.append(rotated_pub_date)
-            today = datetime.now()
-            listed = gen_listed_day_obj(pub_date)
-            delta = str(today - listed)
-            days_count = delta.split()[0]
+            days_count = get_days_listed_count(pub_date)
             row_data.append(days_count)
             if url_hash == hash_str:
                 data_dict[url_hash] = row_data
     return data_dict
+
+
+def get_days_listed_count(pub_date: str) -> int:
+    """Caclulates messge days listed count based on todays date and pub_date"""
+    today = datetime.now()
+    listed = gen_listed_day_obj(pub_date)
+    delta = str(today - listed)
+    days_num = delta.split('days')[0]
+    if len(days_num) > 5:  # should catch case when delta is less that 1 day 
+        return 0
+    if len(days_num) < 5:  # assuming that listed day count will not exceed 999 days 
+        return  int(days_num)
 
 
 def rotate_date(date: str) -> str:
