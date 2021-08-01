@@ -466,8 +466,17 @@ def update_dlv_in_db_table(data: list, todays_date: datetime) -> None:
     logger.info(f'Updated days_listed value for {dlv_count} messages in listed_ads table')
 
 
+def calc_valid_dlv(pub_date: str, todays_date: datetime) -> int:
+    """calculates days_listed value based on pub_date and
+    todays_date and returns days count value"""
+    listed = gen_listed_day_obj_new(pub_date)
+    delta = str(todays_date - listed)
+    days_count = delta.split()[0]
+    return days_count
+
+
 def list_rows_in_listed_table() -> None:
-    """ iterate over all records in listed_ads table and print them"""
+    """iterate over all records in listed_ads table and print them"""
     conn = None
     try:
         params = config()
