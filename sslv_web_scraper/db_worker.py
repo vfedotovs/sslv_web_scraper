@@ -453,7 +453,7 @@ def update_dlv_in_db_table(data: list, todays_date: datetime) -> None:
             pub_date, days_listed = value[0], value[1]
             correct_dlv = calc_valid_dlv(pub_date, todays_date)
             if int(correct_dlv) >  days_listed:
-                update_single_column_value("listed_ads", correct_dlv, key, days_listed)
+                update_single_column_value("listed_ads", correct_dlv, key)
                 dlv_count += 1
             if int(correct_dlv) == days_listed:
                 pass
@@ -477,8 +477,7 @@ def gen_listed_day_obj_new(date: str):
     return datetime(yyyy, mm, dd)
 
 
-def update_single_column_value(
-        table_name: str, dlv: int,url_hash: str) -> None:
+def update_single_column_value(table_name: str, dlv: int, url_hash: str) -> None:
     """connect to db and update value for listed_ads column only for
     row that matched url_hash"""
     conn = None
