@@ -62,6 +62,8 @@ def db_worker_main() -> None:
     new_msg_data = extract_new_msg_data(df, new_msg_hashes)
     # Extract to_remove msg data dict from db listed_ads table
     to_removed_msg_data = extract_to_remove_msg_data(to_remove_msg_hashes)
+    # Extract data for messages that need to increment listed days value in db
+    to_increment_msg_data = extract_to_increment_msg_data(still_listed_msg_hashes)
     # Insert new msg data dict to listed_ads table
     insert_data_to_listed_table(new_msg_data)
     # Insert to_remove msg data dict to removed_ads table
@@ -222,6 +224,7 @@ def gen_removed_date() -> str:
     today = str(datetime.now())
     return today.split()[0].replace("-",".")
 
+
 def insert_data_to_listed_table(data: dict) -> None:
     """ insert data to database table """
     conn = None
@@ -318,6 +321,47 @@ def extract_to_remove_msg_data(delisted_hashes: list) -> dict:
         if conn is not None:
             conn.close()
     return delisted_mesages
+
+
+def extract_to_increment_msg_data(listed_url_hashes:list) -> list:
+    """Connects to db listed_ads table and iterates over table based on hashe
+    list (listed_url_hashes) and extracts data in list of dicts format.
+
+    Args:
+        listed_url_hashes: string list of hashes
+
+    Returns:
+        list: example data returned [{'gjhdx': ['2021.04.20', 108], 'cecek': ['2021.04.17', 101]}]
+    """
+    conn = None
+    increment_msg_data = {}
+    msg_data = []
+    try:
+        params = config()
+        conn = psycopg2.connect(**params)
+        cur = conn.cursor()
+        cur.execute("SELECT * FROM listed_ads")
+        table_row_count = cur.rowcount
+        table_rows = cur.fetchall()
+        for luh in listed_url_hashes:
+            for i in range(table_row_count):
+                curr_row_hash = table_rows[i][0]
+                if luh == curr_row_hash:
+                    pub_date = table_rows[i][8]
+                    dlv = table_rows[i][9]
+                    data_values = []
+                    data_values.append(pub_date)
+                    data_values.append(dlv)
+                    increment_msg_data[curr_row_hash] = data_values
+                    msg_data.append(increment_msg_data)
+        cur.close()
+    except (Exception, psycopg2.DatabaseError) as error:
+        print(error)
+    finally:
+        if conn is not None:
+            conn.close()
+    logger.error(f'Extracted data from listed_ads table for increment days listed value for {len(msg_data} messages')
+    return msg_data
 
 
 def insert_data_to_removed_table(data: dict) -> None:
