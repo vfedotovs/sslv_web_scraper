@@ -71,7 +71,7 @@ def db_worker_main() -> None:
     # Remove rows from listed_ads based on  to_remove hashes msg
     delete_db_listed_table_rows(to_remove_msg_hashes)
     # Check and increment/update listed_ads all rows for listed days count value 
-    update_listed_ads_table_column(still_listed_msg_hashes)
+    update_dlv_in_db_table(to_increment_msg_data, todays_date)
     logger.info(" --- Ended db_worker module ---")
 
 
@@ -360,7 +360,7 @@ def extract_to_increment_msg_data(listed_url_hashes:list) -> list:
     finally:
         if conn is not None:
             conn.close()
-    logger.error(f'Extracted data from listed_ads table for increment days listed value for {len(msg_data} messages')
+    logger.error(f'Extracted data from listed_ads table for increment days listed value for {len(msg_data)} messages')
     return msg_data
 
 
@@ -440,11 +440,30 @@ def delete_db_listed_table_rows(delisted_hashes: list) -> None:
         if conn is not None:
             conn.close()
 
-def update_listed_ads_table_column(hases: list) -> None:
-    """Check and increment/update listed_ads all rows for listed days count value"""
-    #TODO: Implement this function
-    logger.info(f'Updating all rows days_listed values in listed_ads table')
-    pass
+
+def update_dlv_in_db_table(data: list, todays_date: datetime) -> None:
+    """Iterate over list of dicts and calculate correct dlv (days_listed value)
+    and check if dlv is correct in context of todays_date. If dlv in dict is not
+    correct call function update_single_column_value in listed_ads db table""" 
+    dlv_count = 0
+    for row in data:
+        for key, value in row.items():
+            pub_date, days_listed = value[0], value[1]
+            print(pub_date)
+            pub_date = gen_listed_day_obj_new(pub_date)
+            print(pub_date)
+            correct_dlv = calc_valid_dlv(pub_date, todays_date)
+            print("FROM DB table: pub_date, dlv Correct: dlv")
+            print("------------->", value[0], str(value[1]), "----->", correct_dlv)
+            if int(correct_dlv) >  days_listed:
+                print(f'CONDITION: {correct_dlv} != {days_listed} -> Action update DB')
+                update_single_column_value("listed_ads", correct_dlv, key, days_listed)
+                print("-------------")
+                dlv_count += 1
+            if int(correct_dlv) == days_listed:
+                print(f'CONDITION: {correct_dlv} = {days_listed} -> Do nothing')
+                print("-------------")
+    logger.info(f'Updated days_listed value for {dlv_count} messages in listed_ads table')
 
 
 def list_rows_in_listed_table() -> None:
