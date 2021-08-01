@@ -19,20 +19,19 @@ Next step extract 2 data dicts from df and one from db
 7.[x] Insert new_msg_data to listed_ads table
 8.[x] Insert to_remove_msg_data to removed_ads table
 9.[x] Delete db rows in listed table based on to_remove_msg_hashes
-
+10.[x] Update listed table: still_listed_msg_hashed for check and update listed days count every run
+11.[x] Check and update days listed in listed table rows based still_listed_msg_hashes
 TODO:
-10.[] Update listed table: still_listed_msg_hashed for check and update listed days count every run
-11.[] Check and update days listed in listed table rows based still_listed_msg_hashes
 12.[] Check if report day by last x days count and  generate report
 13.[] Write tests for db_worker module
 """
 import sys
 import logging
 from logging.handlers import RotatingFileHandler
+from datetime import datetime
 import pandas as pd
 import psycopg2
 from config import config
-from datetime import datetime
 
 
 logger = logging.getLogger('db_worker')
@@ -70,7 +69,8 @@ def db_worker_main() -> None:
     insert_data_to_removed_table(to_removed_msg_data)
     # Remove rows from listed_ads based on  to_remove hashes msg
     delete_db_listed_table_rows(to_remove_msg_hashes)
-    # Check and increment/update listed_ads all rows for listed days count value 
+    # Check and increment/update listed_ads all rows for listed days count value
+    todays_date = datetime.now()
     update_dlv_in_db_table(to_increment_msg_data, todays_date)
     logger.info(" --- Ended db_worker module ---")
 
@@ -198,10 +198,10 @@ def get_days_listed_count(pub_date: str) -> int:
     listed = gen_listed_day_obj(pub_date)
     delta = str(today - listed)
     days_num = delta.split('days')[0]
-    if len(days_num) > 5:  # should catch case when delta is less that 1 day 
+    if len(days_num) > 5:  # should catch case when delta is less that 1 day
         return 0
-    if len(days_num) < 5:  # assuming that listed day count will not exceed 999 days 
-        return  int(days_num)
+    if len(days_num) < 5:  # assuming that listed day count will not exceed 999 days
+        return int(days_num)
 
 
 def rotate_date(date: str) -> str:
@@ -221,6 +221,8 @@ def gen_listed_day_obj(date: str):
 
 
 def gen_removed_date() -> str:
+    """generates removed data value based on todays date
+    example: 2021.07.25"""
     today = str(datetime.now())
     return today.split()[0].replace("-",".")
 
@@ -360,7 +362,7 @@ def extract_to_increment_msg_data(listed_url_hashes:list) -> list:
     finally:
         if conn is not None:
             conn.close()
-    logger.error(f'Extracted data from listed_ads table for increment days listed value for {len(msg_data)} messages')
+    logger.info(f'Extracted data from listed_ads table for {len(msg_data)} messages')
     return msg_data
 
 
@@ -444,25 +446,17 @@ def delete_db_listed_table_rows(delisted_hashes: list) -> None:
 def update_dlv_in_db_table(data: list, todays_date: datetime) -> None:
     """Iterate over list of dicts and calculate correct dlv (days_listed value)
     and check if dlv is correct in context of todays_date. If dlv in dict is not
-    correct call function update_single_column_value in listed_ads db table""" 
+    correct call function update_single_column_value in listed_ads db table"""
     dlv_count = 0
     for row in data:
         for key, value in row.items():
             pub_date, days_listed = value[0], value[1]
-            print(pub_date)
-            pub_date = gen_listed_day_obj_new(pub_date)
-            print(pub_date)
             correct_dlv = calc_valid_dlv(pub_date, todays_date)
-            print("FROM DB table: pub_date, dlv Correct: dlv")
-            print("------------->", value[0], str(value[1]), "----->", correct_dlv)
             if int(correct_dlv) >  days_listed:
-                print(f'CONDITION: {correct_dlv} != {days_listed} -> Action update DB')
                 update_single_column_value("listed_ads", correct_dlv, key, days_listed)
-                print("-------------")
                 dlv_count += 1
             if int(correct_dlv) == days_listed:
-                print(f'CONDITION: {correct_dlv} = {days_listed} -> Do nothing')
-                print("-------------")
+                pass
     logger.info(f'Updated days_listed value for {dlv_count} messages in listed_ads table')
 
 
@@ -473,6 +467,36 @@ def calc_valid_dlv(pub_date: str, todays_date: datetime) -> int:
     delta = str(todays_date - listed)
     days_count = delta.split()[0]
     return days_count
+
+
+def gen_listed_day_obj_new(date: str):
+    """converts date in string 2021.03.21 > format to datetime object"""
+    yyyy = int(date[0:4])
+    mm = int(date[5:7])
+    dd = int(date[8:10])
+    return datetime(yyyy, mm, dd)
+
+
+def update_single_column_value(
+        table_name: str, dlv: int,url_hash: str) -> None:
+    """connect to db and update value for listed_ads column only for
+    row that matched url_hash"""
+    conn = None
+    try:
+        params = config()
+        conn = psycopg2.connect(**params)
+        cur = conn.cursor()
+        sql = (f"UPDATE {table_name} "
+               f"SET days_listed = {dlv} "
+               f"WHERE url_hash = '{url_hash}' ;")
+        cur.execute(sql)
+        conn.commit()
+        cur.close()
+    except (Exception, psycopg2.DatabaseError) as error:
+        print(error)
+    finally:
+        if conn is not None:
+            conn.close()
 
 
 def list_rows_in_listed_table() -> None:
@@ -518,6 +542,3 @@ def list_rows_in_removed_table() -> None:
 
 
 db_worker_main()
-
-
-
