@@ -336,17 +336,21 @@ def extract_to_increment_msg_data(listed_url_hashes:list) -> list:
         list: example data returned [{'gjhdx': ['2021.04.20', 108], 'cecek': ['2021.04.17', 101]}]
     """
     conn = None
-    increment_msg_data = {}
-    msg_data = []
+    to_increment_msg_data = {}
     try:
         params = config()
         conn = psycopg2.connect(**params)
         cur = conn.cursor()
         cur.execute("SELECT * FROM listed_ads")
-        table_row_count = cur.rowcount
-        table_rows = cur.fetchall()
+        table_row_count = cur.rowcount # row count from table listed_ads
+        table_rows = cur.fetchall()  # list of rows as tuple Datastructure
+        # need to handle case when table is empty - row count = 0 aka first run 
+        if table_row_count < 1:
+            return None
+        if len(listed_url_hashes) < 1:
+            return None
         for luh in listed_url_hashes:
-            for i in range(table_row_count):
+            for i in range(table_row_count): # iterate listed url shace count over all table rows
                 curr_row_hash = table_rows[i][0]
                 if luh == curr_row_hash:
                     pub_date = table_rows[i][8]
@@ -354,16 +358,15 @@ def extract_to_increment_msg_data(listed_url_hashes:list) -> list:
                     data_values = []
                     data_values.append(pub_date)
                     data_values.append(dlv)
-                    increment_msg_data[curr_row_hash] = data_values
-                    msg_data.append(increment_msg_data)
+                    to_increment_msg_data[curr_row_hash] = data_values
         cur.close()
     except (Exception, psycopg2.DatabaseError) as error:
         print(error)
     finally:
         if conn is not None:
             conn.close()
-    logger.info(f'Extracted data from listed_ads table for {len(msg_data)} messages')
-    return msg_data
+    logger.info(f'Extracted data from listed_ads table for {len(to_increment_msg_data)} messages')
+    return to_increment_msg_data
 
 
 def insert_data_to_removed_table(data: dict) -> None:
@@ -443,13 +446,13 @@ def delete_db_listed_table_rows(delisted_hashes: list) -> None:
             conn.close()
 
 
-def update_dlv_in_db_table(data: list, todays_date: datetime) -> None:
+def update_dlv_in_db_table(data: dict, todays_date: datetime) -> None:
     """Iterate over list of dicts and calculate correct dlv (days_listed value)
     and check if dlv is correct in context of todays_date. If dlv in dict is not
     correct call function update_single_column_value in listed_ads db table"""
     dlv_count = 0
-    for row in data:
-        for key, value in row.items():
+    if data is not None:
+        for key, value in data.items():
             pub_date, days_listed = value[0], value[1]
             correct_dlv = calc_valid_dlv(pub_date, todays_date)
             if int(correct_dlv) >  days_listed:
