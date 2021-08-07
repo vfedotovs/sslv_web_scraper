@@ -6,3 +6,5 @@ fpdf
 plotly
 sendgrid
 pytest
+psycopg2-binary
+
