@@ -1,10 +1,12 @@
+uvicorn
+fastapi
 requests
 bs4
-pandas 
-matplotlib 
-fpdf 
-plotly
-sendgrid
-pytest
-psycopg2-binary
+#pandas 
+#matplotlib 
+#fpdf 
+#plotly
+#sendgrid
+#pytest
+#psycopg2-binary
 
