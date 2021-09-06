@@ -16,7 +16,7 @@ __pycache__/
 env/
 .DS_Store
 .ipynb_checkpoints/
-
+postgresql_data/
 
 # Exclude these secret env files
 sendgrid.env
