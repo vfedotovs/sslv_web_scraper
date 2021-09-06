@@ -2,11 +2,11 @@ uvicorn
 fastapi
 requests
 bs4
-#pandas 
+pandas 
 #matplotlib 
 #fpdf 
 #plotly
 #sendgrid
 #pytest
-#psycopg2-binary
+psycopg2-binary
 

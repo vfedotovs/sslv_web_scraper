@@ -13,12 +13,16 @@ services:
     networks:
       - postgresql
   ws:
-    image: fastapi_test:v1.3.5
+    image: ws_m3_dc:v1.3.15
     restart: always
     environment:
       DEST_EMAIL: ${DEST_EMAIL}
       SRC_EMAIL: ${SRC_EMAIL}
       SENDGRID_API_KEY: ${SENDGRID_API_KEY}
+      DB_HOST: db
+      DB_NAME: new_docker_db
+      DB_USER: new_docker_user
+      DB_PASSWORD: ${POSTGRES_PASSWORD} 
     ports:
       - "80:80"
     depends_on:
