@@ -8,10 +8,39 @@ to file Ogre-raw-data-report.txt
 import re
 import requests
 from bs4 import BeautifulSoup
+import sys
+import os
+from datetime import datetime
+import logging
+from logging.handlers import RotatingFileHandler
+
+
+logger = logging.getLogger('scrape_website')
+logger.setLevel(logging.INFO)
+fh = logging.handlers.RotatingFileHandler('ws_worker.log', maxBytes=1000000, backupCount=10)
+fh.setLevel(logging.INFO)
+formatter = logging.Formatter('%(asctime)s: %(name)s: %(levelname)s: %(funcName)s: %(lineno)d: %(message)s')
+fh.setFormatter(formatter)
+logger.addHandler(fh)
 
 
 FLATS_OGRE = "https://www.ss.lv/lv/real-estate/flats/ogre-and-reg/ogre/sell/"
-# flats_jelgava = "https://www.ss.lv/lv/real-estate/flats/jelgava-and-reg/jelgava/sell/"
+city_name = 'Ogre'
+
+
+def task_runned_today(city_name):
+    """Checks if file Ogre-raw-data-report-YYYY-MM-DD.txt with todays data exist"""
+    todays_date = datetime.today().strftime('%Y-%m-%d')
+    target_filename = city_name + '-raw-data-report-' + todays_date + '.txt'
+    if not os.path.exists('data'):
+        os.makedirs('data')
+    for filename in os.listdir("data"):
+        if filename == target_filename:
+            logger.info(f"File {target_filename} found, task for {city_name} city has run today")
+            return True
+    logger.info(f"File {target_filename} was not found, task for {city_name} city  did not run today")
+    return False
+
 
 def scrape_website():
     """ Main function of module calls all sub-functions"""
