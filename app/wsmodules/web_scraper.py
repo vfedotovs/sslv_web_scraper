@@ -79,6 +79,7 @@ def extract_data_from_url(nondup_urls: list, dest_file: str) ->None:
         table_price = get_msg_table_info(nondup_urls[i], "ads_price")
 
         print("Debug info: extracting data from message URL ", i + 1)
+        logger.info(f"Extracting data from message URL  {i + 1}")
         write_line(current_msg_url, dest_file)
         for idx in range(len(table_opt_names) - 1):
             text_line = table_opt_names[idx] + ">" + table_opt_values[idx] + "\n"
@@ -161,10 +162,20 @@ def get_msg_table_info(msg_url: str, td_class: str) ->list:
     return table_fields
 
 
-def write_line(text: str,file_name: str) ->None:
-    """ Append text to end of the file"""
+def write_line(text: str,file_name: str) -> None:
+    """Append text to end of the file"""
     with open(file_name, 'a') as the_file:
         the_file.write(text)
+
+
+def create_file_copy() -> None:
+    """Creates report file copy in data folder"""
+    todays_date = datetime.today().strftime('%Y-%m-%d')
+    dest_file = 'Ogre-raw-data-report-' + todays_date + '.txt'
+    copy_cmd = 'mv Ogre-raw-data-report.txt data/' + dest_file
+    if not os.path.exists('data'):
+        os.makedirs('data')
+    os.system(copy_cmd)
 
 
 scrape_website()
