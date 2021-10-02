@@ -44,13 +44,27 @@ def task_runned_today(city_name):
 
 def scrape_website():
     """ Main function of module calls all sub-functions"""
+    logger.info("--- Starting ws_worker module ---")
     print("Debug info: Starting website parsing module ... ")
+    logger.info("Checking if task has run today")
+    task_run_state = task_runned_today(city_name)
+    print("Task did run state:", task_run_state)
+    if task_run_state == True:
+        logger.info("--- Finished ws_worker module because task was run today ---")
+        sys.exit(0)
     print("Debug info: getting BS4 objects ...")
+    logger.info("Extracting BS4 objects")
     ogre_object = get_bs_object(FLATS_OGRE)
     print("Debug info: bulding non-duplicate URL list from BS4 objects ...")
+    logger.info("Building non-duplicate URL list from BS4 objects")
     valid_msg_urls = find_single_page_urls(ogre_object)
+    logger.info(f"Found {str(len(valid_msg_urls))} parsable message URLs" )
     print("Debug info: found " + str(len(valid_msg_urls)) + " parsable message URLs ...")
+    logger.info("Extracting data for Ogre city apartments for sell task and saving as Ogre-raw-data-report.txt" )
     extract_data_from_url(valid_msg_urls, 'Ogre-raw-data-report.txt')
+    logger.info("Creating file copy in data folder")
+    create_file_copy()
+    logger.info("--- Finished ws_worker module ---")
 
 
 def extract_data_from_url(nondup_urls: list, dest_file: str) ->None:
