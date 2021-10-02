@@ -70,7 +70,9 @@ def scrape_website():
 def extract_data_from_url(nondup_urls: list, dest_file: str) ->None:
     """Iterate over all first page msg urls extract info from each url and write to file """
     msg_url_count = len(nondup_urls)
-    for i in range(msg_url_count):
+    # for i in range(msg_url_count):    # for production uncomment this line
+    # For debug testing ONLY  and testing extract data only from first 5 urls
+    for i in range(5):
         current_msg_url = nondup_urls[i] + "\n"
         table_opt_names = get_msg_table_info(nondup_urls[i], "ads_opt_name")
         table_opt_values = get_msg_table_info(nondup_urls[i], "ads_opt")
