@@ -13,7 +13,7 @@ services:
     networks:
       - postgresql
   ws:
-    image: ws_m3_dc:v1.3.15
+    image: ws_worker_fastapi:v1.3.19 
     restart: always
     environment:
       DEST_EMAIL: ${DEST_EMAIL}
@@ -29,6 +29,16 @@ services:
       - db
     networks:
       - postgresql
+  ts:
+    image: task_scheduler_v7
+    restart: always
+    environment:
+      WS_HOST: ws
+    depends_on:
+      - ws
+    networks:
+      - postgresql
 networks:
   postgresql:
     driver: bridge
+  
