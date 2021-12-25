@@ -13,7 +13,7 @@ services:
     networks:
       - postgresql
   ws:
-    image: ws_worker_fastapi:v1.3.19 
+    image: ws_worker_fastapi:v1.3.42
     restart: always
     environment:
       DEST_EMAIL: ${DEST_EMAIL}

@@ -1,6 +1,6 @@
-import web_scraper
-import data_formater
-import db_worker
+from app.wsmodules import web_scraper
+from app.wsmodules import data_formater
+from app.wsmodules import db_worker
 
 
 def ws_worker_main():

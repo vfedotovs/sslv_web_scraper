@@ -15,8 +15,18 @@ TODO:
     Currently as workaround apartment sreet info is not included in
     Mailer_report.txt
 """
+import os
 import re
 import pandas as pd
+from datetime import datetime
+
+
+def get_file_path(city_name) -> str:
+    """Builds file name based on date"""
+    todays_date = datetime.today().strftime('%Y-%m-%d')
+    target_filename = city_name + '-raw-data-report-' + todays_date + '.txt'
+    return "data/" + target_filename
+
 
 def create_mailer_report() -> None:
     """ Main module function
@@ -26,12 +36,13 @@ def create_mailer_report() -> None:
     that will be used by gmailer.py module """
     print("Debug info: Started dat_formater module ... ")
     # Load text from raw data file to df in memmory
-    msg_data_frame = create_oneline_report('Ogre-raw-data-report.txt')
+    data_file_location = get_file_path('Ogre')
+    msg_data_frame = create_oneline_report(data_file_location)
     # Saves to csv for other module usage
     msg_data_frame.to_csv("pandas_df.csv")
 
 
-    import df_cleaner  #TODO: fix this circural import
+    from app.wsmodules import df_cleaner  #TODO: fix this circural import
 
     # Export to txt for gmailer.py consumable txt file
     data_for_save = format_text_to_oneline(msg_data_frame)
@@ -48,6 +59,7 @@ def create_mailer_report() -> None:
     # create new mailer report
     all_ads_df = pd.read_csv("cleaned-sorted-df.csv", index_col=False)
     create_new_mailer_report(all_ads_df, 'mrv2.txt')
+    create_file_copy
     print("Debug info: Ended data_formater module ... ")
 
 
@@ -212,6 +224,14 @@ def save_text_report_to_file(text: list,file_name: str) ->None:
     with open(file_name, 'a') as the_file:
         for line in text:
             the_file.write(f"{line}\n")
+
+
+def create_file_copy() -> None:
+    """Creates report file copy in data folder"""
+    copy_cmd = 'mv cleaned-sorted-df.csv data/'
+    if not os.path.exists('data'):
+        os.makedirs('data')
+    os.system(copy_cmd)
 
 
 # Main code driver function of module

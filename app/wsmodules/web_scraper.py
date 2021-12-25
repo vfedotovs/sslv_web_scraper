@@ -47,11 +47,14 @@ def scrape_website():
     logger.info("--- Starting ws_worker module ---")
     print("Debug info: Starting website parsing module ... ")
     logger.info("Checking if task has run today")
+    print("Checking if job: scrape OGRE apartments has run today")
     task_run_state = task_runned_today(city_name)
-    print("Task did run state:", task_run_state)
+    print("Job did run today state:", task_run_state)
     if task_run_state == True:
         logger.info("--- Finished ws_worker module because task was run today ---")
-        sys.exit(0)
+        print("--- Finished ws_worker module because job was run today state: true  ---")
+        print("Exiting scrape_website module with sys.exit(0)")
+        exit(0)
     print("Debug info: getting BS4 objects ...")
     logger.info("Extracting BS4 objects")
     ogre_object = get_bs_object(FLATS_OGRE)
@@ -172,7 +175,7 @@ def create_file_copy() -> None:
     """Creates report file copy in data folder"""
     todays_date = datetime.today().strftime('%Y-%m-%d')
     dest_file = 'Ogre-raw-data-report-' + todays_date + '.txt'
-    copy_cmd = 'mv Ogre-raw-data-report.txt data/' + dest_file
+    copy_cmd = 'cp Ogre-raw-data-report.txt data/' + dest_file
     if not os.path.exists('data'):
         os.makedirs('data')
     os.system(copy_cmd)
