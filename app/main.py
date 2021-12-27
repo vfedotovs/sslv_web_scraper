@@ -46,11 +46,16 @@ async def run_long_task(city: str, background_tasks: BackgroundTasks):
     background_tasks.add_task(df_cleaner_main)
     print("DEBUG: sleeping 3 sec")
     time.sleep(3)
-    
 
 
-    #print("DEBUG: calling db_worker_main module")
-    #background_tasks.add_task(db_worker_main)
+    print("DEBUG:fastapi: importing db_worker module")
+    from app.wsmodules.db_worker  import db_worker_main  # fourth  debug import
+    print("DEBUG: calling data_formater module")
+    background_tasks.add_task(db_worker_main)
+    print("DEBUG: sleeping 3 sec")
+    time.sleep(3)
+
+
     return {"message": "Completed run scrape ss.lv task for ogre city as background task"}
 
 
