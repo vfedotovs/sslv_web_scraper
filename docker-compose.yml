@@ -13,7 +13,7 @@ services:
     networks:
       - postgresql
   ws:
-    image: ws_worker_fastapi:v1.3.45
+    build: .
     restart: always
     environment:
       DEST_EMAIL: ${DEST_EMAIL}
@@ -30,7 +30,7 @@ services:
     networks:
       - postgresql
   ts:
-    image: task_scheduler:v1.3.8
+    build: task_scheduler/.
     restart: always
     environment:
       WS_HOST: ws
