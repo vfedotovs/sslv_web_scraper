@@ -23,23 +23,27 @@ print("fastapi 3: before http /run-task/{city} call ")
 async def run_long_task(city: str, background_tasks: BackgroundTasks):
     print("DEBUG:fastapi; recieved http request on endpoint /run-task/ogre")
     print("DEBUG:fastapi: importing scrape_website module")
-    from app.wsmodules.web_scraper import scrape_website
-    print("DEBUG: calling scrape_website module")
+
+
+    from app.wsmodules.web_scraper import scrape_website  # first debug import
+    print("DEBUG: adding task to background and calling scrape_website module")
     background_tasks.add_task(scrape_website)
-    print("DEBUG: sleeping 30 sec")
-    time.sleep(30)
+    print("DEBUG: sleeping 10 sec")
+    time.sleep(10)
 
 
     print("DEBUG:fastapi: importing data_formater module")
-    from app.wsmodules.data_formater import create_mailer_report
+    from app.wsmodules.data_formater_v14 import data_formater_main  # second debug import
     print("DEBUG: calling data_formater module")
-    background_tasks.add_task(create_mailer_report)
+    background_tasks.add_task(data_formater_main)
 
-    print("DEBUG: sleeping 30 sec")
-    time.sleep(30)
+    print("DEBUG: sleeping 5 sec")
+    time.sleep(5)
+
+
     #print("DEBUG: calling db_worker_main module")
     #background_tasks.add_task(db_worker_main)
-    return {"message": "run task for ogre  city in the background"}
+    return {"message": "Completed run scrape ss.lv task for ogre city as background task"}
 
 
 if __name__ =='__main__':
