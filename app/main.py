@@ -36,9 +36,17 @@ async def run_long_task(city: str, background_tasks: BackgroundTasks):
     from app.wsmodules.data_formater_v14 import data_formater_main  # second debug import
     print("DEBUG: calling data_formater module")
     background_tasks.add_task(data_formater_main)
-
     print("DEBUG: sleeping 5 sec")
     time.sleep(5)
+
+
+    print("DEBUG:fastapi: importing df_cleaner module")
+    from app.wsmodules.df_cleaner  import df_cleaner_main  # third debug import
+    print("DEBUG: calling data_formater module")
+    background_tasks.add_task(df_cleaner_main)
+    print("DEBUG: sleeping 3 sec")
+    time.sleep(3)
+    
 
 
     #print("DEBUG: calling db_worker_main module")

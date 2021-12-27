@@ -63,7 +63,7 @@ def clean_sqm_eur_col(df_name):
     return final_df
 
 
-def save_clean_df():
+def df_cleaner_main():
     """ Cleans df, sorts df by price in EUR, save to csv file """
     clean_df = clean_data_frame(df_to_clean)
     clean_sqm_col = clean_sqm_column(clean_df)
@@ -75,5 +75,4 @@ def save_clean_df():
 
 
 # Main module code driver
-save_clean_df()
-
+df_cleaner_main()
