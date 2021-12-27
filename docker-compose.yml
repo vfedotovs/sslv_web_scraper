@@ -1,7 +1,7 @@
 version: '3'
 services:
   db:
-    image: postgres
+    image: postgres:13.5
     restart: always
     environment:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
@@ -13,7 +13,7 @@ services:
     networks:
       - postgresql
   ws:
-    image: ws_worker_fastapi:v1.3.42
+    image: ws_worker_fastapi:v1.3.45
     restart: always
     environment:
       DEST_EMAIL: ${DEST_EMAIL}
@@ -30,7 +30,7 @@ services:
     networks:
       - postgresql
   ts:
-    image: task_scheduler_v7
+    image: task_scheduler:v1.3.8
     restart: always
     environment:
       WS_HOST: ws
