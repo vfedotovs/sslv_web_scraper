@@ -1,27 +1,39 @@
-[![Build Status](https://travis-ci.com/vfedotovs/sslv_web_scraper.svg?branch=main)](https://travis-ci.com/vfedotovs/sslv_web_scraper)
-# SS.LV Web Scraper
+# SS.LV Web Scraper release 1.4
+
 
 ## About application:
 Purpose: This application will parse information from ss.lv website from apartments for sale category in specific city of your choice
-and  will send report filtered by your criteria to your gmail address 
+and store scraped data in postgres database
+
+
+## Requirements
+
+```bash
+# docker -v                                                                 
+Docker version 20.10.11, build dea9396
+
+# docker-compose -v                                                                  
+Docker Compose version v2.2.1
+
+```
+
 
 ## How to use application:
-1. API KEY is needed from https://sendgrid.com/ for sending emails
-2. Bulid docker image and run container
-```bash
-docker build -t my-app-image .
-docker run -it --name my-app-name \
-	-e DEST_EMAIL=dest@example.com \
-	-e SENDGRID_API_KEY=<My_sendgrid_API_KEY> \
-	-e SRC_EMAIL=src@example.com \
-	-d <docker-image-ID>
+1. Clone repository 
+2. Create database.ini here is example
+```bash                                      
+[postgresql]
+host=<your docker db hostname>
+database=<your db name>
+user=<your db username>
+password=<your db password>
+
 ```
-3. Report should arrive to email
+3. Create .env.prod file for docker compose
+4. TODO: .env.prod file  example
+5. Run docker-compose --env-file .env.prod up -d
 
 
 ## Currently available features
 - [x] Parse ss.lv website and extract information from section apartments for sale (currently hardcoded for Ogre city adjust to your needs)
-- [x] Generate basic user frendly report in formated of one line for each advertisement
-- [x] Send email via sendgrid email gateway with report  
-- [x] Email includes pdf report with basic price analytics and Price/square m relationship graphs
-- [x] Docker container is sleeping and running report once per day   
+- [x] Store scraped data in psotgres DB container tables listed_ads and removed_ads  

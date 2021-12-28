@@ -1,11 +1,13 @@
-FROM python:3.7-slim
-
-WORKDIR /home/user/docker/sslv_web_scraper
+FROM python:3.8-slim-buster
 
 COPY requirements.txt ./
 
 RUN pip install --no-cache-dir -r requirements.txt
 
-COPY sslv_web_scraper .
+EXPOSE 80
 
-CMD [ "python", "./app.py" ]
+COPY database.ini /
+
+COPY ./app /app
+
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "80"]
