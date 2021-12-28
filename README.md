@@ -7,23 +7,21 @@ and store scraped data in postgres database
 
 
 ## Requirements
-1. OS version: RHEL TBC
 
-2. # docker -v                                                                 
+```bash
+# docker -v                                                                 
 Docker version 20.10.11, build dea9396
 
-3. # docker-compose -v                                                                  
+# docker-compose -v                                                                  
 Docker Compose version v2.2.1
 
-3. # git version                                                                  
-git version 2.32.0
+```
 
 
 ## How to use application:
 1. Clone repository 
-2. Create database.ini here is example content
-```bash
-database.ini                                        
+2. Create database.ini here is example
+```bash                                      
 [postgresql]
 host=<your docker db hostname>
 database=<your db name>
@@ -31,7 +29,7 @@ user=<your db username>
 password=<your db password>
 
 ```
-3. Create .env.prod file dor docker compose
+3. Create .env.prod file for docker compose
 4. TODO: .env.prod file  example
 5. Run docker-compose --env-file .env.prod up -d
 
