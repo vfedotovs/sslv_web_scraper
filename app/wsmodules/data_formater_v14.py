@@ -1,9 +1,10 @@
-""" data_formater.py Module.
+"""
+data_formater_v14.py Module.
 
-Module for these functions:
+Module functions:
+[x] 1. Take as input file Ogre-raw-data-report.txt creates pandas_df.csv
+[x] 2. pandas_df.csv will be used in analitics.py module
 
-[ ]1. Take as input file Ogre-raw-data-report.txt - pandas_df.csv
-[x]2. pandas_df.csv will be used in analitics.py module
 """
 import os
 import re
@@ -11,7 +12,7 @@ import pandas as pd
 from datetime import datetime
 
 
-def get_file_path(city_name) -> str:
+def get_file_path(city_name: str) -> str:
     """Builds file name based on date"""
     todays_date = datetime.today().strftime('%Y-%m-%d')
     target_filename = city_name + '-raw-data-report-' + todays_date + '.txt'
@@ -19,19 +20,11 @@ def get_file_path(city_name) -> str:
 
 
 def data_formater_main() -> None:
-    """ Read raw data from Ogre-raw-data-report.txt and save to pandas_df.csv """
+    """Read raw data from Ogre-raw-data-report.txt and save to pandas_df.csv"""
     print("Debug info: Started dat_formater module ... ")
     data_file_location = get_file_path('Ogre')
     df = create_oneline_report(data_file_location)
     df.to_csv("pandas_df.csv")
-
-
-    #from app.wsmodules import df_cleaner  #TODO: fix this circural import
-    #data_for_save = format_text_to_oneline(msg_data_frame)
-    # run data frame cleaner to generate file thats needed for next function
-    #df_cleaner
-    # create new mailer report
-    #all_ads_df = pd.read_csv("cleaned-sorted-df.csv", index_col=False)
     create_file_copy
     print("Debug info: Ended data_formater module ... ")
 
@@ -94,14 +87,6 @@ def create_oneline_report(source_file: str):
     return df
 
 
-
-def save_text_report_to_file(text: list,file_name: str) ->None:
-    """ Writes oneline data text to mailer report file """
-    with open(file_name, 'a') as the_file:
-        for line in text:
-            the_file.write(f"{line}\n")
-
-
 def create_file_copy() -> None:
     """Creates report file copy in data folder"""
     copy_cmd = 'mv cleaned-sorted-df.csv data/'
@@ -110,5 +95,5 @@ def create_file_copy() -> None:
     os.system(copy_cmd)
 
 
-# Main code driver function of module
+# Main
 data_formater_main()
