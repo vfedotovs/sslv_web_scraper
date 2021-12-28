@@ -3,11 +3,11 @@
 import requests
 import schedule
 import time
-#import sys
 import logging
 from logging.handlers import RotatingFileHandler
 from datetime import datetime
 import os
+
 
 logger = logging.getLogger('task_scheduler')
 logger.setLevel(logging.INFO)
@@ -18,32 +18,31 @@ fh.setFormatter(formatter)
 logger.addHandler(fh)
 
 
-
-
-
-
 #url='https://www.ss.lv/lv/real-estate/flats/ogre-and-reg/ogre/sell/'
 url='http://ws:80/run-task/ogre'
+
 
 def execute_ogre_task():
     logger.info("Trying to get http://127.0.0.1:80/run-task/ogre url ...")
     response = requests.get(url)
     if response.status_code == 200:
         print("Success! - 200")
-        logger.info("GET  http://127.0.0.1:80/run-task/ogre Success! - 200")
+        logger.info("GET http://127.0.0.1:80/run-task/ogre Success! - 200")
         print("GET http://127.0.0.1:80/run-task/ogre Success! - 200")
     elif response.status_code == 404:
         print("Not Found. - 404")
     logger.info("Completed Ogre city apartments for sale scraping task ...")
     print("Completed ogre scraping task ...")
 
-schedule.every(60).seconds.do(execute_ogre_task)
+
+schedule.every(600).seconds.do(execute_ogre_task)
+
 
 while True:
-    print("Started task scheduler trigger get ss.lv every 60 sec , beat every 10 sec ...")
-    logger.info("Task scheduler is running trigger GET ss.lv every 60 sec , beat every 10 sec ...")
+    print("Started task scheduler loop to send HTTP GET request to fastapi endpint /run-task/ogre 600 sec (5min), 600 sec ...")
+    logger.info("Task schedulerci is running trigger GET ss.lv every 60 sec , beat every 10 sec ...")
     schedule.run_pending()
-    time.sleep(10)
+    time.sleep(600)
 
 
 
