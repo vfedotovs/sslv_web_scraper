@@ -30,7 +30,15 @@ password=<your db password>
 
 ```
 3. Create .env.prod file for docker compose
-4. TODO: .env.prod file  example
+```bash                                      
+# ws_worker container envs
+DEST_EMAIL=user@example.com
+SENDGRID_API_KEY=<Your SENDGRID API Key>
+SRC_EMAIL=user@example.com
+
+# postgres db container envs
+POSTGRES_PASSWORD=<Your DB Password>
+```
 5. Run docker-compose --env-file .env.prod up -d
 
 
