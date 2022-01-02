@@ -61,21 +61,19 @@ def scrape_website():
     print("Debug info: bulding non-duplicate URL list from BS4 objects ...")
     logger.info("Building non-duplicate URL list from BS4 objects")
     valid_msg_urls = find_single_page_urls(ogre_object)
-    logger.info(f"Found {str(len(valid_msg_urls))} parsable message URLs" )
+    logger.info(f"Found {str(len(valid_msg_urls))} parsable message URLs")
     print("Debug info: found " + str(len(valid_msg_urls)) + " parsable message URLs ...")
-    logger.info("Extracting data for Ogre city apartments for sell task and saving as Ogre-raw-data-report.txt" )
+    logger.info("Extracting data for Ogre city apartments for sell task and saving as Ogre-raw-data-report.txt")
     extract_data_from_url(valid_msg_urls, 'Ogre-raw-data-report.txt')
     logger.info("Creating file copy in data folder")
     create_file_copy()
     logger.info("--- Finished ws_worker module ---")
 
 
-def extract_data_from_url(nondup_urls: list, dest_file: str) ->None:
+def extract_data_from_url(nondup_urls: list, dest_file: str) -> None:
     """Iterate over all first page msg urls extract info from each url and write to file """
     msg_url_count = len(nondup_urls)
-    # for i in range(msg_url_count):    # for production uncomment this line
-    # For debug testing ONLY  and testing extract data only from first 5 urls
-    for i in range(5):
+    for i in range(msg_url_count):
         current_msg_url = nondup_urls[i] + "\n"
         table_opt_names = get_msg_table_info(nondup_urls[i], "ads_opt_name")
         table_opt_values = get_msg_table_info(nondup_urls[i], "ads_opt")
@@ -97,9 +95,9 @@ def extract_data_from_url(nondup_urls: list, dest_file: str) ->None:
         for date_idx in range(len(table_date)):
             if date_idx == 2:
                 date_str = table_date[date_idx]
-                date_and_time =  date_str.replace("Datums:", "")
+                date_and_time = date_str.replace("Datums:", "")
                 date_clean = date_and_time.split()[0]
-                date_field =  "Date:>" + str(date_clean) + "\n"
+                date_field = "Date:>" + str(date_clean) + "\n"
         write_line(date_field, dest_file)
 
         # TODO: Fix-me Extract message view count always returns view count = 1
@@ -136,14 +134,14 @@ def find_single_page_urls(bs_object) -> list:
 
 def get_msg_field_info(msg_url: str, span_id: str):
     """ Function finds span id in url and return value """
-    r  = requests.get(msg_url)
+    r = requests.get(msg_url)
     data = r.text
     soup = BeautifulSoup(data, "html.parser")
     span = soup.find("span", id=span_id)
     return span.text
 
 
-def get_msg_table_info(msg_url: str, td_class: str) ->list:
+def get_msg_table_info(msg_url: str, td_class: str) -> list:
     """ Function parses message page and extracts td_class table fields
     Paramters:
     msg_url: message web page link
@@ -160,12 +158,12 @@ def get_msg_table_info(msg_url: str, td_class: str) ->list:
     for data in table_data:
         tostr = str(data)
         no_front = tostr.split('">', 1)[1]
-        name = no_front.split("</",1)[0]
+        name = no_front.split("</", 1)[0]
         table_fields.append(name)
     return table_fields
 
 
-def write_line(text: str,file_name: str) -> None:
+def write_line(text: str, file_name: str) -> None:
     """Append text to end of the file"""
     with open(file_name, 'a') as the_file:
         the_file.write(text)
