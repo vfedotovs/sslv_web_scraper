@@ -1,49 +1,52 @@
 #!/usr/bin/env python
+""" This module is sending HTTP GET request to fast_api endpints every 24H """
 
-import requests
-import schedule
-import time
 import logging
 from logging.handlers import RotatingFileHandler
-from datetime import datetime
-import os
+from logging import handlers
+import sys
+import time
+import requests
+import schedule
 
 
-logger = logging.getLogger('task_scheduler')
-logger.setLevel(logging.INFO)
-fh = logging.handlers.RotatingFileHandler('task_scheduler.log', maxBytes=1000000, backupCount=10)
-fh.setLevel(logging.INFO)
-formatter = logging.Formatter('%(asctime)s: %(name)s: %(levelname)s: %(funcName)s: %(lineno)d: %(message)s')
-fh.setFormatter(formatter)
-logger.addHandler(fh)
+log = logging.getLogger('task_scheduler')
+log.setLevel(logging.DEBUG)
+ts_log_format = logging.Formatter(
+        "%(asctime)s [%(threadName)-12.12s] [%(levelname)-5.5s] : %(funcName)s: %(lineno)d: %(message)s")
+
+ch = logging.StreamHandler(sys.stdout)
+ch.setFormatter(ts_log_format)
+log.addHandler(ch)
+
+fh = handlers.RotatingFileHandler('task_scheduler.log',
+                                   maxBytes=(1048576*5),
+                                   backupCount=7)
+fh.setFormatter(ts_log_format)
+log.addHandler(fh)
 
 
-#url='https://www.ss.lv/lv/real-estate/flats/ogre-and-reg/ogre/sell/'
-url='http://ws:80/run-task/ogre'
+URL='http://ws:80/run-task/ogre'
 
 
 def execute_ogre_task():
-    logger.info("Trying to get http://127.0.0.1:80/run-task/ogre url ...")
-    response = requests.get(url)
+    """HTTP GET for run-task/ogre fast-api endpoint"""
+    log.info("HTTP GET http://127.0.0.1:80/run-task/ogre")
+    response = requests.get(URL)
     if response.status_code == 200:
-        print("Success! - 200")
-        logger.info("GET http://127.0.0.1:80/run-task/ogre Success! - 200")
-        print("GET http://127.0.0.1:80/run-task/ogre Success! - 200")
-    elif response.status_code == 404:
-        print("Not Found. - 404")
-    logger.info("Completed Ogre city apartments for sale scraping task ...")
-    print("Completed ogre scraping task ...")
+        log.info('HTTP GET response - 200')
+    elif response.status_code != 200:
+        log.info('HTTP GET response failed with %s code, response.status_code')
+    fast_api_response = response.text
+    log.info('FAST_API Response: %s, fast_api_response')
 
 
-schedule.every(600).seconds.do(execute_ogre_task)
+# schedule.every().hour.do(execute_ogre_task)  # development
+schedule.every().day.at("23:00").do(execute_ogre_task)  # production
 
 
 while True:
-    print("Started task scheduler loop to send HTTP GET request to fastapi endpint /run-task/ogre 600 sec (5min), 600 sec ...")
-    logger.info("Task schedulerci is running trigger GET ss.lv every 60 sec , beat every 10 sec ...")
+    log.info('ts_loop: checking every 300 sec if cheduled task needs to run again...')
     schedule.run_pending()
-    time.sleep(600)
-
-
-
-
+    # waiting 1 min before checking if new run is needed
+    time.sleep(300)
