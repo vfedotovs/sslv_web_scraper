@@ -12,15 +12,22 @@ import sys
 import os
 from datetime import datetime
 import logging
+from logging import handlers
 from logging.handlers import RotatingFileHandler
+import time
 
 
-logger = logging.getLogger('scrape_website')
-logger.setLevel(logging.INFO)
-fh = logging.handlers.RotatingFileHandler('ws_worker.log', maxBytes=1000000, backupCount=10)
-fh.setLevel(logging.INFO)
-formatter = logging.Formatter('%(asctime)s: %(name)s: %(levelname)s: %(funcName)s: %(lineno)d: %(message)s')
-fh.setFormatter(formatter)
+logger = logging.getLogger('web_scraper')
+logger.setLevel(logging.DEBUG)
+ws_log_format = logging.Formatter(
+        "%(asctime)s [%(threadName)-12.12s] [%(levelname)-5.5s] %(name)s : %(funcName)s: %(lineno)d: %(message)s")
+
+ch = logging.StreamHandler(sys.stdout)
+ch.setFormatter(ws_log_format)
+logger.addHandler(ch)
+
+fh = handlers.RotatingFileHandler('web_scraper.log', maxBytes=(1048576*5), backupCount=7)
+fh.setFormatter(ws_log_format)
 logger.addHandler(fh)
 
 
@@ -28,46 +35,19 @@ FLATS_OGRE = "https://www.ss.lv/lv/real-estate/flats/ogre-and-reg/ogre/sell/"
 city_name = 'Ogre'
 
 
-def task_runned_today(city_name):
-    """Checks if file Ogre-raw-data-report-YYYY-MM-DD.txt with todays data exist"""
-    todays_date = datetime.today().strftime('%Y-%m-%d')
-    target_filename = city_name + '-raw-data-report-' + todays_date + '.txt'
-    if not os.path.exists('data'):
-        os.makedirs('data')
-    for filename in os.listdir("data"):
-        if filename == target_filename:
-            logger.info(f"File {target_filename} found, task for {city_name} city has run today")
-            return True
-    logger.info(f"File {target_filename} was not found, task for {city_name} city  did not run today")
-    return False
-
-
 def scrape_website():
-    """ Main function of module calls all sub-functions"""
-    logger.info("--- Starting ws_worker module ---")
-    print("Debug info: Starting website parsing module ... ")
-    logger.info("Checking if task has run today")
-    print("Checking if job: scrape OGRE apartments has run today")
-    task_run_state = task_runned_today(city_name)
-    print("Job did run today state:", task_run_state)
-    if task_run_state == True:
-        logger.info("--- Finished ws_worker module because task was run today ---")
-        print("--- Finished ws_worker module because job was run today state: true  ---")
-        print("Exiting scrape_website module with sys.exit(0)")
-        exit(0)
-    print("Debug info: getting BS4 objects ...")
+    """Main function of module calls all sub-functions"""
+    logger.info("--- Starting web_scraper module ---")
     logger.info("Extracting BS4 objects")
     ogre_object = get_bs_object(FLATS_OGRE)
-    print("Debug info: bulding non-duplicate URL list from BS4 objects ...")
     logger.info("Building non-duplicate URL list from BS4 objects")
     valid_msg_urls = find_single_page_urls(ogre_object)
     logger.info(f"Found {str(len(valid_msg_urls))} parsable message URLs")
-    print("Debug info: found " + str(len(valid_msg_urls)) + " parsable message URLs ...")
     logger.info("Extracting data for Ogre city apartments for sell task and saving as Ogre-raw-data-report.txt")
     extract_data_from_url(valid_msg_urls, 'Ogre-raw-data-report.txt')
-    logger.info("Creating file copy in data folder")
+    logger.info("Creating file Ogre-raw-data-report.txt copy in data folder")
     create_file_copy()
-    logger.info("--- Finished ws_worker module ---")
+    logger.info("--- Finished web_scraper module ---")
 
 
 def extract_data_from_url(nondup_urls: list, dest_file: str) -> None:
@@ -99,6 +79,9 @@ def extract_data_from_url(nondup_urls: list, dest_file: str) -> None:
                 date_clean = date_and_time.split()[0]
                 date_field = "Date:>" + str(date_clean) + "\n"
         write_line(date_field, dest_file)
+        # adding deplay between scraping each URL 5 sec (for Ogre 5x30=150 sec or 2.5 min should last ) 
+        time.sleep(5)
+
 
         # TODO: Fix-me Extract message view count always returns view count = 1
         # views = get_msg_field_info(nondup_urls[i], "show_cnt_stat")
