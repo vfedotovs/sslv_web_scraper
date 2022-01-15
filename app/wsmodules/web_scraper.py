@@ -59,7 +59,6 @@ def extract_data_from_url(nondup_urls: list, dest_file: str) -> None:
         table_opt_values = get_msg_table_info(nondup_urls[i], "ads_opt")
         table_price = get_msg_table_info(nondup_urls[i], "ads_price")
 
-        print("Debug info: extracting data from message URL ", i + 1)
         logger.info(f"Extracting data from message URL  {i + 1}")
         write_line(current_msg_url, dest_file)
         for idx in range(len(table_opt_names) - 1):
