@@ -8,8 +8,8 @@ Module functions:
 """
 import os
 import re
-import pandas as pd
 from datetime import datetime
+import pandas as pd
 
 
 def get_file_path(city_name: str) -> str:
@@ -25,7 +25,7 @@ def data_formater_main() -> None:
     data_file_location = get_file_path('Ogre')
     df = create_oneline_report(data_file_location)
     df.to_csv("pandas_df.csv")
-    create_file_copy
+    create_file_copy()
     print("Debug info: Ended data_formater module ... ")
 
 
@@ -43,7 +43,6 @@ def create_oneline_report(source_file: str):
     room_prices = []
     room_floors = []
     publish_dates = []
-    oneline_report = []
     with open(source_file) as file_handle:
         while True:
             line = file_handle.readline()
