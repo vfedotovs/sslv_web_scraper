@@ -15,7 +15,7 @@ data_files = ['1_rooms_tmp.txt',
               'Ogre_city_report.pdf']
 
 
-def remove_tmp_files(data_files: list) -> None:
+def remove_tmp_files() -> None:
     """Iterates over file list and deletes file
     if matches file name in list"""
     for data_file in data_files:
@@ -25,4 +25,4 @@ def remove_tmp_files(data_files: list) -> None:
             print(f'Error: {data_file} : {e.strerror}')
 
 
-remove_tmp_files(data_files)
+remove_tmp_files()

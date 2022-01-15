@@ -456,10 +456,10 @@ def update_dlv_in_db_table(data: dict, todays_date: datetime) -> None:
         for key, value in data.items():
             pub_date, days_listed = value[0], value[1]
             correct_dlv = calc_valid_dlv(pub_date, todays_date)
-            if int(correct_dlv) >  days_listed:
+            if correct_dlv >  days_listed:
                 update_single_column_value("listed_ads", correct_dlv, key)
                 dlv_count += 1
-            if int(correct_dlv) == days_listed:
+            if correct_dlv == days_listed:
                 pass
     logger.info(f'Updated days_listed value for {dlv_count} messages in listed_ads table')
 
@@ -470,7 +470,9 @@ def calc_valid_dlv(pub_date: str, todays_date: datetime) -> int:
     listed = gen_listed_day_obj_new(pub_date)
     delta = str(todays_date - listed)
     days_count = delta.split()[0]
-    return days_count
+    if len(days_count) > 3:
+        return 0
+    return int(days_count)
 
 
 def gen_listed_day_obj_new(date: str):
