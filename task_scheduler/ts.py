@@ -46,7 +46,6 @@ schedule.every().day.at("23:00").do(execute_ogre_task)  # production
 
 
 while True:
-    log.info('ts_loop: checking every 300 sec if cheduled task needs to run again...')
+    log.info('ts_loop: checking every 3000 sec if cheduled task needs to run again...')
     schedule.run_pending()
-    # waiting 1 min before checking if new run is needed
-    time.sleep(300)
+    time.sleep(3000)
