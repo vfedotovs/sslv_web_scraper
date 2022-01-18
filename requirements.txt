@@ -3,10 +3,11 @@ fastapi
 requests
 bs4
 pandas 
+sendgrid
+psycopg2-binary
+
 #matplotlib 
 #fpdf 
 #plotly
-#sendgrid
 #pytest
-psycopg2-binary
 
