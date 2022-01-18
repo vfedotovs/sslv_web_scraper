@@ -29,8 +29,8 @@ def analytics_main() -> None:
     log.info(" --- Starting analitics module --- ")
     REQUIRED_FILES = ['cleaned-sorted-df.csv']
     check_files(REQUIRED_FILES)
-    df = load_csv_to_df('cleaned-sorted-df.csv')
-    cattegorized_dfs = categorize_data()  # list of 4 data frames
+    # df = load_csv_to_df('cleaned-sorted-df.csv')
+    categorized_dfs = categorize_data()  # list of 4 data frames
 
     # Module functional requirements
     # Category 1 - analysis by advert price:
@@ -38,7 +38,7 @@ def analytics_main() -> None:
     # 2. get count of apartments for sale        - implemented
     # 3. get price range for each room category  - implemented
     # 4. get min / max / average price           - implemented
-    price_data = create_multi_category_stats()
+    price_data = create_multi_category_stats(categorized_dfs)
     write_lines(price_data, 'basic_price_stats.txt')
     log.info(" --- Ended analitics module --- ")
 
@@ -94,7 +94,7 @@ def calculate_stats_by_price(df_name, filter_column: str) -> list:
         4. Price range
 
         Returns these values as list"""
-    log.info(f'Calculating stats_by_price for data frame {df_name}')
+    log.info(f'Calculating stats_by_price for data frame')
     lines = []
     filter_col = 'Price_in_eur'
     price_list = df_name[filter_column].tolist()
@@ -116,7 +116,7 @@ def calculate_stats_by_price(df_name, filter_column: str) -> list:
     return lines
 
 
-def create_multi_category_stats() -> list:
+def create_multi_category_stats(data_frames: list) -> list:
     """Create elemenntary price type report from all data frames
 
     Example of printout:
@@ -132,9 +132,9 @@ def create_multi_category_stats() -> list:
 
     stats_report_lines = []
     txt_reports = []
-    for i, cat in enumerate(cat_list):
-        cat_report = calculate_stats_by_price(cat, 'Price_in_eur')
-        txt_reports.append(cat_report)
+    for i, current_df in enumerate(data_frames):
+        df_report = calculate_stats_by_price(current_df, 'Price_in_eur')
+        txt_reports.append(df_report)
     for i, reports in enumerate(txt_reports):
         empty_line = ' '
         title_line = ("### " + str(i + 1) + " room apartment price analysis ###")
