@@ -26,8 +26,8 @@ def data_formater_main() -> None:
     df = create_oneline_report(data_file_location)
     df.to_csv("pandas_df.csv")
     create_file_copy()
-    all_ads_df = pd.read_csv("cleaned-sorted-df.csv", index_col=False)
-    create_email_body(all_ads_df, 'email_body_txt_m4.txt')
+    #all_ads_df = pd.read_csv("cleaned-sorted-df.csv", index_col=False)
+    #create_email_body(all_ads_df, 'email_body_txt_m4.txt')
 
     print("Debug info: Ended data_formater module ... ")
 
@@ -95,52 +95,6 @@ def create_file_copy() -> None:
     if not os.path.exists('data'):
         os.makedirs('data')
     os.system(copy_cmd)
-
-
-def save_text_report_to_file(text: list, file_name: str) -> None:
-    """Writes oneline data text to mailer report file"""
-    with open(file_name, 'a') as the_file:
-        for line in text:
-            the_file.write(f"{line}\n")
-
-
-def create_email_body(clean_data_frame, file_name: str) -> None:
-    """Creates categorized by room count ad hash : data for email body.
-
-    Requires:
-        clean_data_frame: pandas data frame
-
-    Creates:
-        email_body_txt_m4.txt : text file"""
-
-    email_body_txt = ['Sendgrid mailer Milestone 4 report:']
-    for room_count in range(4):
-        room_count_str = str(room_count + 1)
-        section_line = str(room_count_str + " room apartment section: ")
-        email_body_txt.append(section_line)
-        filtered_by_room_count = clean_data_frame.loc[clean_data_frame['Room_count'] == int(room_count_str)]
-        colum_line = "[Rooms, Floor, Size , Price, SQM Price, Apartment Street, Pub_date,  URL]"
-        email_body_txt.append(colum_line)
-        for index, row in filtered_by_room_count.iterrows():
-            url_str = row["URL"]
-            sqm_str = row["Size_sqm"]
-            floor_str = row["Floor"]
-            total_price = row["Price_in_eur"]
-            sqm_price = row['SQ_meter_price']
-            rooms_str = row['Room_count']
-            street_str = row['Street']
-            pub_date_str = row['Pub_date']
-            report_line = "  " + str(rooms_str) + "     " + \
-                          str(floor_str) + "    " + \
-                          str(sqm_str) + "   " + \
-                          str(total_price) + "    " + \
-                          str(sqm_price) + "   " + \
-                          str(street_str) + "   " + \
-                          str(pub_date_str) + " " + \
-                          str(url_str)
-            email_body_txt.append(report_line)
-
-    save_text_report_to_file(email_body_txt, file_name)
 
 
 # Main
