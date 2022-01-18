@@ -26,6 +26,9 @@ def data_formater_main() -> None:
     df = create_oneline_report(data_file_location)
     df.to_csv("pandas_df.csv")
     create_file_copy()
+    #all_ads_df = pd.read_csv("cleaned-sorted-df.csv", index_col=False)
+    #create_email_body(all_ads_df, 'email_body_txt_m4.txt')
+
     print("Debug info: Ended data_formater module ... ")
 
 

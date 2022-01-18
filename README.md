@@ -1,4 +1,4 @@
-# SS.LV Web Scraper release 1.4
+# SS.LV Web Scraper release 1.4.3
 
 
 ## About application:
@@ -35,8 +35,6 @@ password=<your db password>
 DEST_EMAIL=user@example.com
 SENDGRID_API_KEY=<Your SENDGRID API Key>
 SRC_EMAIL=user@example.com
-
-# postgres db container envs
 POSTGRES_PASSWORD=<Your DB Password>
 ```
 5. Run docker-compose --env-file .env.prod up -d
@@ -44,4 +42,6 @@ POSTGRES_PASSWORD=<Your DB Password>
 
 ## Currently available features
 - [x] Parse ss.lv website and extract information from section apartments for sale (currently hardcoded for Ogre city adjust to your needs)
-- [x] Store scraped data in psotgres DB container tables listed_ads and removed_ads  
+- [x] Store scraped data in postgres database container tables listed_ads and removed_ads for tracking longer price trends
+- [x] Daily email (includes URLs and key data categorized by room count)
+- [ ] Daily email with pdf attachment that includes basic price analytics for categorized by room count
