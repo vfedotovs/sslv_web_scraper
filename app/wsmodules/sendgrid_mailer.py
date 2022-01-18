@@ -26,7 +26,7 @@ def sendgrid_mailer_main() -> None:
     # Creates Mail object instance
     message = Mail(from_email=(os.environ.get('SRC_EMAIL')),
                    to_emails=(os.environ.get('DEST_EMAIL')),
-                   subject='Ogre City Apartments for sale from ss.lv webscraper',
+                   subject='Ogre City Apartments for sale from ss.lv webscraper v1.4.2',
                    plain_text_content=str_text)
 
     try:
