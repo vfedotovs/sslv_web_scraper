@@ -6,10 +6,48 @@ This module  main functionality:
     and save to file  basic_price_stats.txt
     4. basic_price_stats.txt later is used by pdf_cretor.py module to include in pdf file
 """
+import logging
+from logging import handlers
+from logging.handlers import RotatingFileHandler
+import sys
 import pandas as pd
 
 
-print("Debug info: Starting analitics module ... ")
+
+log = logging.getLogger('')
+log.setLevel(logging.DEBUG)
+fa_log_format = logging.Formatter("%(asctime)s [%(threadName)-12.12s] [%(levelname)-5.5s] : %(funcName)s: %(lineno)d: %(message)s")
+
+
+ch = logging.StreamHandler(sys.stdout)
+ch.setFormatter(fa_log_format)
+log.addHandler(ch)
+
+fh = handlers.RotatingFileHandler('analytics.log', maxBytes=(1048576*5), backupCount=7)
+fh.setFormatter(fa_log_format)
+log.addHandler(fh)
+
+
+
+
+
+def check_files(file_names: list) -> None:
+    """Testing if file exists and can be opened"""
+    for file in file_names:
+        try:
+            file_handle = open(file, 'r')
+        except IOError:
+            log.error(f'There was an error opening the file {file} or it does not exist!')
+            sys.exit()
+
+
+REQUIRED_FILES = ['cleaned-sorted-df.csv']
+check_files(REQUIRED_FILES)
+df = load_csv_to_df('cleaned-sorted-df.csv')
+
+
+
+log.info(" --- Starting analitics module --- ")
 # Load df from cleaned df csv file
 all_ads_df = pd.read_csv("cleaned-sorted-df.csv", index_col=False)
 # Split all apartment dataframe in 4 categories
