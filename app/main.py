@@ -13,6 +13,7 @@ from app.wsmodules.web_scraper import scrape_website
 from app.wsmodules.data_formater_v14 import data_formater_main
 from app.wsmodules.df_cleaner import df_cleaner_main
 from app.wsmodules.db_worker import db_worker_main
+from app.wsmodules.analytics import analytics_main
 from app.wsmodules.file_remover import remove_tmp_files
 
 
@@ -54,8 +55,10 @@ async def run_long_task(city: str, background_tasks: BackgroundTasks):
     background_tasks.add_task(df_cleaner_main)
     log.info("Sent db_worker_main task to background: TTC < 3 sec")
     background_tasks.add_task(db_worker_main)
+    log.info("Sent analytics_main task to background: TTC < 5 sec")
+    background_tasks.add_task(analytics_main)
     log.info("Sent remove_tmp_files task to background: TTC < 2 sec")
-    background_tasks.add_task(remove_tmp_files)
+    #background_tasks.add_task(remove_tmp_files)
     log.info("Send all taks to background completed")
     return {
             "message": "FAST_API_REPLAY scrape Ogre city sent as background task"
