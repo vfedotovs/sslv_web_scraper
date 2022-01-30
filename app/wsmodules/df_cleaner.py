@@ -77,12 +77,12 @@ def create_email_body(clean_data_frame, file_name: str) -> None:
         clean_data_frame: pandas data frame
 
     Creates:
-        email_body_txt_m4.txt : text file"""
+        email_body_txt_m4.txt: text file"""
 
-    email_body_txt = ['Sendgrid mailer Milestone 4 report:']
+    email_body_txt = []
     for room_count in range(4):
         room_count_str = str(room_count + 1)
-        section_line = str(room_count_str + " room apartment section: ")
+        section_line = str(room_count_str + " room apartment segment:")
         email_body_txt.append(section_line)
         filtered_by_room_count = clean_data_frame.loc[clean_data_frame['Room_count'] == int(room_count_str)]
         colum_line = "[Rooms, Floor, Size , Price, SQM Price, Apartment Street, Pub_date,  URL]"
@@ -105,7 +105,7 @@ def create_email_body(clean_data_frame, file_name: str) -> None:
                           str(pub_date_str) + " " + \
                           str(url_str)
             email_body_txt.append(report_line)
-        save_text_report_to_file(email_body_txt, file_name)
+    save_text_report_to_file(email_body_txt, file_name)
 
 
 
