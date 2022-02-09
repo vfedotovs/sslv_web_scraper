@@ -38,23 +38,6 @@ def sendgrid_mailer_main() -> None:
         file_content = f.readlines()
     email_body_content = ''.join([i for i in file_content[1:]])
 
-    # Binary read pdf file 
-    file_path = 'Ogre_city_report.pdf'
-    with open(file_path, 'rb') as f:
-        data = f.read()
-        f.close()
-
-    # Encodes data with base64 for email attachment
-    encoded = base64.b64encode(data).decode()
-
-    # Creates instance of Attachment object
-    attachment = Attachment(file_content = FileContent(encoded),
-                            file_type = FileType('application/pdf'),
-                            file_name = FileName('Ogre_city_report.pdf'),
-                            disposition = Disposition('attachment'),
-                            content_id = ContentId('Example Content ID'))
-
-
     # Creates Mail object instance
     message = Mail(
             from_email=(os.environ.get('SRC_EMAIL')),
@@ -62,8 +45,24 @@ def sendgrid_mailer_main() -> None:
             subject='Ogre Apartments for sale from ss.lv webscraper v1.4.5',
             plain_text_content=email_body_content)
 
+    # Binary read pdf file 
+    file_path = 'Ogre_city_report.pdf'
+    with open(file_path, 'rb') as f:
+        data = f.read()
+        f.close()
+
+    # Encodes data with base64 for email attachment
+    encoded_file = base64.b64encode(data).decode()
+
+    # Creates instance of Attachment object
+    attached_file = Attachment(file_content = FileContent(encoded_file),
+                            file_type = FileType('application/pdf'),
+                            file_name = FileName('Ogre_city_report.pdf'),
+                            disposition = Disposition('attachment'),
+                            content_id = ContentId('Example Content ID'))
+
     # Calls attachment method for message instance
-    message.attachment = attachment
+    message.attachment = attached_file
 
     try:
         sendgrid_client = SendGridAPIClient(os.environ.get('SENDGRID_API_KEY'))
