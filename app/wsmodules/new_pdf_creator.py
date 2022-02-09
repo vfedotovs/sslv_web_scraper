@@ -9,6 +9,7 @@ Main module usage is for:
         2.3. Include png charts to pdf file
     6. Save pdf file as Ogre_city_report.pdf
 """
+from datetime import datetime
 import pandas as pd
 from fpdf import FPDF
 
@@ -53,16 +54,17 @@ def main_function():
     # starnge var naming should include analytics type
     report_txt_lines  = read_file_to_list('basic_price_stats.txt')
     # seems missing 3 files for other room types
-    one_room_apt_txt_lines = read_file_to_list('1_rooms_tmp.txt')
+    # one_room_apt_txt_lines = read_file_to_list('1_rooms_tmp.txt')
+    one_room_apt_txt_lines = "Some text goes here"
 
     # creating pdf file 
     # FIXME include todays data
-    create_pdf_report("Ogre", "2021-02-03", report_txt_lines, one_room_apt_txt_lines)
+    create_pdf_report(report_txt_lines, one_room_apt_txt_lines)
     print("Debug info: Completed pdf creator module module ... ")
 
 
 def create_sqm_price_images(data_frames,
-                            first_column: str,second_column: str) -> None:
+                            first_column: str, second_column: str) -> None:
     """ TODO """
     titles_image_names = {
             'Single room apartments' : '1_rooms.png',
@@ -71,6 +73,7 @@ def create_sqm_price_images(data_frames,
             'Four room apartments' : '4_rooms.png'}
     all_apts_df = pd.read_csv('cleaned-sorted-df.csv')
 
+    i = 0
     for title, file_name in titles_image_names.items():
         create_and_save_chart(
                 data_frames[i], # << seem to be misisng i
@@ -79,6 +82,8 @@ def create_sqm_price_images(data_frames,
                 title,
                 file_name
         )
+        i = i + 1
+
     # case of all apartments
     create_and_save_chart(
                 all_apts_df,
@@ -135,25 +140,24 @@ def create_pdf(data_frame, title: str, date: str, file_to_save: str) -> None:
     pass
 
 
-def create_pdf_report(city_name: str, cdate: str,
-                      text_lines: list, msg_txt_lines: list) -> None:
+def create_pdf_report(text_lines: list, msg_txt_lines: list) -> None:
     """ This is draft function to test ability to write to create and write pdf file """
     # library help https://pyfpdf.readthedocs.io/en/latest/reference/image/index.html
+    report_title = "Ogre city apartments for sale"
+    todays_date = datetime.today().strftime('%Y-%m-%d %H:%M')
+
+    # creating pdf object instance
     pdf = FPDF()  # A4 (210 by 297 mm)
     pdf.add_page()
     pdf.set_font('Arial', 'B', 10)
 
-    # Adding content to page
-    # add title and date
-    report_title = city_name + " city apartments for sale analytics report"
-    date_created = "Report created: " + cdate
+    # Adding title and date to page
+    report_title = "Ogre city apartments for sale"
+    date_created = f"Report date: {todays_date}"
     pdf.write(5, report_title)  # write str text to pdf
     pdf.ln(5)
     pdf.write(5, date_created)  # write str text to pdf
     pdf.ln(5)
-    pdf.ln(5)
-    pdf.ln(5)
-
 
     # writing text lines to page from text_line list
     for line in text_lines:
@@ -163,7 +167,6 @@ def create_pdf_report(city_name: str, cdate: str,
 
     # pdf.image("test.png", 20,10, 150) # inserts png to pdf
     pdf.ln(10)  # ads new lines
-
 
     pdf.add_page()  # adds new page
     test_save_df_to_png()  # calling function to generate png from df
