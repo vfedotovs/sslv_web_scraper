@@ -38,11 +38,30 @@ def sendgrid_mailer_main() -> None:
         file_content = f.readlines()
     email_body_content = ''.join([i for i in file_content[1:]])
 
+    # Binary read pdf file 
+    file_path = 'Ogre_city_report.pdf'
+    with open(file_path, 'rb') as f:
+        data = f.read()
+        f.close()
+
+    # Encodes data with base64 for email attachment
+    encoded = base64.b64encode(data).decode()
+
+    # Creates instance of Attachment object
+    attachment = Attachment(file_content = FileContent(encoded),
+                            file_type = FileType('application/pdf'),
+                            file_name = FileName('Ogre_city_report.pdf'),
+                            disposition = Disposition('attachment'),
+                            content_id = ContentId('Example Content ID'))
+
+    # Calls attachment method for message instance
+    message.attachment = attachment
+
     # Creates Mail object instance
     message = Mail(
             from_email=(os.environ.get('SRC_EMAIL')),
             to_emails=(os.environ.get('DEST_EMAIL')),
-            subject='Ogre Apartments for sale from ss.lv webscraper v1.4.3',
+            subject='Ogre Apartments for sale from ss.lv webscraper v1.4.5',
             plain_text_content=email_body_content)
     try:
         sendgrid_client = SendGridAPIClient(os.environ.get('SENDGRID_API_KEY'))
@@ -55,33 +74,6 @@ def sendgrid_mailer_main() -> None:
     print("Debug info: Completed sendgrid mailer module... ")
 
 
-# Read pdf file file for  attachment
-#file_path = 'Ogre_city_report.pdf'
-#with open(file_path, 'rb') as f:
-#    data = f.read()
-#    f.close()
-# Encodes binary pdf file data to base64 for email attachment
-#encoded = base64.b64encode(data).decode()
-# Creates instance of Attachment object
-#attachment = Attachment(file_content = FileContent(encoded),
-#                         file_type = FileType('application/pdf'),
-#                         file_name = FileName('Ogre_city_report.pdf'),
-#                         disposition = Disposition('attachment'),
-#                         content_id = ContentId('Example Content ID'))
-# Reads Second file for attchment
-#with open('report.html', 'rb') as f:
-#    html_data = f.read()
-#    f.close()
-# Encodes binary html file data to base64 for email attachment
-#encoded_file = base64.b64encode(html_data).decode()
-# Creates second instance Attachement object
-#attachedFile = Attachment(FileContent(encoded_file),
-#                          FileName('Report.html'),
-#                          FileType('application/html'),
-#                          Disposition('attachment'))
-# Calls attachment method for message instance
-#message.attachment = attachment  # attaches pdf binary
-#message.attachment = attachedFile  # attached second file Report.html
 
 
 sendgrid_mailer_main()
