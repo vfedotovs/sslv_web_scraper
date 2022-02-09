@@ -24,7 +24,7 @@ from fpdf import FPDF
 #   - [x] functionality to write text from data frame to pdf file
 #   - [ ] functionality to Include file created date in pdf report
 
-def main_function():
+def pdf_creator_main():
     """ Main module function """
     print("Debug info: Starting pdf creator module ... ")
 
@@ -55,7 +55,7 @@ def main_function():
     report_txt_lines  = read_file_to_list('basic_price_stats.txt')
     # seems missing 3 files for other room types
     # one_room_apt_txt_lines = read_file_to_list('1_rooms_tmp.txt')
-    one_room_apt_txt_lines = "Some text goes here"
+    one_room_apt_txt_lines = ['Some text goes here']
 
     # creating pdf file 
     # FIXME include todays data
@@ -109,7 +109,7 @@ def create_and_save_chart(df_name: str, xcolumn_name: str,
         ycolumn_name: str, title: str, file_name: str) -> None:
     """Generate scatter plot based x and y axsis as data frame column values,
     include title and save to *.png file"""
-    ax = df.plot.scatter(
+    ax = df_name.plot.scatter(
             x=xcolumn_name,
             y=ycolumn_name,
             s=100,
@@ -180,11 +180,6 @@ def create_pdf_report(text_lines: list, msg_txt_lines: list) -> None:
     pdf.image("1-4_rooms.png", 20,10, 150) # inserts png to pdf
     pdf.ln(10)  # ads new lines
 
-    # TODO: fix codec error
-    #for line in msg_txt_lines:
-    #    str_line = str(line)
-    #    pdf.write(5, str_line)
-    #    pdf.ln(5)
     pdf.output(name="Ogre_city_report.pdf")  # generate pdf files
 
 
@@ -233,5 +228,5 @@ def test_create_scatter_plot():
 
 # main code driver
 # test_save_df_to_png() - works
-main_function()
+pdf_creator_main()
 
