@@ -7,7 +7,7 @@ Main usage case for this module:
     3. Add ad oneline information about each apartment in email body
     4. Use environemt varibales for source/destination email and API key
 """
-§import base64
+import base64
 import os
 from sendgrid.helpers.mail import ( Mail, Attachment, FileContent, FileName,
                                     FileType, Disposition, ContentId)
