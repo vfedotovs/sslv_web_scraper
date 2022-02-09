@@ -1,4 +1,4 @@
-# SS.LV Web Scraper release 1.4.3
+# SS.LV Web Scraper release 1.4.5
 
 
 ## About application:
@@ -44,4 +44,4 @@ POSTGRES_PASSWORD=<Your DB Password>
 - [x] Parse ss.lv website and extract information from section apartments for sale (currently hardcoded for Ogre city adjust to your needs)
 - [x] Store scraped data in postgres database container tables listed_ads and removed_ads for tracking longer price trends
 - [x] Daily email (includes URLs and key data categorized by room count)
-- [ ] Daily email with pdf attachment that includes basic price analytics for categorized by room count
+- [x] Email contains MVP pdf attachment with basic price analytics for categorized by room count
