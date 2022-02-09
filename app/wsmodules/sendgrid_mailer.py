@@ -54,8 +54,6 @@ def sendgrid_mailer_main() -> None:
                             disposition = Disposition('attachment'),
                             content_id = ContentId('Example Content ID'))
 
-    # Calls attachment method for message instance
-    message.attachment = attachment
 
     # Creates Mail object instance
     message = Mail(
@@ -63,6 +61,10 @@ def sendgrid_mailer_main() -> None:
             to_emails=(os.environ.get('DEST_EMAIL')),
             subject='Ogre Apartments for sale from ss.lv webscraper v1.4.5',
             plain_text_content=email_body_content)
+
+    # Calls attachment method for message instance
+    message.attachment = attachment
+
     try:
         sendgrid_client = SendGridAPIClient(os.environ.get('SENDGRID_API_KEY'))
         response = sendgrid_client.send(message)
