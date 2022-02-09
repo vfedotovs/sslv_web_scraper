@@ -90,18 +90,12 @@ def create_sqm_price_images(data_frames,
 
 
 
-def split_data_frame(column_name:str, column_value: int) -> list:
-    """ TODO """
-    # replaces
-    # categorize to segments by room count type
-    # FIXME move to function that has for loop with range 4 and returns list of 4 dfs
-    # one_room_df = filter_df_by(all_rooms_data_frame, 'Room_count', 1)
-    # two_room_df = filter_df_by(all_rooms_data_frame, 'Room_count', 2)
-    # three_room_df = filter_df_by(all_rooms_data_frame, 'Room_count', 3)
-    # four_room_df = filter_df_by(all_rooms_data_frame, 'Room_count', 4)
+def split_data_frame(all_rooms_df, column_name :str, column_value: int) -> list:
+    """filter data frame by column name Room_count value
+    and returns list with 4 filtered by room count value data frames"""
     data_frames = []
     for i in range(1, 5):
-        df = filter_df_by(all_rooms_data_frame, 'Room_count', i)
+        df = filter_df_by(all_rooms_df, 'Room_count', i)
         data_frames.append(df)
     return data_frames
 
