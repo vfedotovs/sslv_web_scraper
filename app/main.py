@@ -15,8 +15,7 @@ from app.wsmodules.df_cleaner import df_cleaner_main
 from app.wsmodules.db_worker import db_worker_main
 from app.wsmodules.analytics import analytics_main
 from app.wsmodules.sendgrid_mailer import sendgrid_mailer_main
-#from app.wsmodules.file_remover import remove_tmp_files
-
+from app.wsmodules.pdf_creator import pdf_creator_main
 
 
 log = logging.getLogger('')
@@ -59,6 +58,8 @@ async def run_long_task(city: str, background_tasks: BackgroundTasks):
     log.info("Sent analytics_main task to background: TTC < 5 sec")
     background_tasks.add_task(analytics_main)
     log.info("Sent sendgrid_mailer task to background: TTC < 5 sec")
+    background_tasks.add_task(pdf_creator_main)
+    log.info("Sent pdf_creator task to background: TTC < 5 sec")
     background_tasks.add_task(sendgrid_mailer_main)
     log.info("Send all taks to background completed")
     return {
