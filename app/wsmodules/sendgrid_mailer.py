@@ -68,6 +68,7 @@ def sendgrid_mailer_main() -> None:
         sendgrid_client = SendGridAPIClient(os.environ.get('SENDGRID_API_KEY'))
         response = sendgrid_client.send(message)
         print("Email sent response code:", response.status_code)
+        print(response.body, response.headers)
     except Exception as e:
         print(e.message)
     print("Debug info: Removing temp files ... ")
