@@ -14,8 +14,8 @@ from app.wsmodules.data_formater_v14 import data_formater_main
 from app.wsmodules.df_cleaner import df_cleaner_main
 from app.wsmodules.db_worker import db_worker_main
 from app.wsmodules.analytics import analytics_main
-from app.wsmodules.sendgrid_mailer import sendgrid_mailer_main
 from app.wsmodules.pdf_creator import pdf_creator_main
+from app.wsmodules.sendgrid_mailer import sendgrid_mailer_main
 
 
 log = logging.getLogger('')
