@@ -12,15 +12,20 @@ Module creates:
 
 
 Todo:
-    * 
-		- create new imprived methods
-		- will create str segments (most of them i have algos)
-			- rooms %
-			- hose floors
-			- apt locations
-			- sqm ranges for each
-		- will create images based on DF
-		- need interface to connect to DB and extract historic dict and save to to df and csv
+    * [ ] Create str segments (most of algos are in jupyter)
+			- [ ] rooms types %
+			- [ ] house floors
+			- [ ] apt locations
+			- [ ] sqm size ranges for each
+			- [ ] sqm price ranges for each
+	* [ ] Create images based on DF
+			- [ ] gen_image(data_frame, 'Size_sqm', "Price_in_eur") - created but df not filtered by room cunt = 1
+            - [ ] gen_image('double_room_sqm_prices.png')
+            - [ ] gen_image('triple_room_sqm_prices.png')
+            - [ ] gen_image('quad_room_sqm_prices.png')
+            - [] gen_image('all_room_sqm_prices.png')
+
+	* Need interface to connect to DB and extract historic dict and save to to df and csv
 
 """
 import pandas as pd
@@ -44,9 +49,9 @@ class DataFrameAvalyzer():
     def gen_image(self, data_frame: pd.DataFrame, xclmn: str, yclmn: str) -> None:
         """Generate scatter plot based x and y axsis as data frame column values,
         include title and save to *.png file"""
-        img_title = 'Single_room_sqm_prices'
+        img_title = 'All room sqm size to price relationships'
         #file_name = '{}_{}.png'.format(xclmn, yclmn)
-        file_name = 'single_room_sqm_prices.png'
+        file_name = 'all_room_sqm_prices.png'
         ax = data_frame.plot.scatter(
             x=xclmn, y=yclmn, s=100, title=img_title, grid=True)
         fig = ax.get_figure()
@@ -70,11 +75,11 @@ def run_daily_analitics() -> None:
     #dfa.analyze_df_room_types('daily_room_stats.txt')
     #dfa.analyze_df_house_types('daily_house_stats.txt')
     #dfa.analyze_df_apt_loc_types('daily_apt_loc_stats.txt')
-    dfa.gen_image(data_frame, 'Size_sqm', "Price_in_eur")
+    #dfa.gen_image(data_frame, 'Size_sqm', "Price_in_eur")
     #dfa.gen_image('double_room_sqm_prices.png')
     #dfa.gen_image('triple_room_sqm_prices.png')
     #dfa.gen_image('quad_room_sqm_prices.png')
-    #dfa.gen_image('all_room_sqm_prices.png')
+    dfa.gen_image(data_frame, 'Size_sqm', "Price_in_eur")
 
 
 def run_monthly_analitics() -> None:
