@@ -1,4 +1,4 @@
-# SS.LV Web Scraper release 1.4.5
+# SS.LV Web Scraper release 1.4.x
 
 
 ## About application:
