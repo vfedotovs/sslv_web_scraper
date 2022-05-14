@@ -25,6 +25,8 @@ data_files = ['email_body_txt_m4.txt',
 
 def remove_tmp_files() -> None:
     """FIXME: Refactor this function to better code"""
+    directory = os.getcwd()
+    print(directory)
     for data_file in data_files:
         try:
             os.remove(data_file)
