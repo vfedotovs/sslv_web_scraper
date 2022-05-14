@@ -10,9 +10,26 @@ Main usage case for this module:
 import base64
 import os
 import os.path
+
+import logging
+from logging import handlers
+from logging.handlers import RotatingFileHandler
+import sys
 from sendgrid.helpers.mail import ( Mail, Attachment, FileContent, FileName,
                                     FileType, Disposition, ContentId)
 from sendgrid import SendGridAPIClient
+
+
+
+log = logging.getLogger('')
+log.setLevel(logging.INFO)
+fa_log_format = logging.Formatter("%(asctime)s [%(threadName)-12.12s] [%(levelname)-5.5s] : %(funcName)s: %(lineno)d: %(message)s")
+ch = logging.StreamHandler(sys.stdout)
+ch.setFormatter(fa_log_format)
+log.addHandler(ch)
+fh = handlers.RotatingFileHandler('sendgrid_mailer.log', maxBytes=(1048576*5), backupCount=7)
+fh.setFormatter(fa_log_format)
+log.addHandler(fh)
 
 
 data_files = ['email_body_txt_m4.txt',
@@ -26,17 +43,20 @@ data_files = ['email_body_txt_m4.txt',
 def remove_tmp_files() -> None:
     """FIXME: Refactor this function to better code"""
     directory = os.getcwd()
-    print(directory)
+    log.info(f" --- current working dir {directory} --- ")
     for data_file in data_files:
         try:
+            log.info(f"Trying delete file: {data_file} ")
             os.remove(data_file)
         except OSError as e:
             print(f'Error: {data_file} : {e.strerror}')
+            log.info(f"Error deleting {data_file} : {e.strerror} ")
 
 
 def sendgrid_mailer_main() -> None:
     """Main module entry point"""
-    print("Debug info: Starting sendgrid mailer module ...")
+    log.info(" --- Started sendgrid_mailer module --- ")
+    log.info(" Trying to open email_body_txt_m4.txt for email body content ")
     with open('email_body_txt_m4.txt') as f:
         file_content = f.readlines()
     email_body_content = ''.join([i for i in file_content[1:]])
@@ -49,8 +69,9 @@ def sendgrid_mailer_main() -> None:
             plain_text_content=email_body_content)
 
     report_file_exists = os.path.exists('Ogre_city_report.pdf')
+    log.info("Checking if file Ogre_city_report.pdf exists and reading as binary ")
     if report_file_exists:
-        # Binary read pdf file 
+        # Binary read pdf file
         file_path = 'Ogre_city_report.pdf'
         with open(file_path, 'rb') as f:
             data = f.read()
@@ -60,6 +81,7 @@ def sendgrid_mailer_main() -> None:
         encoded_file = base64.b64encode(data).decode()
 
         # Creates instance of Attachment object
+        log.info("Attaching  encoded Ogre_city_report.pdf to email object")
         attached_file = Attachment(
                 file_content = FileContent(encoded_file),
                 file_type = FileType('application/pdf'),
@@ -71,15 +93,20 @@ def sendgrid_mailer_main() -> None:
         message.attachment = attached_file
 
     try:
+
+        log.info("Attempting to send email via Sendgrid API")
         sendgrid_client = SendGridAPIClient(os.environ.get('SENDGRID_API_KEY'))
         response = sendgrid_client.send(message)
-        print("Email sent response code:", response.status_code)
-        print(response.body, response.headers)
+        log.info(f"Email sent with response code: {response.status_code}")
+        log.info(f" --- Email response body --- ")
+        log.info(f" {response.body} ")
+        log.info(f" --- Email response headers --- ")
+        log.info(f" {response.headers}")
     except Exception as e:
+        log.info(f"{e.message}")
         print(e.message)
-    print("Debug info: Removing temp files ... ")
     remove_tmp_files()
-    print("Debug info: Completed sendgrid mailer module... ")
+    log.info(" --- Ended sendgrid_mailer module --- ")
 
 
 
