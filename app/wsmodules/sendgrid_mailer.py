@@ -37,7 +37,14 @@ data_files = ['email_body_txt_m4.txt',
               'Ogre-raw-data-report.txt',
               'cleaned-sorted-df.csv',
               'pandas_df.csv',
-              'basic_price_stats.txt']
+              'basic_price_stats.txt',
+              '1_rooms_tmp.txt',
+              '1-4_rooms.png',
+              '1_rooms.png',
+              '2_rooms.png',
+              'test.png',
+              'mrv2.txt',
+              'Ogre_city_report.pdf']
 
 
 def remove_tmp_files() -> None:
@@ -59,6 +66,8 @@ def sendgrid_mailer_main() -> None:
     log.info(" Trying to open email_body_txt_m4.txt for email body content ")
     with open('email_body_txt_m4.txt') as f:
         file_content = f.readlines()
+
+    log.info("Creating email body content from email_body_txt_m4.txt file ")
     email_body_content = ''.join([i for i in file_content[1:]])
 
     # Creates Mail object instance
