@@ -11,7 +11,7 @@ import schedule
 
 
 log = logging.getLogger('task_scheduler')
-log.setLevel(logging.DEBUG)
+log.setLevel(logging.INFO)
 ts_log_format = logging.Formatter(
         "%(asctime)s [%(threadName)-12.12s] [%(levelname)-5.5s] : %(funcName)s: %(lineno)d: %(message)s")
 
@@ -46,6 +46,6 @@ schedule.every().day.at("23:00").do(execute_ogre_task)  # production
 
 
 while True:
-    log.info('ts_loop: checking every 3000 sec if cheduled task needs to run again...')
+    log.info('ts_loop: checking every 8 hours if cheduled task needs to run again...')
     schedule.run_pending()
-    time.sleep(3000)
+    time.sleep(28800)
