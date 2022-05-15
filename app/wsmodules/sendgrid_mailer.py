@@ -42,6 +42,8 @@ data_files = ['email_body_txt_m4.txt',
               '1-4_rooms.png',
               '1_rooms.png',
               '2_rooms.png',
+              '3_rooms.png',
+              '4_rooms.png',
               'test.png',
               'mrv2.txt',
               'Ogre_city_report.pdf']

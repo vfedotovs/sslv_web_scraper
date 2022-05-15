@@ -48,6 +48,10 @@ def pdf_creator_main():
             "Single room apartments", '1_rooms.png')
     create_png_plot(two_room_df, 'Size_sqm', "Price_in_eur",
             "Double room apartments", '2_rooms.png')
+    create_png_plot(three_room_df, 'Size_sqm', "Price_in_eur",
+            "Three room apartments", '3_rooms.png')
+    create_png_plot(four_room_df, 'Size_sqm', "Price_in_eur",
+            "Four room apartments", '4_rooms.png')
 
 
     # continue work from here
@@ -143,7 +147,7 @@ def create_pdf(data_frame, title: str, date: str, file_to_save: str) -> None:
 def create_pdf_report(text_lines: list, msg_txt_lines: list) -> None:
     """ This is draft function to test ability to write to create and write pdf file """
     # library help https://pyfpdf.readthedocs.io/en/latest/reference/image/index.html
-    report_title = "Ogre city apartments for sale"
+    report_title = "Ogre city apartments for sale listed today"
     todays_date = datetime.today().strftime('%Y-%m-%d %H:%M')
 
     # creating pdf object instance
@@ -165,20 +169,22 @@ def create_pdf_report(text_lines: list, msg_txt_lines: list) -> None:
         pdf.write(5, str_line)
         pdf.ln(5)
 
-    # pdf.image("test.png", 20,10, 150) # inserts png to pdf
-    pdf.ln(10)  # ads new lines
 
-    pdf.add_page()  # adds new page
+    pdf.ln(10)
+    pdf.add_page()
     test_save_df_to_png()  # calling function to generate png from df
-    pdf.ln(10)  # ads new lines
-    pdf.ln(10)  # ads new lines
-    # pdf.image("test.png", 20,10, 150) # inserts png to pdf
-    pdf.image("1_rooms.png", 20,10, 150) # inserts png to pdf
-    pdf.add_page()  # adds new page
-    pdf.image("2_rooms.png", 20,10, 150) # inserts png to pdf
-    pdf.add_page()  # adds new page
-    pdf.image("1-4_rooms.png", 20,10, 150) # inserts png to pdf
-    pdf.ln(10)  # ads new lines
+    pdf.ln(10)
+    pdf.ln(10)
+    pdf.image("1_rooms.png", 20,10, 150)
+    pdf.add_page()
+    pdf.image("2_rooms.png", 20,10, 150)
+    pdf.add_page()
+    pdf.image("3_rooms.png", 20,10, 150)
+    pdf.add_page()
+    pdf.image("4_rooms.png", 20,10, 150)
+    pdf.add_page()
+    pdf.image("1-4_rooms.png", 20,10, 150)
+    pdf.ln(10)
 
     pdf.output(name="Ogre_city_report.pdf")  # generate pdf files
 
