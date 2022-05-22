@@ -344,6 +344,7 @@ def extract_to_increment_msg_data(listed_url_hashes:list) -> list:
     conn = None
     to_increment_msg_data = {}
     try:
+        logger.info(f'Connecting to DB to fetch data from listed_ads table')
         params = config()
         conn = psycopg2.connect(**params)
         cur = conn.cursor()
@@ -366,12 +367,14 @@ def extract_to_increment_msg_data(listed_url_hashes:list) -> list:
                     data_values.append(dlv)
                     to_increment_msg_data[curr_row_hash] = data_values
         cur.close()
+        logger.info(f'Extracted data from listed_ads table for {len(to_increment_msg_data)} messages')
+        for k, v in to_increment_msg_data.items():
+            logger.info(f'{k} {v}')
     except (Exception, psycopg2.DatabaseError) as error:
         print(error)
     finally:
         if conn is not None:
             conn.close()
-    logger.info(f'Extracted data from listed_ads table for {len(to_increment_msg_data)} messages')
     return to_increment_msg_data
 
 
@@ -447,6 +450,7 @@ def delete_db_listed_table_rows(delisted_hashes: list) -> None:
             cur.execute(full_cmd)
         conn.commit()
         cur.close()
+        logger.info(f'Deleted ads with hashes: {delisted_hashes} from listed_ads table')
     except (Exception, psycopg2.DatabaseError) as error:
         print(error)
     finally:
