@@ -114,7 +114,7 @@ def extract_hash(full_url: str) -> str:
     return url_hash
 
 
-def extract_listed_url_hashes_from_db():
+def extract_listed_url_hashes_from_db() -> list:
     """Iterate over all rows in  listed_ads table and
     extract each url hash column value and return as list of hashes"""
     conn = None
@@ -135,12 +135,17 @@ def extract_listed_url_hashes_from_db():
         if conn is not None:
             conn.close()
     clean_hashes = []
+    logger.info(f'Extracted {len(listed_db_hashes)} raw hashes from database listed_ads table')
+    logger.info(f'Extracted raw hash count: {len(listed_db_hashes)}')
+    logger.info(f'Extracted raw hash list: {listed_db_hashe:s}')
     for element in listed_db_hashes:
         str_element =  ''.join(element)
         clean_element = str_element.replace("'", "").replace(")", "")
         clean_hash = clean_element.replace("(", "").replace(",", "")
         clean_hashes.append(clean_hash)
     logger.info(f'Extracted {len(clean_hashes)} hashes from database listed_ads table')
+    logger.info(f'Extracted clean hash count: {len(clean_hashes)}')
+    logger.info(f'Extracted clean hash list: {clean_hashes}')
     return clean_hashes
 
 
@@ -169,7 +174,8 @@ def compare_df_to_db_hashes(df_hashes: list, db_hashes: list) -> list:
 def extract_new_msg_data(df, new_msg_hashes: list) -> dict:
     """ Extract data from df and return as dict hash: (list column data for hash row)"""
     data_dict = {}
-    logger.info('Extracted these new adverts from data farme')
+    logger.info(f'new_msg_hashes count {len(new_msg_hashes)}, hashes: {new_msg_hashes}')
+    logger.info('Starting extract new ads from todays scraped data farme in memory')
     for hash_str in new_msg_hashes:
         for index, row in df.iterrows():
             url = row['URL']
@@ -191,6 +197,7 @@ def extract_new_msg_data(df, new_msg_hashes: list) -> dict:
             row_data.append(days_count)
             if url_hash == hash_str:
                 data_dict[url_hash] = row_data
+    logger.info(f'Extrcted new ad count from todays data frame {len(data_dict)} ')
     for k, v in data_dict.items():
         logger.info(f'{k} {v}')
     return data_dict
