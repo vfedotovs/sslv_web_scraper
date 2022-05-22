@@ -169,6 +169,7 @@ def compare_df_to_db_hashes(df_hashes: list, db_hashes: list) -> list:
 def extract_new_msg_data(df, new_msg_hashes: list) -> dict:
     """ Extract data from df and return as dict hash: (list column data for hash row)"""
     data_dict = {}
+    logger.info('Extracted these new adverts from data farme')
     for hash_str in new_msg_hashes:
         for index, row in df.iterrows():
             url = row['URL']
@@ -190,6 +191,8 @@ def extract_new_msg_data(df, new_msg_hashes: list) -> dict:
             row_data.append(days_count)
             if url_hash == hash_str:
                 data_dict[url_hash] = row_data
+    for k, v in data_dict.items():
+        logger.info(f'{k} {v}')
     return data_dict
 
 
@@ -271,6 +274,8 @@ def insert_data_to_listed_table(data: dict) -> None:
                   days_listed))
         conn.commit()
         cur.close()
+        for k, v in data.items():
+            logger.info(f'{k} {v}')
     except (Exception, psycopg2.DatabaseError) as error:
         print(error)
     finally:
@@ -417,6 +422,8 @@ def insert_data_to_removed_table(data: dict) -> None:
                   days_listed))
         conn.commit()
         cur.close()
+        for k, v in data.items():
+            logger.info(f'{k} {v}')
     except (Exception, psycopg2.DatabaseError) as error:
         logger.error(error)
         print(error)
@@ -462,6 +469,8 @@ def update_dlv_in_db_table(data: dict, todays_date: datetime) -> None:
             if correct_dlv == days_listed:
                 pass
     logger.info(f'Updated days_listed value for {dlv_count} messages in listed_ads table')
+    for k, v in data.items():
+        logger.info(f'{k} {v}')
 
 
 def calc_valid_dlv(pub_date: str, todays_date: datetime) -> int:
