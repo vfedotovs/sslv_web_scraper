@@ -137,7 +137,7 @@ def extract_listed_url_hashes_from_db() -> list:
     clean_hashes = []
     logger.info(f'Extracted {len(listed_db_hashes)} raw hashes from database listed_ads table')
     logger.info(f'Extracted raw hash count: {len(listed_db_hashes)}')
-    logger.info(f'Extracted raw hash list: {listed_db_hashe:s}')
+    logger.info(f'Extracted raw hash list: {listed_db_hashes}')
     for element in listed_db_hashes:
         str_element =  ''.join(element)
         clean_element = str_element.replace("'", "").replace(")", "")
