@@ -6,6 +6,9 @@ Main features of this module:
     3. Save as clean df in csv format
 """
 import pandas as pd
+import os
+from datetime import datetime
+
 
 print("Debug info: Starting data frame cleaning module ... ")
 # loading data to dataframe from csv file
@@ -118,10 +121,19 @@ def df_cleaner_main():
     sorted_df = clean_df.sort_values(by='Price_in_eur', ascending=True)
     sorted_df.to_csv("cleaned-sorted-df.csv")
     all_ads_df = pd.read_csv("cleaned-sorted-df.csv", index_col=False)
+    create_file_copy()
     create_email_body(all_ads_df, 'email_body_txt_m4.txt')
     print("Debug info: Completed dat_formater module ... ")
 
 
+def create_file_copy() -> None:
+    """Creates file copy in data folder"""
+    todays_date = datetime.today().strftime('%Y-%m-%d')
+    dest_file = 'cleaned-sorted-df-' + todays_date + '.csv'
+    copy_cmd = 'cp cleaned-sorted-df.csv data/' + dest_file
+    if not os.path.exists('data'):
+        os.makedirs('data')
+    os.system(copy_cmd)
 
-# Main module code driver
+
 df_cleaner_main()
