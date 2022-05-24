@@ -10,9 +10,6 @@ import os
 from datetime import datetime
 
 
-print("Debug info: Starting data frame cleaning module ... ")
-# loading data to dataframe from csv file
-df_to_clean = pd.read_csv("pandas_df.csv")
 
 
 def clean_data_frame(df_name):
@@ -114,6 +111,8 @@ def create_email_body(clean_data_frame, file_name: str) -> None:
 
 def df_cleaner_main():
     """ Cleans df, sorts df by price in EUR, save to csv file """
+    print("Debug info: Starting data frame cleaning module ... ")
+    df_to_clean = pd.read_csv("pandas_df.csv")
     clean_df = clean_data_frame(df_to_clean)
     clean_sqm_col = clean_sqm_column(clean_df)
     clean_price_col = split_price_column(clean_sqm_col)
