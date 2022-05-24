@@ -25,6 +25,7 @@ TODO:
 12.[] Check if report day by last x days count and  generate report
 13.[] Write tests for db_worker module
 """
+import os
 import sys
 import logging
 from logging.handlers import RotatingFileHandler
@@ -78,16 +79,20 @@ def db_worker_main() -> None:
 
 def check_files(file_names: list) -> None:
     """Testing if file exists and can be opened"""
-    for f in file_names:
+    cwd = os.getcwd()
+    for file_name in file_names:
         try:
-            file = open(f, 'r')
+            logger.info(f'Checking if required module file {file_name} exits in {cwd}')
+            file = open(file_name, 'r')
         except IOError:
-            logger.error(f'There was an error opening the file {f} or file does not exist!')
+            logger.error(f'There was an error opening the file {file_name} or file does not exist!')
             sys.exit()
 
 
 def load_csv_to_df(csv_file_name: str):
-    """reads csv file and return pandas data frame"""
+    """reads csv file and returns pandas data frame"""
+    cwd = os.getcwd()
+    logger.info(f'Loading {csv_file_name} from directory {cwd}')
     df = pd.read_csv(csv_file_name)
     logger.info(f'Loaded {csv_file_name} file to pandas data frame in memory')
     return df
@@ -101,7 +106,8 @@ def extract_url_hashes_from_df(df_name) -> list:
     for full_url in urls:
         url_hash = extract_hash(full_url)
         url_hashes.append(url_hash)
-    logger.info(f'Extracted {len(url_hashes)} url hashes from pandas data frame')
+    logger.info(f'Extracted {len(url_hashes)} url hashes from todays scraped data')
+    logger.info(f'Extracted {url_hashes} url hashes from todays scraped data')
     return url_hashes
 
 
@@ -130,14 +136,11 @@ def extract_listed_url_hashes_from_db() -> list:
             row = cur.fetchone()
         cur.close()
     except (Exception, psycopg2.DatabaseError) as error:
-        print(error)
+        logger.error(f'{error}')
     finally:
         if conn is not None:
             conn.close()
     clean_hashes = []
-    logger.info(f'Extracted {len(listed_db_hashes)} raw hashes from database listed_ads table')
-    logger.info(f'Extracted raw hash count: {len(listed_db_hashes)}')
-    logger.info(f'Extracted raw hash list: {listed_db_hashes}')
     for element in listed_db_hashes:
         str_element =  ''.join(element)
         clean_element = str_element.replace("'", "").replace(")", "")
@@ -155,7 +158,7 @@ def compare_df_to_db_hashes(df_hashes: list, db_hashes: list) -> list:
     new_ads = []
     existing_ads = []
     removed_ads = []
-    logger.info(f'Comparing {len(df_hashes)} data frame hashes with {len(db_hashes)} listed table hashes')
+    logger.info(f'Comparing {len(df_hashes)} todays scraped data hashes with {len(db_hashes)} DB listed_ads table hashes')
     for df_hash in df_hashes:
         if df_hash in db_hashes:
             existing_ads.append(df_hash)
@@ -168,6 +171,9 @@ def compare_df_to_db_hashes(df_hashes: list, db_hashes: list) -> list:
     hash_categories.append(existing_ads)
     hash_categories.append(removed_ads)
     logger.info(f'Result {len(new_ads)} new, {len(existing_ads)} still_listed, {len(removed_ads)} to_remove hashes ')
+    logger.info(f'New todays scraped hashes: {new_ads}')
+    logger.info(f'Hashes from DB listed_ads table: {existing_ads}')
+    logger.info(f'Hashes for DB removed_ads table: {removed_ads}')
     return hash_categories
 
 

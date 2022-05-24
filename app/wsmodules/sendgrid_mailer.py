@@ -66,8 +66,8 @@ def sendgrid_mailer_main() -> None:
     """Main module entry point"""
     log.info(" --- Started sendgrid_mailer module --- ")
     log.info(" Trying to open email_body_txt_m4.txt for email body content ")
-    with open('email_body_txt_m4.txt') as f:
-        file_content = f.readlines()
+    with open('email_body_txt_m4.txt') as file_object:
+        file_content = file_object.readlines()
 
     log.info("Creating email body content from email_body_txt_m4.txt file ")
     email_body_content = ''.join([i for i in file_content[1:]])
@@ -84,9 +84,9 @@ def sendgrid_mailer_main() -> None:
     if report_file_exists:
         # Binary read pdf file
         file_path = 'Ogre_city_report.pdf'
-        with open(file_path, 'rb') as f:
-            data = f.read()
-            f.close()
+        with open(file_path, 'rb') as file_object:
+            data = file_object.read()
+            file_object.close()
 
         # Encodes data with base64 for email attachment
         encoded_file = base64.b64encode(data).decode()
@@ -104,15 +104,14 @@ def sendgrid_mailer_main() -> None:
         message.attachment = attached_file
 
     try:
-
         log.info("Attempting to send email via Sendgrid API")
         sendgrid_client = SendGridAPIClient(os.environ.get('SENDGRID_API_KEY'))
         response = sendgrid_client.send(message)
         log.info(f"Email sent with response code: {response.status_code}")
         log.info(f" --- Email response body --- ")
-        log.info(f" {response.body} ")
+        #log.info(f" {response.body} ")
         log.info(f" --- Email response headers --- ")
-        log.info(f" {response.headers}")
+        #log.info(f" {response.headers}")
     except Exception as e:
         log.info(f"{e.message}")
         print(e.message)
