@@ -10,9 +10,26 @@ Main usage case for this module:
 import base64
 import os
 import os.path
+
+import logging
+from logging import handlers
+from logging.handlers import RotatingFileHandler
+import sys
 from sendgrid.helpers.mail import ( Mail, Attachment, FileContent, FileName,
                                     FileType, Disposition, ContentId)
 from sendgrid import SendGridAPIClient
+
+
+
+log = logging.getLogger('')
+log.setLevel(logging.INFO)
+fa_log_format = logging.Formatter("%(asctime)s [%(threadName)-12.12s] [%(levelname)-5.5s] : %(funcName)s: %(lineno)d: %(message)s")
+ch = logging.StreamHandler(sys.stdout)
+ch.setFormatter(fa_log_format)
+log.addHandler(ch)
+fh = handlers.RotatingFileHandler('sendgrid_mailer.log', maxBytes=(1048576*5), backupCount=7)
+fh.setFormatter(fa_log_format)
+log.addHandler(fh)
 
 
 data_files = ['email_body_txt_m4.txt',
@@ -20,23 +37,39 @@ data_files = ['email_body_txt_m4.txt',
               'Ogre-raw-data-report.txt',
               'cleaned-sorted-df.csv',
               'pandas_df.csv',
-              'basic_price_stats.txt']
+              'basic_price_stats.txt',
+              '1_rooms_tmp.txt',
+              '1-4_rooms.png',
+              '1_rooms.png',
+              '2_rooms.png',
+              '3_rooms.png',
+              '4_rooms.png',
+              'test.png',
+              'mrv2.txt',
+              'Ogre_city_report.pdf']
 
 
 def remove_tmp_files() -> None:
     """FIXME: Refactor this function to better code"""
+    directory = os.getcwd()
+    log.info(f" --- current working dir {directory} --- ")
     for data_file in data_files:
         try:
+            log.info(f"Trying delete file: {data_file} ")
             os.remove(data_file)
         except OSError as e:
             print(f'Error: {data_file} : {e.strerror}')
+            log.info(f"Error deleting {data_file} : {e.strerror} ")
 
 
 def sendgrid_mailer_main() -> None:
     """Main module entry point"""
-    print("Debug info: Starting sendgrid mailer module ...")
-    with open('email_body_txt_m4.txt') as f:
-        file_content = f.readlines()
+    log.info(" --- Started sendgrid_mailer module --- ")
+    log.info(" Trying to open email_body_txt_m4.txt for email body content ")
+    with open('email_body_txt_m4.txt') as file_object:
+        file_content = file_object.readlines()
+
+    log.info("Creating email body content from email_body_txt_m4.txt file ")
     email_body_content = ''.join([i for i in file_content[1:]])
 
     # Creates Mail object instance
@@ -47,17 +80,19 @@ def sendgrid_mailer_main() -> None:
             plain_text_content=email_body_content)
 
     report_file_exists = os.path.exists('Ogre_city_report.pdf')
+    log.info("Checking if file Ogre_city_report.pdf exists and reading as binary ")
     if report_file_exists:
-        # Binary read pdf file 
+        # Binary read pdf file
         file_path = 'Ogre_city_report.pdf'
-        with open(file_path, 'rb') as f:
-            data = f.read()
-            f.close()
+        with open(file_path, 'rb') as file_object:
+            data = file_object.read()
+            file_object.close()
 
         # Encodes data with base64 for email attachment
         encoded_file = base64.b64encode(data).decode()
 
         # Creates instance of Attachment object
+        log.info("Attaching  encoded Ogre_city_report.pdf to email object")
         attached_file = Attachment(
                 file_content = FileContent(encoded_file),
                 file_type = FileType('application/pdf'),
@@ -69,15 +104,19 @@ def sendgrid_mailer_main() -> None:
         message.attachment = attached_file
 
     try:
+        log.info("Attempting to send email via Sendgrid API")
         sendgrid_client = SendGridAPIClient(os.environ.get('SENDGRID_API_KEY'))
         response = sendgrid_client.send(message)
-        print("Email sent response code:", response.status_code)
-        print(response.body, response.headers)
+        log.info(f"Email sent with response code: {response.status_code}")
+        log.info(f" --- Email response body --- ")
+        #log.info(f" {response.body} ")
+        log.info(f" --- Email response headers --- ")
+        #log.info(f" {response.headers}")
     except Exception as e:
+        log.info(f"{e.message}")
         print(e.message)
-    print("Debug info: Removing temp files ... ")
     remove_tmp_files()
-    print("Debug info: Completed sendgrid mailer module... ")
+    log.info(" --- Ended sendgrid_mailer module --- ")
 
 
 

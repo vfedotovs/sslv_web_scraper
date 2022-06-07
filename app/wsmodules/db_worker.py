@@ -25,6 +25,7 @@ TODO:
 12.[] Check if report day by last x days count and  generate report
 13.[] Write tests for db_worker module
 """
+import os
 import sys
 import logging
 from logging.handlers import RotatingFileHandler
@@ -78,16 +79,20 @@ def db_worker_main() -> None:
 
 def check_files(file_names: list) -> None:
     """Testing if file exists and can be opened"""
-    for f in file_names:
+    cwd = os.getcwd()
+    for file_name in file_names:
         try:
-            file = open(f, 'r')
+            logger.info(f'Checking if required module file {file_name} exits in {cwd}')
+            file = open(file_name, 'r')
         except IOError:
-            logger.error(f'There was an error opening the file {f} or file does not exist!')
+            logger.error(f'There was an error opening the file {file_name} or file does not exist!')
             sys.exit()
 
 
 def load_csv_to_df(csv_file_name: str):
-    """reads csv file and return pandas data frame"""
+    """reads csv file and returns pandas data frame"""
+    cwd = os.getcwd()
+    logger.info(f'Loading {csv_file_name} from directory {cwd}')
     df = pd.read_csv(csv_file_name)
     logger.info(f'Loaded {csv_file_name} file to pandas data frame in memory')
     return df
@@ -101,7 +106,8 @@ def extract_url_hashes_from_df(df_name) -> list:
     for full_url in urls:
         url_hash = extract_hash(full_url)
         url_hashes.append(url_hash)
-    logger.info(f'Extracted {len(url_hashes)} url hashes from pandas data frame')
+    logger.info(f'Extracted {len(url_hashes)} url hashes from todays scraped data')
+    logger.info(f'Extracted {url_hashes} url hashes from todays scraped data')
     return url_hashes
 
 
@@ -114,7 +120,7 @@ def extract_hash(full_url: str) -> str:
     return url_hash
 
 
-def extract_listed_url_hashes_from_db():
+def extract_listed_url_hashes_from_db() -> list:
     """Iterate over all rows in  listed_ads table and
     extract each url hash column value and return as list of hashes"""
     conn = None
@@ -130,7 +136,7 @@ def extract_listed_url_hashes_from_db():
             row = cur.fetchone()
         cur.close()
     except (Exception, psycopg2.DatabaseError) as error:
-        print(error)
+        logger.error(f'{error}')
     finally:
         if conn is not None:
             conn.close()
@@ -141,6 +147,8 @@ def extract_listed_url_hashes_from_db():
         clean_hash = clean_element.replace("(", "").replace(",", "")
         clean_hashes.append(clean_hash)
     logger.info(f'Extracted {len(clean_hashes)} hashes from database listed_ads table')
+    logger.info(f'Extracted clean hash count: {len(clean_hashes)}')
+    logger.info(f'Extracted clean hash list: {clean_hashes}')
     return clean_hashes
 
 
@@ -150,7 +158,7 @@ def compare_df_to_db_hashes(df_hashes: list, db_hashes: list) -> list:
     new_ads = []
     existing_ads = []
     removed_ads = []
-    logger.info(f'Comparing {len(df_hashes)} data frame hashes with {len(db_hashes)} listed table hashes')
+    logger.info(f'Comparing {len(df_hashes)} todays scraped data hashes with {len(db_hashes)} DB listed_ads table hashes')
     for df_hash in df_hashes:
         if df_hash in db_hashes:
             existing_ads.append(df_hash)
@@ -163,12 +171,17 @@ def compare_df_to_db_hashes(df_hashes: list, db_hashes: list) -> list:
     hash_categories.append(existing_ads)
     hash_categories.append(removed_ads)
     logger.info(f'Result {len(new_ads)} new, {len(existing_ads)} still_listed, {len(removed_ads)} to_remove hashes ')
+    logger.info(f'New todays scraped hashes: {new_ads}')
+    logger.info(f'Hashes from DB listed_ads table: {existing_ads}')
+    logger.info(f'Hashes for DB removed_ads table: {removed_ads}')
     return hash_categories
 
 
 def extract_new_msg_data(df, new_msg_hashes: list) -> dict:
     """ Extract data from df and return as dict hash: (list column data for hash row)"""
     data_dict = {}
+    logger.info(f'new_msg_hashes count {len(new_msg_hashes)}, hashes: {new_msg_hashes}')
+    logger.info('Starting extract new ads from todays scraped data farme in memory')
     for hash_str in new_msg_hashes:
         for index, row in df.iterrows():
             url = row['URL']
@@ -190,6 +203,9 @@ def extract_new_msg_data(df, new_msg_hashes: list) -> dict:
             row_data.append(days_count)
             if url_hash == hash_str:
                 data_dict[url_hash] = row_data
+    logger.info(f'Extrcted new ad count from todays data frame {len(data_dict)} ')
+    for k, v in data_dict.items():
+        logger.info(f'{k} {v}')
     return data_dict
 
 
@@ -271,6 +287,8 @@ def insert_data_to_listed_table(data: dict) -> None:
                   days_listed))
         conn.commit()
         cur.close()
+        for k, v in data.items():
+            logger.info(f'{k} {v}')
     except (Exception, psycopg2.DatabaseError) as error:
         print(error)
     finally:
@@ -339,6 +357,7 @@ def extract_to_increment_msg_data(listed_url_hashes:list) -> list:
     conn = None
     to_increment_msg_data = {}
     try:
+        logger.info(f'Connecting to DB to fetch data from listed_ads table')
         params = config()
         conn = psycopg2.connect(**params)
         cur = conn.cursor()
@@ -361,12 +380,14 @@ def extract_to_increment_msg_data(listed_url_hashes:list) -> list:
                     data_values.append(dlv)
                     to_increment_msg_data[curr_row_hash] = data_values
         cur.close()
+        logger.info(f'Extracted data from listed_ads table for {len(to_increment_msg_data)} messages')
+        for k, v in to_increment_msg_data.items():
+            logger.info(f'{k} {v}')
     except (Exception, psycopg2.DatabaseError) as error:
         print(error)
     finally:
         if conn is not None:
             conn.close()
-    logger.info(f'Extracted data from listed_ads table for {len(to_increment_msg_data)} messages')
     return to_increment_msg_data
 
 
@@ -417,6 +438,8 @@ def insert_data_to_removed_table(data: dict) -> None:
                   days_listed))
         conn.commit()
         cur.close()
+        for k, v in data.items():
+            logger.info(f'{k} {v}')
     except (Exception, psycopg2.DatabaseError) as error:
         logger.error(error)
         print(error)
@@ -440,6 +463,7 @@ def delete_db_listed_table_rows(delisted_hashes: list) -> None:
             cur.execute(full_cmd)
         conn.commit()
         cur.close()
+        logger.info(f'Deleted ads with hashes: {delisted_hashes} from listed_ads table')
     except (Exception, psycopg2.DatabaseError) as error:
         print(error)
     finally:
@@ -462,6 +486,8 @@ def update_dlv_in_db_table(data: dict, todays_date: datetime) -> None:
             if correct_dlv == days_listed:
                 pass
     logger.info(f'Updated days_listed value for {dlv_count} messages in listed_ads table')
+    for k, v in data.items():
+        logger.info(f'{k} {v}')
 
 
 def calc_valid_dlv(pub_date: str, todays_date: datetime) -> int:

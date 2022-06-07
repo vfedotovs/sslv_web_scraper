@@ -14,7 +14,7 @@ import pandas as pd
 
 
 log = logging.getLogger('')
-log.setLevel(logging.DEBUG)
+log.setLevel(logging.INFO)
 fa_log_format = logging.Formatter("%(asctime)s [%(threadName)-12.12s] [%(levelname)-5.5s] : %(funcName)s: %(lineno)d: %(message)s")
 ch = logging.StreamHandler(sys.stdout)
 ch.setFormatter(fa_log_format)

@@ -90,8 +90,10 @@ def create_oneline_report(source_file: str):
 
 
 def create_file_copy() -> None:
-    """Creates report file copy in data folder"""
-    copy_cmd = 'mv cleaned-sorted-df.csv data/'
+    """Creates file copy with date in name to data folder"""
+    todays_date = datetime.today().strftime('%Y-%m-%d')
+    dest_file = 'pandas_df_' + todays_date + '.csv'
+    copy_cmd = 'cp pandas_df.csv data/' + dest_file
     if not os.path.exists('data'):
         os.makedirs('data')
     os.system(copy_cmd)
