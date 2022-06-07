@@ -18,11 +18,10 @@ data_frames = [ ]
 
 
 def run_analisys():
-    analyze_data('room_stats', 'room_stats.txt', data_frame)
-    analyze_data('house_stats', 'house_stats.txt', data_frame)
-    analyze_data('apt_loc_stats', 'room_stats.txt', data_frame)
-
-    for data_frame in data_frames: 
+    for data_frame in data_frames:
+        analyze_data('room_stats', 'room_stats.txt', data_frame)
+        analyze_data('house_stats', 'house_stats.txt', data_frame)
+        analyze_data('apt_loc_stats', 'room_stats.txt', data_frame)
         gen_image(data_frame, 'Price', 'Sqm')
 
 
@@ -31,7 +30,7 @@ def analyze_data(segment_type: str, file_name: str,
     """ TODO """
     pass
 
-def gen_image(data_frame: pd.DataFrame, xclmn: str, yclmn: str) -> None:  
+def gen_image(data_frame: pd.DataFrame, xclmn: str, yclmn: str) -> None:
     """Generate scatter plot based x and y axsis as data frame column values,
     include title and save to *.png file"""
     img_title = 'FIXME'
