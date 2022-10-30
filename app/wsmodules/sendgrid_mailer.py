@@ -10,7 +10,7 @@ Main usage case for this module:
 import base64
 import os
 import os.path
-
+from datetime import datetime
 import logging
 from logging import handlers
 from logging.handlers import RotatingFileHandler
@@ -60,6 +60,17 @@ def remove_tmp_files() -> None:
         except OSError as e:
             print(f'Error: {data_file} : {e.strerror}')
             log.info(f"Error deleting {data_file} : {e.strerror} ")
+            
+
+def gen_debug_subject() -> str:
+    """Function generates uniq subject line to improve debugging
+    Example of subject:
+    Ogre City Apartments for sale from ss.lv webscraper v1.4.7 20221001_1019"""
+    release = "v1.4.7 "
+    now = datetime.now()
+    email_created = now.strftime("%Y%m%d_%H%M")
+    city_name = 'Ogre City Apartments for sale from ss.lv webscraper'
+    return city_name + release + email_created
 
 
 def sendgrid_mailer_main() -> None:
@@ -70,14 +81,15 @@ def sendgrid_mailer_main() -> None:
         file_content = file_object.readlines()
 
     log.info("Creating email body content from email_body_txt_m4.txt file ")
-    email_body_content = ''.join([i for i in file_content[1:]])
+    email_body_text = ''.join([i for i in file_content[1:]])
+    debug_subject = gen_debug_subject()
 
     # Creates Mail object instance
     message = Mail(
             from_email=(os.environ.get('SRC_EMAIL')),
             to_emails=(os.environ.get('DEST_EMAIL')),
-            subject='Ogre Apartments for sale from ss.lv webscraper v1.4.5',
-            plain_text_content=email_body_content)
+            subject=debug_subject,
+            plain_text_content=email_body_text)
 
     report_file_exists = os.path.exists('Ogre_city_report.pdf')
     log.info("Checking if file Ogre_city_report.pdf exists and reading as binary ")
