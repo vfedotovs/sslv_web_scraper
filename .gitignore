@@ -6,6 +6,7 @@
 *.png
 *.html
 *.log
+*.sql
 __init__.pyc
 
 # postgress data base settings
@@ -29,6 +30,7 @@ src_email.env
 dest_email.env
 
 # Do not exclude
+init.sql
 !TODO_items.txt
 !requirements.txt
 !project_data.txt
