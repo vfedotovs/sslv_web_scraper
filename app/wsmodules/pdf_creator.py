@@ -55,8 +55,7 @@ def pdf_creator_main():
 
     # FIXME: Strange var naming should include analytics type
     report_txt_lines  = read_file_to_list('basic_price_stats.txt')
-    one_room_apt_txt_lines = ['Some text goes here']
-    create_pdf_report(report_txt_lines, one_room_apt_txt_lines)  # creating pdf file
+    create_pdf_report(report_txt_lines)  # creating pdf file
     print("Debug info: Completed pdf creator module module ... ")
 
 
