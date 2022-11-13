@@ -1,7 +1,7 @@
 version: '3'
 services:
   db:
-    image: postgres:13.5
+    image: postgres:13.8
     restart: always
     environment:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
@@ -9,6 +9,7 @@ services:
       POSTGRES_DB: new_docker_db
     volumes:
       - ./init.sql:/docker-entrypoint-initdb.d/init.sql
+      - ./pg_backup.sql:/docker-entrypoint-initdb.d/pg_backup.sql
       - ./postgresql_data:/var/lib/postgresql/data
     networks:
       - postgresql
