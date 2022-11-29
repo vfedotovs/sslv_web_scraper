@@ -27,7 +27,11 @@ jobs:
         if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
     - name: Project env file setup
       run: |
-        echo "testdbname:name" > database.ini
-        echo "testdbuser:user" >> database.ini
-        echo "testdbpass:pass" >> database.ini
+        echo "[postgresql]" > database.ini
+        echo "host=db" >> database.ini
+        echo "${{ secrets.PG_DB_NAME }}" >> database.ini
+        echo "${{ secrets.PG_DB_USER }}" >> database.ini
+        echo "${{ secret.PG_DB_PASS }}" >> database.ini
+        ls -la
+        cat database.ini
         
