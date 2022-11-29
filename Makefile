@@ -40,11 +40,14 @@ test: ## Runs pytests locally
 prune_containers: ## Cleans all docker containers locally
 	@docker system prune -a
 
-build_containers: ## Building containers loaclly ...(not implemented)
-	echo "Building containers loaclly ...(not implemented)"
+build_ts: ## Building task_scheduler container
+	@docker build -t sslv-dev-ts --file src/ts/Dockerfile .
 
-push_to_ECR: ## Tagging and pushing containers to AWS ECR (not implemented)
-	echo "Tagging and pushing containers to AWS ECR (not implemented)"
-	
+push_ts: ## Tagging and pushing ts to AWS ECR
+	@aws ecr get-login-password --region eu-west-1 | docker login --username AWS --password-stdin $(TS_IMAGE_REPO)
+	@docker tag sslv-dev-ts:latest $(TS_IMAGE_REPO)/sslv-dev-ts:latest
+	@docker push $(TS_IMAGE_REPO)/sslv-dev-ts:latest
+
+
 deploy: ## Deploying app to AWS EC2 ...(not implemented)
 	echo "Deploying app to AWS EC2 ...(not implemented)"
