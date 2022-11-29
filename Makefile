@@ -19,20 +19,11 @@ fetch_dump: ## Fetches DB dump file from S3 bucket
 	@aws s3 cp s3://$(S3_BUCKET)/pg_backup_$(DB_BACKUP_DATE).sql .
 	@cp pg_backup_$(DB_BACKUP_DATE).sql pg_backup.sql 
 
-list_tables: ## Lists tables sizes in postgres docker to check if DB dump was restored correctly 
-	@docker exec $(PG_CONTAINER_NAME) psql -U new_docker_user -d new_docker_db -c '\dt+'
-
-
-# Stage: before local deploy test
-test: ## Runs pytest
-	pytest -v
-
-# Stage: local deploy for preprod testing  
-clean: ## Cleans all docker containers locally
-	@docker system prune -a
-
 compose_db_up: ## Starts DB container
 	@docker-compose --env-file .env.prod up db -d
+
+list_db_tables: ## Lists tables sizes in postgres docker allows to test if DB dump was restored correctly 
+	@docker exec $(PG_CONTAINER_NAME) psql -U new_docker_user -d new_docker_db -c '\dt+'
 
 compose_up: ## Starts remainig containers 
 	@docker-compose --env-file .env.prod up -d
@@ -40,11 +31,19 @@ compose_up: ## Starts remainig containers
 compose_down: ## Stops all containers
 	@docker-compose --env-file .env.prod down
 
+test: ## Runs pytests locally
+	pytest -v
+
+prune_containers: ## Cleans all docker containers locally
+	@docker system prune -a
+
 
 # Third stage: remote AWS deploy production
+build_containers:
+	echo "Building containers loaclly ...(not implemented)"
 
-build:
-	echo "Building and pushing containers to docker hub...(not implemented)"
+push_to_ECR:
+    echo "Tagging and pushing containers to AWS ECR (not implemented)"
 
-deploy:
+deploy_to_AWS_EC2:
 	echo "Manually deploying app with terraform to AWS EC2 ...(not implemented)"
