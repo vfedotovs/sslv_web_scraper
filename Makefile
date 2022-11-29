@@ -37,13 +37,11 @@ test: ## Runs pytests locally
 prune_containers: ## Cleans all docker containers locally
 	@docker system prune -a
 
-
-# Third stage: remote AWS deploy production
-build_containers:
+build_containers: ## Building containers loaclly ...(not implemented)
 	echo "Building containers loaclly ...(not implemented)"
 
-push_to_ECR:
-    echo "Tagging and pushing containers to AWS ECR (not implemented)"
-
-deploy_to_AWS_EC2:
-	echo "Manually deploying app with terraform to AWS EC2 ...(not implemented)"
+push_to_ECR: ## Tagging and pushing containers to AWS ECR (not implemented)
+	echo "Tagging and pushing containers to AWS ECR (not implemented)"
+	
+deploy: ## Deploying app to AWS EC2 ...(not implemented)
+	echo "Deploying app to AWS EC2 ...(not implemented)"
