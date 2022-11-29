@@ -19,6 +19,9 @@ fetch_dump: ## Fetches DB dump file from S3 bucket
 	@aws s3 cp s3://$(S3_BUCKET)/pg_backup_$(DB_BACKUP_DATE).sql .
 	@cp pg_backup_$(DB_BACKUP_DATE).sql pg_backup.sql 
 
+fetch_last_db_dump: ## Fetches last Postgres DB dump from AWS S3 bucket
+	@python3 get_last_db_backup.py
+
 compose_db_up: ## Starts DB container
 	@docker-compose --env-file .env.prod up db -d
 
