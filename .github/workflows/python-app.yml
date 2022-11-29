@@ -31,7 +31,7 @@ jobs:
         echo "host=db" >> database.ini
         echo "${{ secrets.PG_DB_NAME }}" >> database.ini
         echo "${{ secrets.PG_DB_USER }}" >> database.ini
-        echo "${{ secret.PG_DB_PASS }}" >> database.ini
+        echo "${{ secrets.PG_DB_PASS }}" >> database.ini
         ls -la
         cat database.ini
         
