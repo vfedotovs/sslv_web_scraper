@@ -57,6 +57,14 @@ push_db: ## Tagging and pushing db container to AWS ECR
 	@docker tag sslv-dev-db:latest $(TS_IMAGE_REPO)/sslv-dev-db:latest
 	@docker push $(TS_IMAGE_REPO)/sslv-dev-db:latest
 
+build_ws: ## Building web_scraper container
+	@docker build -t sslv-dev-ws --file src/ws/Dockerfile .
+
+push_ws: ## Tagging and pushing ws container to AWS ECR
+	@aws ecr get-login-password --region eu-west-1 | docker login --username AWS --password-stdin $(TS_IMAGE_REPO)
+	@docker tag sslv-dev-ws:latest $(TS_IMAGE_REPO)/sslv-dev-ws:latest
+	@docker push $(TS_IMAGE_REPO)/sslv-dev-ws:latest
+
 
 deploy: ## Deploying app to AWS EC2 ...(not implemented)
 	echo "Deploying app to AWS EC2 ...(not implemented)"
