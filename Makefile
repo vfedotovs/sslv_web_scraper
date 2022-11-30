@@ -21,6 +21,7 @@ fetch_dump: ## Fetches DB dump file from S3 bucket
 
 fetch_last_db_dump: ## Fetches last Postgres DB dump from AWS S3 bucket
 	@python3 get_last_db_backup.py
+	@cp *.sql src/db/
 
 compose_db_up: ## Starts DB container
 	@docker-compose --env-file .env.prod up db -d
@@ -47,6 +48,14 @@ push_ts: ## Tagging and pushing ts to AWS ECR
 	@aws ecr get-login-password --region eu-west-1 | docker login --username AWS --password-stdin $(TS_IMAGE_REPO)
 	@docker tag sslv-dev-ts:latest $(TS_IMAGE_REPO)/sslv-dev-ts:latest
 	@docker push $(TS_IMAGE_REPO)/sslv-dev-ts:latest
+
+build_db: ## Building db container
+	@docker build -t sslv-dev-db --file src/db/Dockerfile .
+
+push_db: ## Tagging and pushing db container to AWS ECR
+	@aws ecr get-login-password --region eu-west-1 | docker login --username AWS --password-stdin $(TS_IMAGE_REPO)
+	@docker tag sslv-dev-db:latest $(TS_IMAGE_REPO)/sslv-dev-db:latest
+	@docker push $(TS_IMAGE_REPO)/sslv-dev-db:latest
 
 
 deploy: ## Deploying app to AWS EC2 ...(not implemented)
