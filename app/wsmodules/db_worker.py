@@ -572,4 +572,27 @@ def list_rows_in_removed_table() -> None:
             conn.close()
 
 
+def extract_data_from_removed_ads_db_table() -> list:
+    """Iterate over all rows in removed_ads table and
+    extract all ads entries data and returns as list"""
+    conn = None
+    removed_ads_etnries = []
+    try:
+        params = config()
+        conn = psycopg2.connect(**params)
+        cur = conn.cursor()
+        cur.execute("SELECT * FROM removed_ads ORDER BY url_hash  ")
+        row = cur.fetchone()
+        while row is not None:
+            removed_ads_etnries.append(row)
+            row = cur.fetchone()
+        cur.close()
+    except (Exception, psycopg2.DatabaseError) as error:
+        logger.error(f'{error}')
+    finally:
+        if conn is not None:
+            conn.close()
+    return removed_ads_etnries
+
+
 db_worker_main()
