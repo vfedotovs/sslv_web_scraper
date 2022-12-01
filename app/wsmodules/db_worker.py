@@ -74,6 +74,10 @@ def db_worker_main() -> None:
     # Check and increment/update listed_ads all rows for listed days count value
     todays_date = datetime.now()
     update_dlv_in_db_table(to_increment_msg_data, todays_date)
+    
+    # Extract all removed_ads table data and save to file
+    removed_ads_text_data = extract_data_from_removed_ads_db_table()
+    save_text_to_file(removed_ads_text_data)
     logger.info(" --- Ended db_worker module ---")
 
 
@@ -593,6 +597,14 @@ def extract_data_from_removed_ads_db_table() -> list:
         if conn is not None:
             conn.close()
     return removed_ads_etnries
+
+
+def save_text_to_file(text_lines: list) -> None:
+    """Function writes text lines to uniq file name """
+    uniq_date = datetime.now().strftime('%Y_%m_%d')
+    file_name = "removed_ads_data_" + uniq_date + ".txt"
+    with open(file_name, 'w') as filehandle:
+        filehandle.writelines("%s\n" % line for line in text_lines)
 
 
 db_worker_main()
