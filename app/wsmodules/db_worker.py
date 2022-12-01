@@ -77,7 +77,8 @@ def db_worker_main() -> None:
     
     # Extract all removed_ads table data and save to file
     removed_ads_text_data = extract_data_from_removed_ads_db_table()
-    save_text_to_file(removed_ads_text_data)
+    logger.info(removed_ads_text_data)
+    # save_text_to_file(removed_ads_text_data)
     logger.info(" --- Ended db_worker module ---")
 
 
