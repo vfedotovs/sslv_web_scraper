@@ -1,0 +1,12 @@
+site_name: SSLV Web Scraper Docs
+site_url: https://vfedotovs.github.io/sslv_web_scraper
+site_author: Valentins Fedotovs
+
+
+# Navigation template
+nav:
+    - Home: index.md
+    - Tutorials: tutorials.md
+    - How To Guides: how-to-guides.md
+    - References: reference.md
+    - Explanations: explanation.md
