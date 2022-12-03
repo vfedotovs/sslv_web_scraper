@@ -1,7 +1,6 @@
+#!/usr/bin/env python3
 """
-data_formater_v14.py Module.
-
-data_format_changer.py - better name
+data_format_changer.py Module
 
 Module functions:
 [x] 1. Reads scraped data from Ogre-raw-data-report-2022-12-03.txt file
@@ -11,6 +10,7 @@ Module functions:
 (later used as input file in analitics.py module and
 csv file can be very easy inported as pandas DataFrame.)
 
+#TODO: Implement these features
 [ ] 4. Some data like Serija,Majas tips and Kadastra numurs are not
 transfered to outut file.
 [ ] 5. Rename pandas_df.csv_2022-12-03.csv to better name
@@ -19,34 +19,12 @@ ogre_city_data_2022_12_03.csv and Upload renamed file ro new S3 bucket
 (This architectual steep can reduce email recieving time by 4-5 min avoiding
 re-scraping data multiple times per day)
 
-12 line data format for each scraped ad entry in Ogre-raw-data-report-2022-12-03.txt
-https://ss.lv/msg/lv/real-estate/flats/ogre-and-reg/ogre/fxobe.html
-Pilsēta, rajons:><b>Ogre un raj.
-Pilsēta/pagasts:><b>Ogre
-Iela:><b>Jaunatnes iela 4
-Istabas:>2
-Platība:>50 m²
-Stāvs:>3/9/lifts
-Sērija:>602.
-Mājas tips:>Paneļu
-Kadastra numurs:>74019004158
-Price:>57 000 € (1 140 €/m²)
-Date:>01.02.2022
-
-
-Data format of pandas_df_2022-12-03.csv is one line per ad
-,URL,Room_count,Size_sq_m,Floor,Street,Price,Pub_date
-0,https://ss.lv/msg/lv/real-estate/flats/ogre-and-reg/ogre/fxobe.html,Istabas:>2,Platiba:>50 m²,Stavs:>3/9/lifts,Iela:><b>Jaunatnes iela 4,Price:>57 000 € (1 140 €/m²),Date:>01.02.2022
-
 
 Module requires:
 [x] If today is 2022-12-03 file data/Ogre-raw-data-report-2022-12-03.txt must exist for module to run
 
 Mudule creates:
 [x] File pandas_df.csv and makes copy data/pandas_df.csv_2022-12-03.csv
-
-
-
 """
 import os
 import re
@@ -74,6 +52,26 @@ def data_formater_main() -> None:
 def create_oneline_report(source_file: str) -> pd.DataFrame:
     """Changes text file format(12 lines per ad entry)
     to csv file format (1 line per ad entry)
+
+    12 line data format for each scraped ad entry in Ogre-raw-data-report-2022-12-03.txt
+    https://ss.lv/msg/lv/real-estate/flats/ogre-and-reg/ogre/fxobe.html
+    Pilsēta, rajons:><b>Ogre un raj.
+    Pilsēta/pagasts:><b>Ogre
+    Iela:><b>Jaunatnes iela 4
+    Istabas:>2
+    Platība:>50 m²
+    Stāvs:>3/9/lifts
+    Sērija:>602.
+    Mājas tips:>Paneļu
+    Kadastra numurs:>74019004158
+    Price:>57 000 € (1 140 €/m²)
+    Date:>01.02.2022
+
+
+    Data format of pandas_df_2022-12-03.csv is one line per ad
+    ,URL,Room_count,Size_sq_m,Floor,Street,Price,Pub_date
+    0,https://ss.lv/msg/lv/real-estate/flats/ogre-and-reg/ogre/fxobe.html,Istabas:>2,Platiba:>50 m²,Stavs:>3/9/lifts,Iela:><b>Jaunatnes iela 4,Price:>57 000 € (1 140 €/m²),Date:>01.02.2022
+
 
     Args:
         source_file: text file data/Ogre-raw-data-report-2022-12-03.txt
