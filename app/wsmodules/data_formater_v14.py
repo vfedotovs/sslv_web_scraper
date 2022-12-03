@@ -1,9 +1,51 @@
 """
 data_formater_v14.py Module.
 
+data_format_changer.py - better name
+
 Module functions:
-[x] 1. Take as input file Ogre-raw-data-report.txt creates pandas_df.csv
-[x] 2. pandas_df.csv will be used in analitics.py module
+[x] 1. Reads scraped data from Ogre-raw-data-report-2022-12-03.txt file
+(text files can not be read by padas)
+[x] 2. Changes format 12 lines per ad entry to 1 line per ad entry.
+[x] 3. Writes pandas_df.csv and creates copy data/pandas_df.csv_2022-12-03.csv
+(later used as input file in analitics.py module and
+csv file can be very easy inported as pandas DataFrame.)
+
+[ ] 4. Some data like Serija,Majas tips and Kadastra numurs are not
+transfered to outut file.
+[ ] 5. Rename pandas_df.csv_2022-12-03.csv to better name
+ogre_city_data_2022_12_03.csv and Upload renamed file ro new S3 bucket
+(Big perfommance improvement by eliminating need to re-scrape data on each run)
+(This architectual steep can reduce email recieving time by 4-5 min avoiding
+re-scraping data multiple times per day)
+
+12 line data format for each scraped ad entry in Ogre-raw-data-report-2022-12-03.txt
+https://ss.lv/msg/lv/real-estate/flats/ogre-and-reg/ogre/fxobe.html
+Pilsēta, rajons:><b>Ogre un raj.
+Pilsēta/pagasts:><b>Ogre
+Iela:><b>Jaunatnes iela 4
+Istabas:>2
+Platība:>50 m²
+Stāvs:>3/9/lifts
+Sērija:>602.
+Mājas tips:>Paneļu
+Kadastra numurs:>74019004158
+Price:>57 000 € (1 140 €/m²)
+Date:>01.02.2022
+
+
+Data format of pandas_df_2022-12-03.csv is one line per ad
+,URL,Room_count,Size_sq_m,Floor,Street,Price,Pub_date
+0,https://ss.lv/msg/lv/real-estate/flats/ogre-and-reg/ogre/fxobe.html,Istabas:>2,Platiba:>50 m²,Stavs:>3/9/lifts,Iela:><b>Jaunatnes iela 4,Price:>57 000 € (1 140 €/m²),Date:>01.02.2022
+
+
+Module requires:
+[x] If today is 2022-12-03 file data/Ogre-raw-data-report-2022-12-03.txt must exist for module to run
+
+Mudule creates:
+[x] File pandas_df.csv and makes copy data/pandas_df.csv_2022-12-03.csv
+
+
 
 """
 import os
@@ -23,21 +65,20 @@ def data_formater_main() -> None:
     """Read raw data from Ogre-raw-data-report.txt and save to pandas_df.csv"""
     print("Debug info: Started dat_formater module ... ")
     data_file_location = get_file_path('Ogre')
-    df = create_oneline_report(data_file_location)
-    df.to_csv("pandas_df.csv")
+    ogre_city_data_frame = create_oneline_report(data_file_location)
+    ogre_city_data_frame.to_csv("pandas_df.csv")
     create_file_copy()
-    #all_ads_df = pd.read_csv("cleaned-sorted-df.csv", index_col=False)
-    #create_email_body(all_ads_df, 'email_body_txt_m4.txt')
-
     print("Debug info: Ended data_formater module ... ")
 
 
-def create_oneline_report(source_file: str):
-    """ Converts multiline advert data from  txt to Python data frame object
+def create_oneline_report(source_file: str) -> pd.DataFrame:
+    """Changes text file format(12 lines per ad entry)
+    to csv file format (1 line per ad entry)
+
     Args:
-        source_file: raw-data text file for example Ogre-raw-data-report.txt
+        source_file: text file data/Ogre-raw-data-report-2022-12-03.txt
     Returns:
-       df: Pandas data frame object
+       df: pd.DataFrame object
     """
     urls = []
     room_counts = []
@@ -85,12 +126,12 @@ def create_oneline_report(source_file: str):
             "Street": room_streets,
             'Price': room_prices,
             'Pub_date': publish_dates }
-    df = pd.DataFrame(mydict)
-    return df
+    pandas_df = pd.DataFrame(mydict)
+    return pandas_df
 
 
 def create_file_copy() -> None:
-    """Creates file copy with date in name to data folder"""
+    """Creates copy of pandas_df.csv in as data/pandas_df.csv_2022-12-03.csv"""
     todays_date = datetime.today().strftime('%Y-%m-%d')
     dest_file = 'pandas_df_' + todays_date + '.csv'
     copy_cmd = 'cp pandas_df.csv data/' + dest_file
