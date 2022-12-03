@@ -8,6 +8,7 @@
 *.log
 *.sql
 __init__.pyc
+.coverage
 
 # postgress data base settings
 database.ini
