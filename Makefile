@@ -38,6 +38,9 @@ compose_down: ## Stops all containers
 test: ## Runs pytests locally
 	pytest -v
 
+test_cov: ## Runs pytest coverage report across project
+	pytest --cov=.
+
 prune_containers: ## Cleans all docker containers locally
 	@docker system prune -a
 

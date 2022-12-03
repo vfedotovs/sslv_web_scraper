@@ -1,4 +1,4 @@
-# SS.LV Web Scraper release 1.4.x
+# SS.LV Web Scraper 
 
 
 ## About application:
@@ -16,7 +16,6 @@ Docker version 20.10.11, build dea9396
 Docker Compose version v2.2.1
 
 ```
-
 
 ## How to use application:
 1. Clone repository 
@@ -39,6 +38,13 @@ POSTGRES_PASSWORD=<Your DB Password>
 ```
 5. Run docker-compose --env-file .env.prod up -d
 
+
+## How to generate project documentation: 
+```bash
+mkdocks serve 
+
+To acess navigate http://127.0.0.1:8000/sslv_web_scraper/
+```
 
 ## Currently available features
 - [x] Parse ss.lv website and extract information from section apartments for sale (currently hardcoded for Ogre city adjust to your needs)
