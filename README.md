@@ -1,5 +1,6 @@
 # SS.LV Web Scraper 
 
+![](https://img.shields.io/github/v/release/vfedotovs/sslv_web_scraper)![](https://img.shields.io/github/release-date/vfedotovs/sslv_web_scraper) ![](https://img.shields.io/github/commit-activity/y/vfedotovs/sslv_web_scraper)	![](https://img.shields.io/github/issues-raw/vfedotovs/sslv_web_scraper)![](https://img.shields.io/github/issues-closed-raw/vfedotovs/sslv_web_scraper)![](https://img.shields.io/github/milestones/progress-percent/vfedotovs/sslv_web_scraper/4)
 
 ## About application:
 Purpose: This application will parse information from ss.lv website from apartments for sale category in specific city of your choice
