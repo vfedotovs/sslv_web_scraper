@@ -1,0 +1,53 @@
+name: CI/CD SSLV WebScraper
+
+on:
+  push:
+    branches: [ "dev-1.4.9" ]
+
+jobs:
+
+  build:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - uses: actions/checkout@v2
+    - name: Setup creating database.ini env file 
+      run: |
+        ls -la
+        echo "[postgresql]" > src/ws/database.ini
+        echo "host=db" >> src/ws/database.ini
+        echo "${{ secrets.PG_DB_NAME }}" >> src/ws/database.ini
+        echo "${{ secrets.PG_DB_USER }}" >> src/ws/database.ini
+        echo "${{ secrets.PG_DB_PASS }}" >> src/ws/database.ini
+        ls -la
+        cat src/ws/database.ini
+    
+    - name: Build the docker_compose
+      run: docker-compose up -d --build
+      
+    - name: Buid the application
+      run: docker-compose exec -T counter_app npm run build
+
+  Deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    
+    steps:
+      - uses: actions/checkout@v2 
+      - name: Deploy in EC2
+        env:
+            PRIVATE_KEY: ${{ secrets.AWS_PRIVATE_KEY  }}
+            HOSTNAME : ${{ secrets.HOSTNAME  }}
+            USER_NAME : ${{ secrets.USER_NAME  }}
+            
+        run: |
+          echo "$PRIVATE_KEY" > private_key && chmod 600 private_key
+          ssh -o StrictHostKeyChecking=no -i private_key ${USER_NAME}@${HOSTNAME} '
+          
+            #Now we have got the access of EC2 and we will start the deploy .
+            cd /home/ubuntu/CounterApp &&
+            git checkout master &&
+            git fetch --all &&
+            git reset --hard origin/master &&
+            git pull origin master &&
+            docker-compose -f docker-compose.prod.yml up -d --build 
