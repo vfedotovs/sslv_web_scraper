@@ -39,6 +39,30 @@ POSTGRES_PASSWORD=<Your DB Password>
 ```
 5. Run docker-compose --env-file .env.prod up -d
 
+## Use make
+```bash
+make                                                                          
+help                 💬 This help message
+fetch_env_files      Fetches locally env files database.ini and .env.prod
+fetch_dump_example   Example of fetch specific date DB dump file form S3 bucket
+fetch_dump           Fetches DB dump file from S3 bucket
+fetch_last_db_dump   Fetches last Postgres DB dump from AWS S3 bucket
+compose_db_up        Starts DB container
+list_db_tables       Lists tables sizes in postgres docker allows to test if DB dump was restored correctly
+compose_up           Starts remainig containers
+compose_down         Stops all containers
+test                 Runs pytests locally
+test_cov             Runs pytest coverage report across project
+prune_containers     Cleans all docker containers locally
+build_ts             Building task_scheduler container
+push_ts              Tagging and pushing ts to AWS ECR
+build_db             Building db container
+push_db              Tagging and pushing db container to AWS ECR
+build_ws             Building web_scraper container
+push_ws              Tagging and pushing ws container to AWS ECR
+deploy               Deploying app to AWS EC2 ...(not implemented)
+```
+
 
 ## How to generate project documentation: 
 ```bash
