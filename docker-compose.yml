@@ -12,7 +12,7 @@ services:
     networks:
       - postgresql
   ws:
-    build: .
+    build: ./src/ws
     restart: always
     environment:
       DEST_EMAIL: ${DEST_EMAIL}
@@ -29,7 +29,7 @@ services:
     networks:
       - postgresql
   ts:
-    build: task_scheduler/.
+    build: ./src/ts
     restart: always
     environment:
       WS_HOST: ws
