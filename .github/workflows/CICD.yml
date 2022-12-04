@@ -13,6 +13,7 @@ jobs:
     - uses: actions/checkout@v2
     - name: Setup creating database.ini env file 
       run: |
+        ls -la
         echo "[postgresql]" > src/ws/database.ini
         echo "host=db" >> src/ws/database.ini
         echo "${{ secrets.PG_DB_NAME }}" >> src/ws/database.ini
