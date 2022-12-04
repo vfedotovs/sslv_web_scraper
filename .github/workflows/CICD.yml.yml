@@ -11,6 +11,15 @@ jobs:
     
     steps:
     - uses: actions/checkout@v2
+    - name: Setup creating database.ini env file 
+      run: |
+        echo "[postgresql]" > src/ws/database.ini
+        echo "host=db" >> src/ws/database.ini
+        echo "${{ secrets.PG_DB_NAME }}" >> src/ws/database.ini
+        echo "${{ secrets.PG_DB_USER }}" >> src/ws/database.ini
+        echo "${{ secrets.PG_DB_PASS }}" >> src/ws/database.ini
+        ls -la
+        cat src/ws/database.ini
     
     - name: Build the docker_compose
       run: docker-compose up -d --build
