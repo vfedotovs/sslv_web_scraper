@@ -32,16 +32,21 @@ jobs:
         ls -la | grep env
     
     - name: Start DB container ONLY
-      run: docker-compose --env-file .env.prod up -d
+      run: |
+        uname -a
+        docker -v
+        docker-compose -v
+        docker-compose --env-file .env.prod up db -d
     
     - name: List DB table sizes to confirm if DB import was correct
       run: |
         sleep 10
         docker-compose ps
-        docker exec sslv_web_scraper_db_1  psql -U new_docker_user -d new_docker_db -c '\dt+'
         
     - name: Run docker compose ps
-      run: docker-compose ps
+      run: |
+        sleep 10
+        docker-compose ps
       
     - name: Run compose down
       run: docker-compose down
