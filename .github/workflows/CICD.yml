@@ -11,7 +11,7 @@ jobs:
     
     steps:
     - uses: actions/checkout@v2
-    - name: Setup creating database.ini env file 
+    - name: Before build step 1 creating database.ini file 
       run: |
         ls -la
         echo "[postgresql]" > src/ws/database.ini
@@ -21,12 +21,23 @@ jobs:
         echo "${{ secrets.PG_DB_PASS }}" >> src/ws/database.ini
         ls -la
         cat src/ws/database.ini
+        
+    - name: Before build step 2 create .env.prod file
+      run: |
+        ls -la
+        echo "# ws_worker container env variables" > .env.prod
+        echo "${{ secrets.DEST_EMAIL }}" >> .env.prod 
+        echo "${{ secrets.SRC_EMAIL }}" >> .env.prod 
+        echo "${{ secrets.SENDGRID_API_KEY }}" >> .env.prod
+        echo "# postgres db container env variable" >> .env.prod
+        echo "${{ secrets.POSTGRES_PASSWORD }}" >> .env.prod 
+        ls -la
     
     - name: Build the docker_compose
-      run: docker-compose up -d --build
-      
-    - name: Buid the application
-      run: docker-compose exec -T counter_app npm run build
+      run: docker-compose --env-file .env.prod up -d --build  
+    
+    - name: Run docker compose ps
+      run: docker-compose ps
 
   Deploy:
     needs: build
