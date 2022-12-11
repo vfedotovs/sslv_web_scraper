@@ -27,7 +27,6 @@ jobs:
         echo "${{ secrets.DEST_EMAIL }}" >> .env.prod 
         echo "${{ secrets.SRC_EMAIL }}" >> .env.prod 
         echo "${{ secrets.SENDGRID_API_KEY }}" >> .env.prod
-        echo "# postgres db container env variable" >> .env.prod
         echo "${{ secrets.POSTGRES_PASSWORD }}" >> .env.prod 
         ls -la | grep env
         cat .env.prod 
