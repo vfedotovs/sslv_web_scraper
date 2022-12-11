@@ -39,7 +39,7 @@ jobs:
     - name: List DB table sizes to confirm if DB import was correct
       run: docker exec sslv_web_scraper_db_1  psql -U new_docker_user -d new_docker_db -c '\dt+'
     
-    - name; Start remaining containers WS and TS
+    - name: Start remaining containers WS and TS
       run: docker-compose --env-file .env.prod up -d --build
     
     - name: Run docker compose ps
