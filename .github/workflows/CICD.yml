@@ -35,7 +35,7 @@ jobs:
         cat /etc/os-release
         docker -v
         docker-compose -v
-        docker compose -v
+        docker compose version
         
         
     - name: Start DB container ONLY
