@@ -41,17 +41,17 @@ jobs:
     - name: Start DB container ONLY
       run: |
         pwd
-        docker compose -f docker-compose.yml --env-file .env.prod up -d
+        docker-compose --env-file .env.prod up -d
     
     - name: List DB table sizes to confirm if DB import was correct
       run: |
         sleep 10
-        docker compose ps
+        docker-compose ps
         
     - name: Run docker compose ps
       run: |
         sleep 10
-        docker compose ps
+        docker-compose ps
       
     - name: Run compose down
       run: docker-compose down
