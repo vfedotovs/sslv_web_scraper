@@ -30,12 +30,10 @@ jobs:
         echo "# postgres db container env variable" >> .env.prod
         echo "${{ secrets.POSTGRES_PASSWORD }}" >> .env.prod 
         ls -la | grep env
+        cat .env.prod 
     
     - name: Start DB container ONLY
       run: |
-        uname -a
-        docker -v
-        docker-compose -v
         docker-compose --env-file .env.prod up db -d
     
     - name: List DB table sizes to confirm if DB import was correct
