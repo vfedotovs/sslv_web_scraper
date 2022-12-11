@@ -13,25 +13,23 @@ jobs:
     - uses: actions/checkout@v2
     - name: Setup creating database.ini env file 
       run: |
-        ls -la
         echo "[postgresql]" > src/ws/database.ini
         echo "host=db" >> src/ws/database.ini
         echo "${{ secrets.PG_DB_NAME }}" >> src/ws/database.ini
         echo "${{ secrets.PG_DB_USER }}" >> src/ws/database.ini
         echo "${{ secrets.PG_DB_PASS }}" >> src/ws/database.ini
-        ls -la
+        ls -la src/ws | grep ini  
         cat src/ws/database.ini
     
     - name: Before build step 2 create .env.prod file
       run: |
-        ls -la
         echo "# ws_worker container env variables" > .env.prod
         echo "${{ secrets.DEST_EMAIL }}" >> .env.prod 
         echo "${{ secrets.SRC_EMAIL }}" >> .env.prod 
         echo "${{ secrets.SENDGRID_API_KEY }}" >> .env.prod
         echo "# postgres db container env variable" >> .env.prod
         echo "${{ secrets.POSTGRES_PASSWORD }}" >> .env.prod 
-        ls -la
+        ls -la | grep env
     
     - name: Start DB container ONLY
       run: docker-compose --env-file .env.prod up -d
