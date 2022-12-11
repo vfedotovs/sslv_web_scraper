@@ -2,7 +2,7 @@ name: CI/CD SSLV WebScraper
 
 on:
   push:
-    branches: [ "dev-1.4.9" ]
+    branches: [ "main" ]
 
 jobs:
 
