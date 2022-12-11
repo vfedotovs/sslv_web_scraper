@@ -24,4 +24,5 @@ jobs:
             #Now we have got the access of EC2 and we will start the deploy .
             cd /home/ec2-user &&
             docker run -it --rm -d -p 8080:80 --name web nginx
+          '
 
