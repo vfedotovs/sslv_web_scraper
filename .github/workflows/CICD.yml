@@ -34,7 +34,7 @@ jobs:
     - name: Start DB container ONLY
       run: |
         pwd
-        docker compose --env-file .env.prod up --build -d --remove-orphans
+        docker compose --env-file .env.prod up --build -d
     
     - name: List DB table sizes to confirm if DB import was correct
       run: |
