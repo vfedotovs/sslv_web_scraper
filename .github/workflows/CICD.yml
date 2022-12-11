@@ -30,7 +30,12 @@ jobs:
         echo "${{ secrets.POSTGRES_PASSWORD }}" >> .env.prod 
         ls -la | grep env
         cat .env.prod 
-    
+    - name: Show environment
+      run: |
+        cat /etc/os-release
+        docker -v
+        docker-compose -v
+        
     - name: Start DB container ONLY
       run: |
         pwd
