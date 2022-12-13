@@ -1,4 +1,4 @@
-name: CI/CD SSLV WebScraper
+name: CI-DEV-1.4.9
 
 on:
   push:
@@ -30,6 +30,7 @@ jobs:
         echo "${{ secrets.POSTGRES_PASSWORD }}" >> .env.prod 
         ls -la | grep env
         cat .env.prod 
+        
     - name: Show environment
       run: |
         cat /etc/os-release
@@ -37,6 +38,11 @@ jobs:
         docker-compose -v
         docker compose version
         python3 -V
+        
+    - name: Setup step 3 download last DB file from S3 bucket
+      run: |
+        python3 get_last_db_backup.py
+        ls -lh | grep sql
         
         
     - name: Start DB container ONLY
