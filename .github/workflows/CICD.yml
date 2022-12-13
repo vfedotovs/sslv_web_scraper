@@ -47,6 +47,7 @@ jobs:
     - name: Setup step 3 download last DB file from S3 bucket
       run: |
         python3 ./src/db/get_last_db_backup.py
+        ls -lh | grep sql
         ls -lh ./src/db | grep sql
         
         
