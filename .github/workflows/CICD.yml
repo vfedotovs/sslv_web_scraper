@@ -38,6 +38,7 @@ jobs:
         docker-compose -v
         docker compose version
         python3 -V
+        pip install boto3
         
     - name: Setup step 3 download last DB file from S3 bucket
       run: |
