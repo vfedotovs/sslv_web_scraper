@@ -36,6 +36,7 @@ jobs:
         docker -v
         docker-compose -v
         docker compose version
+        python3 -V
         
         
     - name: Start DB container ONLY
