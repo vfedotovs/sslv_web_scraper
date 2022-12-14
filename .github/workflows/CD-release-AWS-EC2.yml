@@ -6,7 +6,7 @@ on:
 
 jobs:
 
-  Deploy:
+  Deploy to AWS EC2:
     runs-on: ubuntu-latest
     
     steps:
@@ -23,6 +23,7 @@ jobs:
           
             #Now we have got the access of EC2 and we will start the deploy .
             cd /home/ec2-user &&
+            docker rm -f web
             docker run -it --rm -d -p 8080:80 --name web nginx
           '
 
