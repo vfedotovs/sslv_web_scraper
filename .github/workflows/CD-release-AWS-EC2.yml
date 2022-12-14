@@ -6,7 +6,7 @@ on:
 
 jobs:
 
-  Deploy to AWS EC2:
+  Deploy_to_AWS_EC2:
     runs-on: ubuntu-latest
     
     steps:
