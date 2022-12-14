@@ -23,7 +23,7 @@ jobs:
           
             #Now we have got the access of EC2 and we will start the deploy .
             cd /home/ec2-user &&
-            docker rm -f web
-            docker run -it --rm -d -p 8080:80 --name web nginx
+            docker rm -f web-v149 || true
+            docker run --rm -d -p 8501:8501 --name web-v149 vfedotovsdocker/sslv-web-v149:latest
           '
 
