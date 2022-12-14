@@ -7,8 +7,9 @@ from datetime import datetime
 
 TEST_SETUP_FILES = ["Ogre-raw-data-report.txt"]
 
+
+# 12 line data format for each scraped ad entry in Ogre-raw-data-report-2022-12-03.txt
 TEST_SETUP_FILE_CONTENT = """
-    12 line data format for each scraped ad entry in Ogre-raw-data-report-2022-12-03.txt
     https://ss.lv/msg/lv/real-estate/flats/ogre-and-reg/ogre/fxobe.html
     Pilsēta, rajons:><b>Ogre un raj.
     Pilsēta/pagasts:><b>Ogre
@@ -47,22 +48,24 @@ def crete_folder(folder_name: str) -> None:
         print(f" {error} while creating folder {path}")
 
 
+
+
 def copy_setup_files(setup_files: list[str]) -> None:
-    for setup_file in setup_files:
-        cmd = f"cp ../sslv_testing_files/{setup_file} {setup_file}"
-        print(cmd)
-        status = subprocess.call(cmd, shell=True)
-        print(status)
+    # for setup_file in setup_files:
+    #     cmd = f"cp ../sslv_testing_files/{setup_file} {setup_file}"
+    #     print(cmd)
+    #     status = subprocess.call(cmd, shell=True)
+    #     print(status)
 
     # special case for this module
-    cmd2 = "cp Ogre-raw-data-report.txt data"
+    cmd2 = "mkdir data && cp Ogre-raw-data-report.txt data"
     print(cmd2)
     status = subprocess.call(cmd2, shell=True)
     print(status)
     # curr_date = "2022-11-15"
     now = datetime.now()
     curr_date = now.strftime("%Y-%m-%d")
-    cmd3 = f"mv data/Ogre-raw-data-report.txt data/Ogre-raw-data-report-{curr_date}.txt"
+    cmd3 = f"cp Ogre-raw-data-report.txt data/Ogre-raw-data-report-{curr_date}.txt"
     print(cmd3)
     status = subprocess.call(cmd3, shell=True)
 
@@ -79,11 +82,13 @@ def clone_repo(folder_name: str, branch_name="main") -> None:
     status = subprocess.call(cmd, shell=True)
     print(status)
     print(f"Switching to branch: {branch_name}")
+    cmd1 = "git switch dev-1.4.9" 
+    status1 = subprocess.call(cmd1, shell=True)
     #FIXME: take users  input for test branch and switch to user input branche other whise test main
 
 
 def run_code() -> None:
-    cmd = "python3 app/wsmodules/data_formater_v14.py"
+    cmd = "python3 src/ws/app/wsmodules/data_format_changer.py"
     print(f"Started running code: {cmd}")
     status = subprocess.call(cmd, shell=True)
     print(status)
@@ -112,6 +117,9 @@ def main() -> None:
     fn = gen_folder_name()
     crete_folder(fn)
     clone_repo(fn)
+    with open("Ogre-raw-data-report.txt", "a") as file:
+        file.writelines(TEST_SETUP_FILE_CONTENT)
+        file.close()
     copy_setup_files(TEST_SETUP_FILES)
     run_code()
     compare_result()
