@@ -1,9 +1,6 @@
 # SS.LV Web Scraper 
 
-![](https://img.shields.io/github/v/release/vfedotovs/sslv_web_scraper)![](https://img.shields.io/github/release-date/vfedotovs/sslv_web_scraper) ![](https://img.shields.io/github/commit-activity/y/vfedotovs/sslv_web_scraper)	![](https://img.shields.io/github/issues-raw/vfedotovs/sslv_web_scraper)![](https://img.shields.io/github/issues-closed-raw/vfedotovs/sslv_web_scraper)![](https://img.shields.io/github/milestones/progress-percent/vfedotovs/sslv_web_scraper/4)
-
-
-![CICD](https://github.com/vfedotovs/sslv_web_scraper/actions/workflows/CICD.yml/badge.svg)
+![Build ](https://github.com/github/docs/actions/workflows/CICD-main.yml/badge.svg?branch=main)
 
 ## About application:
 Purpose: This application will parse information from ss.lv website from apartments for sale category in specific city of your choice
@@ -79,3 +76,4 @@ To acess navigate http://127.0.0.1:8000/sslv_web_scraper/
 - [x] Store scraped data in postgres database container tables listed_ads and removed_ads for tracking longer price trends
 - [x] Daily email (includes URLs and key data categorized by room count)
 - [x] Email contains MVP pdf attachment with basic price analytics for categorized by room count
+- [x] Github Actions CICD 
