@@ -1,6 +1,6 @@
 # SS.LV Web Scraper 
 
-![CI Build ](https://github.com/github/docs/actions/workflows/main.yml/badge.svg)
+![CI Build ](https://github.com/vfedotovs/sslv_web_scraper/actions/workflows/main.yml/badge.svg)
 
 ## About application:
 Purpose: This application will parse information from ss.lv website from apartments for sale category in specific city of your choice
