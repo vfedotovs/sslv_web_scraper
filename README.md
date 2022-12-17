@@ -1,6 +1,6 @@
 # SS.LV Web Scraper 
 
-![Build ](https://github.com/github/docs/actions/workflows/CICD-main.yml/badge.svg?branch=main)
+![CI Build ](https://github.com/github/docs/actions/workflows/main.yml/badge.svg)
 
 ## About application:
 Purpose: This application will parse information from ss.lv website from apartments for sale category in specific city of your choice
