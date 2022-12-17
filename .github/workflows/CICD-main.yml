@@ -1,4 +1,4 @@
-name: CI/CD SSLV WebScraper
+name: CI/CD-main
 
 on:
   push:
@@ -6,8 +6,12 @@ on:
 
 jobs:
 
-  build:
+  Build:
     runs-on: ubuntu-latest
+    env:
+      S3_BUCKET: ${{ secrets.S3_BUCKET }}
+      AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
     
     steps:
     - uses: actions/checkout@v2
@@ -32,12 +36,43 @@ jobs:
         echo "# postgres db container env variable" >> .env.prod
         echo "${{ secrets.POSTGRES_PASSWORD }}" >> .env.prod 
         ls -la
+        
+        
+    - name: Show environment
+      run: |
+        cat /etc/os-release
+        docker -v
+        docker-compose -v
+        docker compose version
+        python3 -V
+        pip install boto3
+        
+    - name: Before build step 3 download last DB file from S3 bucket
+      run: |
+        python3 ./src/db/get_last_db_backup.py
+        cp *.sql ./src/db 
+        ls -lh ./src/db | grep sql
+        
+        
+    - name: Build 3 containers
+      run: |
+        pwd
+        docker-compose --env-file .env.prod up -d
     
-    - name: Build the docker_compose
-      run: docker-compose --env-file .env.prod up -d --build  
-    
-    - name: Run docker compose ps
-      run: docker-compose ps
+    - name: List DB table sizes
+      run: |
+        sleep 15
+        docker-compose ps
+        docker exec sslv_web_scraper_db_1  psql -U new_docker_user -d new_docker_db -c '\dt+'
+        
+    - name: Run docker compose ps 
+      run: |
+        sleep 10
+        docker-compose ps
+      
+    - name: Run compose down
+      run: docker-compose down
+
 
   Deploy:
     needs: build
