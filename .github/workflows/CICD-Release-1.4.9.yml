@@ -76,17 +76,17 @@ jobs:
           echo "$PRIVATE_KEY" > private_key && chmod 600 private_key
 
           ssh -o StrictHostKeyChecking=no -i private_key ${USER_NAME}@${HOSTNAME} '
-               'pwd && ls -lah && 
-                docker ps && echo "---- before stopping ---" 
-                docker ps -aq | xargs docker rm -f || true 
-                docker images | xargs docker rmi -f || true 
-                docker ps && echo "---- after stopping ---" 
-                docker images 
-                curr_time=$(date +%Y%m%d-%H%M) 
-                folder_name="${curr_time}-deploy" 
-                mkdir $folder_name && cd $folder_name 
-                git clone https://github.com/vfedotovs/sslv_web_scraper.git . && pwd 
-                git switch dev-1.4.10 && ls -la 
+                pwd && ls -lah && \
+                docker ps && echo "---- before stopping ---" && \
+                docker ps -aq | xargs docker rm -f || true && \
+                docker images | xargs docker rmi -f || true && \
+                docker ps && echo "---- after stopping ---" && \
+                docker images && \
+                curr_time=$(date +%Y%m%d-%H%M) && \ 
+                folder_name="${curr_time}-deploy" && \ 
+                mkdir $folder_name && cd $folder_name && \
+                git clone https://github.com/vfedotovs/sslv_web_scraper.git . && pwd && \
+                git switch dev-1.4.10 && ls -la && \
                 cp ../.env.prod . && cp ../database.ini ./src/ws/ && \
                 export AWS_ACCESS_KEY_ID=${{ secrets.AWS_ACCESS_KEY_ID }} && \
                 export AWS_SECRET_ACCESS_KEY=${{ secrets.AWS_SECRET_ACCESS_KEY }} && \
