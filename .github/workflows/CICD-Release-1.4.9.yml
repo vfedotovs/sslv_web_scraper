@@ -87,6 +87,11 @@ jobs:
                 mkdir $folder_name && cd $folder_name && \
                 git clone https://github.com/vfedotovs/sslv_web_scraper.git . && pwd && \
                 git switch dev-1.4.10 && ls -la && \
+                echo "# ws_worker container env variables" > .env.prod && \ 
+                echo "${{ secrets.DEST_EMAIL }}" >> .env.prod && \
+                echo "${{ secrets.SRC_EMAIL }}" >> .env.prod && \
+                echo "${{ secrets.SENDGRID_API_KEY }}" >> .env.prod the && \
+                echo "${{ secrets.POSTGRES_PASSWORD }}" >> .env.prod && \
                 cp ../.env.prod . && cp ../database.ini ./src/ws/ && \
                 export AWS_ACCESS_KEY_ID=${{ secrets.AWS_ACCESS_KEY_ID }} && \
                 export AWS_SECRET_ACCESS_KEY=${{ secrets.AWS_SECRET_ACCESS_KEY }} && \
