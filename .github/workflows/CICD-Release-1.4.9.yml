@@ -77,19 +77,34 @@ jobs:
     
     steps:
       - uses: actions/checkout@v2 
-      - name: Deploy in EC2
+      - name: Deploy to Release EC2
         env:
-            PRIVATE_KEY: ${{ secrets.DEV_EC2_PRIVATE_KEY  }}
-            HOSTNAME : ${{ secrets.DEV_EC2_IP  }}
-            USER_NAME : ${{ secrets.DEV_EC2_USER  }}
+            PRIVATE_KEY: ${{ secrets.REL_EC2_PRIVATE_KEY  }}
+            HOSTNAME : ${{ secrets.REL_EC2_IP  }}
+            USER_NAME : ${{ secrets.REL_EC2_USER  }}
             
         run: |
           echo "$PRIVATE_KEY" > private_key && chmod 600 private_key
           ssh -o StrictHostKeyChecking=no -i private_key ${USER_NAME}@${HOSTNAME} '
-          
-            #Now we have got the access of EC2 and we will start the deploy .
-            cd /home/ec2-user &&
-            docker rm -f web-v149 || true
-            docker run --rm -d -p 8501:8501 --name web-v149 vfedotovsdocker/sslv-web-v149:latest
-          '
+               'pwd && \
+                docker ps && echo "---- before stopping ---" && \
+                docker ps -aq | xargs docker rm -f || true && \
+                docker images | xargs docker rmi -f || true && \
+                docker ps && echo "---- after stopping ---" && \
+                docker images && \
+                curr_time=$(date +%Y%m%d-%H%M) && \
+                folder_name="${curr_time}-deploy" && \
+                mkdir $folder_name && cd $folder_name && \
+                git clone https://github.com/vfedotovs/sslv_web_scraper.git . && pwd && \
+                git switch dev-1.4.10 && ls -la && \
+                cp ../.env.prod . && cp ../database.ini ./src/ws/ && \
+                export AWS_ACCESS_KEY_ID=${{ secrets.AWS_ACCESS_KEY_ID }} && \
+                export AWS_SECRET_ACCESS_KEY=${{ secrets.AWS_SECRET_ACCESS_KEY }} && \
+                export S3_BUCKET=${{ secrets.S3_BUCKET }} && \
+                ./src/db/get_last_db_backup.py && \
+		            cp *.sql ./src/db/ && \
+                ls -l ./src/db/ && \
+                docker-compose --env-file .env.prod up -d && sleep 15 && \
+                docker ps
+                '
 
