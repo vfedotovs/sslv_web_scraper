@@ -102,9 +102,9 @@ jobs:
                 export AWS_SECRET_ACCESS_KEY=${{ secrets.AWS_SECRET_ACCESS_KEY }} && \
                 export S3_BUCKET=${{ secrets.S3_BUCKET }} && \
                 ./src/db/get_last_db_backup.py && \
-		            cp *.sql ./src/db/ && \
-                ls -l ./src/db/ && \
-                docker-compose --env-file .env.prod up -d && sleep 15 && \
-                docker ps
+		cp *.sql ./src/db/ && \
+		ls -l ./src/db/ && \
+		docker-compose --env-file .env.prod up -d && sleep 15 && \
+		docker ps
                 '
 
