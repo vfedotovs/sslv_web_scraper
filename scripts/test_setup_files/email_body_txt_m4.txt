@@ -1,0 +1,33 @@
+1 room apartment segment:
+[Rooms, Floor, Size , Price, SQM Price, Apartment Street, Pub_date,  URL]
+  1     1/3    26.0   28000    1076.92   Tūrkalnes 5   10.01.2022 https://ss.lv/msg/lv/real-estate/flats/ogre-and-reg/ogre/eeejb.html
+  1     1/5    34.0   29500    867.65   Grīvas prospekts 27   01.02.2022 https://ss.lv/msg/lv/real-estate/flats/ogre-and-reg/ogre/bklmb.html
+2 room apartment segment:
+[Rooms, Floor, Size , Price, SQM Price, Apartment Street, Pub_date,  URL]
+  2     2/2    40.9   28000    684.6   Grīvas prospekts 4   01.02.2022 https://ss.lv/msg/lv/real-estate/flats/ogre-and-reg/ogre/boknh.html
+  2     1/3    42.0   30300    721.43   Celtnieku 4   15.01.2022 https://ss.lv/msg/lv/real-estate/flats/ogre-and-reg/ogre/ceboh.html
+  2     5/5    37.0   35000    945.95   Mālkalnes prospekts 18   31.01.2022 https://ss.lv/msg/lv/real-estate/flats/ogre-and-reg/ogre/aaoxj.html
+  2     1/3    44.0   40000    909.09   Celtnieku iela 2   17.01.2022 https://ss.lv/msg/lv/real-estate/flats/ogre-and-reg/ogre/cihxe.html
+  2     5/5    55.0   54000    981.82   Malkalnes 7   28.12.2021 https://ss.lv/msg/lv/real-estate/flats/ogre-and-reg/ogre/gjmpf.html
+  2     3/9    50.0   57000    1140.0   Jaunatnes iela 4   01.02.2022 https://ss.lv/msg/lv/real-estate/flats/ogre-and-reg/ogre/fxobe.html
+  2     5/5    49.0   59390    1212.04   Mālkalnes 20   28.01.2022 https://ss.lv/msg/lv/real-estate/flats/ogre-and-reg/ogre/ebenp.html
+  2     2/3    62.0   59500    959.68   Brīvības 115   04.01.2022 https://ss.lv/msg/lv/real-estate/flats/ogre-and-reg/ogre/bilgl.html
+  2     3/9    50.0   59900    1198.0   Ausekļa prospekts 5a   25.01.2022 https://ss.lv/msg/lv/real-estate/flats/ogre-and-reg/ogre/fdhmk.html
+  2     8/9    57.0   60000    1052.63   Tīnūžu 3a   20.01.2022 https://ss.lv/msg/lv/real-estate/flats/ogre-and-reg/ogre/cegid.html
+  2     5/5    50.0   63000    1260.0   Lapu iela 4   11.01.2022 https://ss.lv/msg/lv/real-estate/flats/ogre-and-reg/ogre/clpbh.html
+  2     5/5    54.0   65000    1203.7   Parka 10   26.12.2021 https://ss.lv/msg/lv/real-estate/flats/ogre-and-reg/ogre/ebenl.html
+  2     1/5    54.8   82000    1496.35   Draudzības iela 6a   28.01.2022 https://ss.lv/msg/lv/real-estate/flats/ogre-and-reg/ogre/ahdlj.html
+3 room apartment segment:
+[Rooms, Floor, Size , Price, SQM Price, Apartment Street, Pub_date,  URL]
+  3     2/9    62.0   65000    1048.39   Ausekļu prospekts 2a   03.01.2022 https://ss.lv/msg/lv/real-estate/flats/ogre-and-reg/ogre/agxcb.html
+  3     8/9    66.0   66000    1000.0   Rīgas iela 18   16.01.2022 https://ss.lv/msg/lv/real-estate/flats/ogre-and-reg/ogre/efgdc.html
+  3     4/9    62.0   67000    1080.65   Ausekļa prospekts 5a   23.01.2022 https://ss.lv/msg/lv/real-estate/flats/ogre-and-reg/ogre/ejbkd.html
+  3     1/5    59.0   77000    1305.08   Mālkalnes prospekts 14   29.01.2022 https://ss.lv/msg/lv/real-estate/flats/ogre-and-reg/ogre/afejp.html
+  3     4/5    64.0   85000    1328.13   Darudzības 10   05.01.2022 https://ss.lv/msg/lv/real-estate/flats/ogre-and-reg/ogre/admjf.html
+  3     6/9    66.0   88000    1333.33   Rīgas 18   04.01.2022 https://ss.lv/msg/lv/real-estate/flats/ogre-and-reg/ogre/gphpk.html
+4 room apartment segment:
+[Rooms, Floor, Size , Price, SQM Price, Apartment Street, Pub_date,  URL]
+  4     6/6    145.0   189000    1303.45   Draudzības iela 6a   28.01.2022 https://ss.lv/msg/lv/real-estate/flats/ogre-and-reg/ogre/bifni.html
+  4     6/9    76.0   78990    1039.34   Ausekļa prospekts 10   18.01.2022 https://ss.lv/msg/lv/real-estate/flats/ogre-and-reg/ogre/ahohg.html
+  4     9/9    78.0   85000    1089.74   Ausekļa prospekts 7a   24.01.2022 https://ss.lv/msg/lv/real-estate/flats/ogre-and-reg/ogre/bgjck.html
+  4     2/9    76.0   85000    1118.42   Zilokalnu prospekts 20   23.01.2022 https://ss.lv/msg/lv/real-estate/flats/ogre-and-reg/ogre/hpxhl.html
