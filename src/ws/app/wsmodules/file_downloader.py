@@ -35,10 +35,21 @@ def get_last_file_name(s3_bucket_name: str) -> str:
     return last_added
 
 
+def move_file_to(folder: str, src_file_name: str, dst_file_name: str) -> None:
+    """ Moves file in to local_lambda_raw_scraped_data folder"""
+    move_cmd = 'mv ' + src_file_name + ' ' + folder + '/' + dst_file_name
+    if not os.path.exists(folder):
+        os.makedirs(folder)
+    os.system(move_cmd)
+
+
 def main() -> None:
     """ Main entry point """
     last_modifed_file_name = get_last_file_name(S3_LAMBDA_BUCKET_NAME)
     download_file_from_s3(last_modifed_file_name)
+    move_file_to('local_lambda_raw_scraped_data',
+                 last_modifed_file_name,
+                 last_modifed_file_name)
 
 
 main()
