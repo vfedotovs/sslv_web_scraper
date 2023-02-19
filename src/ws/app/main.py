@@ -9,6 +9,7 @@ import os
 import sys
 import uvicorn
 from fastapi import BackgroundTasks, FastAPI
+from app.wsmodules.file_downloader import download_latest_lambda_file
 from app.wsmodules.web_scraper import scrape_website
 from app.wsmodules.data_format_changer import data_formater_main
 from app.wsmodules.df_cleaner import df_cleaner_main
@@ -19,7 +20,7 @@ from app.wsmodules.sendgrid_mailer import sendgrid_mailer_main
 
 
 log = logging.getLogger('')
-log.setLevel(logging.DEBUG)
+log.setLevel(logging.INFO)
 fa_log_format = logging.Formatter("%(asctime)s [%(threadName)-12.12s] [%(levelname)-5.5s] : %(funcName)s: %(lineno)d: %(message)s")
 
 ch = logging.StreamHandler(sys.stdout)
@@ -43,10 +44,14 @@ def home():
 @app.get("/run-task/{city}")
 async def run_long_task(city: str, background_tasks: BackgroundTasks):
     """ Endpint to trigger scrape, format and insert data in DB"""
-    task_run_state = task_runned_today(CITY_NAME)
-    if task_run_state:
-        log.info("EXIT: will not call ws_worker module because task was run last 24H")
-        return {"message": "Task already run in last 24H will not run today again"}
+    background_tasks.add_task(download_latest_lambda_file)
+    lambda_data_file_exists = check_lambda_data_file_exists(CITY_NAME)
+    if lambda_data_file_exists is False:
+        task_run_state = task_runned_today(CITY_NAME)
+        if task_run_state:
+            log.info("EXIT: will not call ws_worker module because task was run last 24H")
+            return {"message": "Task already run in last 24H will not run today again"}
+    
     log.info("Sent scrape_website task to background - time to complete 150 sec")
     background_tasks.add_task(scrape_website)
     log.info("Sent data_formater_main task to background: TTC < 2 sec")
@@ -65,6 +70,20 @@ async def run_long_task(city: str, background_tasks: BackgroundTasks):
     return {
             "message": "FAST_API_REPLAY scrape Ogre city sent as background task"
     }
+
+def check_lambda_data_file_exists(city_name) -> bool:
+    """Checks if file Ogre-raw-data-report-YYYY-MM-DDTMM-HH-SS.txt with todays data exist """
+    """TODO: complete implementation and logic"""
+    # todays_date = datetime.today().strftime('%Y-%m-%d')
+    # target_filename = city_name + '-raw-data-report-' + todays_date + '.txt'
+    # if not os.path.exists('data'):
+    #     os.makedirs('data')
+    # for filename in os.listdir("data"):
+    #     if filename == target_filename:
+    #         log.info('File %s found, task for Ogre has run today', target_filename)
+    #         return True
+    # log.info('File %s was not found, running scrape task for Ogre city', target_filename)
+    return False
 
 
 def task_runned_today(city_name):

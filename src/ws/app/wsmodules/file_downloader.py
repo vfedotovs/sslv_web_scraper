@@ -43,7 +43,7 @@ def move_file_to(folder: str, src_file_name: str, dst_file_name: str) -> None:
     os.system(move_cmd)
 
 
-def main() -> None:
+def download_latest_lambda_file() -> None:
     """ Main entry point """
     last_modifed_file_name = get_last_file_name(S3_LAMBDA_BUCKET_NAME)
     download_file_from_s3(last_modifed_file_name)
@@ -52,4 +52,4 @@ def main() -> None:
                  last_modifed_file_name)
 
 
-main()
+download_latest_lambda_file()
