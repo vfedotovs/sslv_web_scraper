@@ -10,7 +10,7 @@ from re import T
 import sys
 import uvicorn
 from fastapi import BackgroundTasks, FastAPI
-from app.wsmodules.file_downloader import download_latest_lambda_file
+# from app.wsmodules.file_downloader import download_latest_lambda_file
 from app.wsmodules.web_scraper import scrape_website
 from app.wsmodules.data_format_changer import data_formater_main
 from app.wsmodules.df_cleaner import df_cleaner_main
@@ -45,20 +45,20 @@ def home():
 @app.get("/run-task/{city}")
 async def run_long_task(city: str, background_tasks: BackgroundTasks):
     """ Endpint to trigger scrape, format and insert data in DB"""
-    background_tasks.add_task(download_latest_lambda_file)
-    todays_cloud_data_file_exist = check_today_cloud_data_file_exist()
+    # background_tasks.add_task(download_latest_lambda_file)
+    # todays_cloud_data_file_exist = check_today_cloud_data_file_exist()
     
-    if todays_cloud_data_file_exist is True:
-        last_cloud_file_name = get_todays_cloud_data_file_name()
-        log.info("TODO: cloud scraper module data file: %s found will be used in data_formater_module", last_cloud_file_name)
-        pass
+    # if todays_cloud_data_file_exist is True:
+    #     last_cloud_file_name = get_todays_cloud_data_file_name()
+    #     log.info("TODO: cloud scraper module data file: %s found will be used in data_formater_module", last_cloud_file_name)
+    #     pass
         
-    if todays_cloud_data_file_exist is False:
-        # check if local sraper job did run today and save output file in "data" folder
-        local_sraper_task_has_run_today = check_local_scraper_task_runned_today(CITY_NAME)
-        if local_sraper_task_has_run_today:
-            log.info("EXIT: will not call ws_worker module because task was run last 24H")
-            return {"message": "Local scraper job already has run in last 24H will not run today again"}
+    # if todays_cloud_data_file_exist is False:
+    #     # check if local sraper job did run today and save output file in "data" folder
+    local_sraper_task_has_run_today = check_local_scraper_task_runned_today(CITY_NAME)
+    if local_sraper_task_has_run_today:
+        log.info("EXIT: will not call ws_worker module because task was run last 24H")
+        return {"message": "Local scraper job already has run in last 24H will not run today again"}
     
     log.info("Sent scrape_website task to background - time to complete 150 sec")
     background_tasks.add_task(scrape_website)
