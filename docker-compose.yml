@@ -18,6 +18,8 @@ services:
       DEST_EMAIL: ${DEST_EMAIL}
       SRC_EMAIL: ${SRC_EMAIL}
       SENDGRID_API_KEY: ${SENDGRID_API_KEY}
+      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID}
+      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY}
       DB_HOST: db
       DB_NAME: new_docker_db
       DB_USER: new_docker_user
