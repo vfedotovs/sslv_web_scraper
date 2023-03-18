@@ -21,7 +21,7 @@ from app.wsmodules.sendgrid_mailer import sendgrid_mailer_main
 
 
 log = logging.getLogger('fastapi')
-log.setLevel(logging.INFO)
+log.setLevel(logging.DEBUG)
 fastapi_log_format = logging.Formatter(
     "%(asctime)s [%(threadName)-12.12s]"
     " [%(levelname)-5.5s] : %(funcName)s:"
@@ -44,6 +44,8 @@ CITY_NAME = 'Ogre'
 @app.get("/")
 def home():
     """Test enpoint to verify if fast-api is live"""
+    log.info("Recieved GET request on / FastAPI server is ready ...")
+
     return {"FastAPI server is ready !!!"}
 
 
