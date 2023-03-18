@@ -192,5 +192,5 @@ def create_file_copy() -> None:
     os.system(copy_cmd)
 
 
-# Main
-data_formater_main()
+if __name__ == "__main__":
+    data_formater_main()

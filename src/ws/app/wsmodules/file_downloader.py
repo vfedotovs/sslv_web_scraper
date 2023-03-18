@@ -81,4 +81,5 @@ def download_latest_lambda_file() -> None:
                  last_modifed_file_name)
 
 
-download_latest_lambda_file()
+if __name__ == "__main__":
+    download_latest_lambda_file()

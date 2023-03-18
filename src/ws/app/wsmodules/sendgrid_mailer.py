@@ -140,4 +140,5 @@ def sendgrid_mailer_main() -> None:
     log.info(" --- Ended sendgrid_mailer module --- ")
 
 
-sendgrid_mailer_main()
+if __name__ == "__main__":
+    sendgrid_mailer_main()

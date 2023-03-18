@@ -15,11 +15,13 @@ import pandas as pd
 
 log = logging.getLogger('')
 log.setLevel(logging.INFO)
-fa_log_format = logging.Formatter("%(asctime)s [%(threadName)-12.12s] [%(levelname)-5.5s] : %(funcName)s: %(lineno)d: %(message)s")
+fa_log_format = logging.Formatter(
+    "%(asctime)s [%(threadName)-12.12s] [%(levelname)-5.5s] : %(funcName)s: %(lineno)d: %(message)s")
 ch = logging.StreamHandler(sys.stdout)
 ch.setFormatter(fa_log_format)
 log.addHandler(ch)
-fh = handlers.RotatingFileHandler('analytics.log', maxBytes=(1048576*5), backupCount=7)
+fh = handlers.RotatingFileHandler(
+    'analytics.log', maxBytes=(1048576*5), backupCount=7)
 fh.setFormatter(fa_log_format)
 log.addHandler(fh)
 
@@ -42,11 +44,9 @@ def analytics_main() -> None:
     write_lines(price_data, 'basic_price_stats.txt')
     log.info(" --- Ended analitics module --- ")
 
-
     # Category 2 - analysis by advert square meter price - FIXME: need to implemet
     # 6. get min / max / average sqm size
     # 7. print chart price sqm
-
 
     # Next 3 most valuable features: - FIXME: need to implemet
     # Category 2 - filter adverts by floor location analysis
@@ -55,12 +55,10 @@ def analytics_main() -> None:
     #    - need to detect first and last flor  1/x or  5/5 or x/9
     #    - need exclude first and last floor and 9 floor houses
 
-
     # This will be when database milestone will be implemented - FIXME: need to implemet
     # Category 5 listed date analysis - requires correct datapoint fix bug
     # Category 6 advert view count analysis - requires correct datapoint fix bug
     # Category 4 advert street location analysis
-
 
 
 def check_files(file_names: list) -> None:
@@ -70,7 +68,8 @@ def check_files(file_names: list) -> None:
         try:
             file_handle = open(file, 'r')
         except IOError:
-            log.error(f'There was an error opening the file {file} or it does not exist!')
+            log.error(
+                f'There was an error opening the file {file} or it does not exist!')
             sys.exit()
 
 
@@ -82,7 +81,8 @@ def categorize_data() -> list:
     only_2_rooms = all_ads_df[all_ads_df['Room_count'] == 2]
     only_3_rooms = all_ads_df[all_ads_df['Room_count'] == 3]
     only_4_rooms = all_ads_df[all_ads_df['Room_count'] == 4]
-    cat_list = [only_1_rooms, only_2_rooms, only_3_rooms, only_4_rooms, all_ads_df]
+    cat_list = [only_1_rooms, only_2_rooms,
+                only_3_rooms, only_4_rooms, all_ads_df]
     return cat_list
 
 
@@ -137,7 +137,8 @@ def create_multi_category_stats(data_frames: list) -> list:
         txt_reports.append(df_report)
     for i, reports in enumerate(txt_reports):
         empty_line = ' '
-        title_line = ("### " + str(i + 1) + " room apartment price analysis ###")
+        title_line = ("### " + str(i + 1) +
+                      " room apartment price analysis ###")
         stats_report_lines.append(empty_line)
         stats_report_lines.append(title_line)
         for line in reports:
@@ -152,5 +153,5 @@ def write_lines(text_lines: list, file_name: str) -> None:
         filehandle.writelines("%s\n" % line for line in text_lines)
 
 
-analytics_main()
-
+if __name__ == "__main__":
+    analytics_main()
