@@ -57,17 +57,17 @@ data_files = ['email_body_txt_m4.txt',
               'Ogre_city_report.pdf']
 
 
-def remove_tmp_files() -> None:
+def remove_tmp_files(files_to_remove: list) -> None:
     """FIXME: Refactor this function to better code"""
     directory = os.getcwd()
     log.info(f" --- current working dir {directory} --- ")
-    for data_file in data_files:
+    for file in files_to_remove:
         try:
-            log.info(f"Trying delete file: {data_file} ")
-            os.remove(data_file)
+            log.info(f"Trying delete file: {file} ")
+            os.remove(file)
         except OSError as e:
-            print(f'Error: {data_file} : {e.strerror}')
-            log.info(f"Error deleting {data_file} : {e.strerror} ")
+            print(f'Error: {file} : {e.strerror}')
+            log.info(f"Error deleting {file} : {e.strerror} ")
 
 
 def gen_debug_subject() -> str:
@@ -136,8 +136,9 @@ def sendgrid_mailer_main() -> None:
     except Exception as e:
         log.info(f"{e.message}")
         print(e.message)
-    remove_tmp_files()
+    remove_tmp_files(data_files)
     log.info(" --- Ended sendgrid_mailer module --- ")
 
 
-sendgrid_mailer_main()
+if __name__ == "__main__":
+    sendgrid_mailer_main()
