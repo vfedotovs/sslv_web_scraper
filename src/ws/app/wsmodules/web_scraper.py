@@ -157,9 +157,9 @@ def create_file_copy() -> None:
     """Creates report file copy in data folder"""
     todays_date = datetime.today().strftime('%Y-%m-%d')
     dest_file = 'Ogre-raw-data-report-' + todays_date + '.txt'
-    copy_cmd = 'cp Ogre-raw-data-report.txt data/' + dest_file
-    if not os.path.exists('data'):
-        os.makedirs('data')
+    copy_cmd = 'cp Ogre-raw-data-report.txt local_lambda_raw_scraped_data/' + dest_file
+    if not os.path.exists('local_lambda_raw_scraped_data'):
+        os.makedirs('local_lambda_raw_scraped_data')
     os.system(copy_cmd)
 
 

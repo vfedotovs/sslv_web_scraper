@@ -12,12 +12,13 @@ import uvicorn
 from fastapi import BackgroundTasks, FastAPI
 from app.wsmodules.file_downloader import download_latest_lambda_file
 from app.wsmodules.web_scraper import scrape_website
-from app.wsmodules.data_format_changer import data_formater_main
+from app.wsmodules.data_format_changer import cloud_data_formater_main
 from app.wsmodules.df_cleaner import df_cleaner_main
 from app.wsmodules.db_worker import db_worker_main
 from app.wsmodules.analytics import analytics_main
 from app.wsmodules.pdf_creator import pdf_creator_main
 from app.wsmodules.sendgrid_mailer import sendgrid_mailer_main
+import time
 
 
 log = logging.getLogger('fastapi')
@@ -53,7 +54,7 @@ def home():
 async def run_long_task(city: str, background_tasks: BackgroundTasks):
     """ Endpint to trigger scrape, format and insert data in DB"""
     log.info("Recieved GET request to start scraping job for Ogre city")
-    background_tasks.add_task(download_latest_lambda_file)
+    download_latest_lambda_file()
     todays_cloud_data_file_exist = check_today_cloud_data_file_exist()
 
     if todays_cloud_data_file_exist is True:
@@ -63,23 +64,22 @@ async def run_long_task(city: str, background_tasks: BackgroundTasks):
                  " data_formater_module ", last_cloud_file_name)
         log.info(
             "Sent data_formater_main task to background: using cloud ws file")
-        background_tasks.add_task(data_formater_main)
+        cloud_data_formater_main()
         log.info(
             "Sent df_cleaner_main task to background: using cloud ws file")
-        background_tasks.add_task(df_cleaner_main)
+        df_cleaner_main()
         log.info("Sent db_worker_main task to background: using cloud ws file")
-        background_tasks.add_task(db_worker_main)
+        db_worker_main()
         log.info("Sent analytics_main task to background: using cloud ws file")
-        background_tasks.add_task(analytics_main)
+        analytics_main()
         log.info(
             "Sent sendgrid_mailer task to background: using cloud ws file")
-        background_tasks.add_task(pdf_creator_main)
+        pdf_creator_main()
         log.info("Sent pdf_creator task to background: using cloud ws file ")
-        background_tasks.add_task(sendgrid_mailer_main)
-        log.info("Send all taks to background completed")
+        sendgrid_mailer_main()
         return {
             "message": "FAST_API: scrape Ogre city sent as "
-                       " background task using cloud ws file"
+                       " background task using cloud ws file run completed"
         }
 
     lst_run_state = check_lst_run_state(CITY_NAME)
@@ -93,7 +93,7 @@ async def run_long_task(city: str, background_tasks: BackgroundTasks):
         "Sent scrape_website task to background: will create local ws file")
     background_tasks.add_task(scrape_website)
     log.info("Sent data_formater_main task to background:")
-    background_tasks.add_task(data_formater_main)
+    background_tasks.add_task(cloud_data_formater_main)
     log.info("Sent df_cleaner_main task to background:")
     background_tasks.add_task(df_cleaner_main)
     log.info("Sent db_worker_main task to background:")
@@ -122,12 +122,11 @@ def check_today_cloud_data_file_exist() -> bool:
         log.error(f'Folder {cloud_file_folder}'
                   ' does not exist creating empty folder')
         os.makedirs(cloud_file_folder)
-    # Uncoment below once cloud file usage in data_formater_main is implemented
-    # for file_name in os.listdir(cloud_file_folder):
-    #     if todays_date in file_name:
-    #         log.info('File %s containing today'
-    #                  ' date %s found, ', file_name, todays_date)
-    #         return True
+    for file_name in os.listdir(cloud_file_folder):
+        if todays_date in file_name:
+            log.info('File %s containing today'
+                     ' date %s found, ', file_name, todays_date)
+            return True
     log.info('File containing today date %s was not found,'
              ' will try to find local craper file', todays_date)
     return False

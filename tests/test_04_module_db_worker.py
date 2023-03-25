@@ -1,11 +1,11 @@
 from src.ws.app.wsmodules.db_worker import extract_hash
-import psycopg2
+# import psycopg2
 
 
 def test_extract_hash():
     # Test with a URL that contains a hash
     assert extract_hash(
-        "https://ss.lv/msg/lv/real-estate/flats/riga/centre/p0q31691478.html") == "31691478"
+        "https://www.ss.lv/msg/lv/real-estate/flats/ogre-and-reg/ogre/hejdl.html") == "hejdl"
 
     # Test with a URL that does not contain a hash
     assert extract_hash(

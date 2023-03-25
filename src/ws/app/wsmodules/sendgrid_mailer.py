@@ -136,7 +136,7 @@ def sendgrid_mailer_main() -> None:
     except Exception as e:
         log.info(f"{e.message}")
         print(e.message)
-    remove_tmp_files()
+    remove_tmp_files(data_files)
     log.info(" --- Ended sendgrid_mailer module --- ")
 
 
