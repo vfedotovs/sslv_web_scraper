@@ -61,24 +61,21 @@ async def run_long_task(city: str):
         log.info("Cloud scraper module data file: %s "
                  "found will be used in "
                  " data_formater_module ", last_cloud_file_name)
-        log.info(
-            "Sent data_formater_main task to background: using cloud ws file")
+        log.info("Running cloud_data_formater_main task: using cloud ws file")
         cloud_data_formater_main()
-        log.info(
-            "Sent df_cleaner_main task to background: using cloud ws file")
+        log.info("Running df_cleaner_main task: using cloud ws file")
         df_cleaner_main()
-        log.info("Sent db_worker_main task to background: using cloud ws file")
+        log.info("Running db_worker_main task: using cloud ws file")
         db_worker_main()
-        log.info("Sent analytics_main task to background: using cloud ws file")
+        log.info("Running analytics_main task: using cloud ws file")
         analytics_main()
-        log.info(
-            "Sent sendgrid_mailer task to background: using cloud ws file")
+        log.info("Running pdf_creator task: using cloud ws file ")
         pdf_creator_main()
-        log.info("Sent pdf_creator task to background: using cloud ws file ")
+        log.info("Running sendgrid_mailer task: using cloud ws file")
         sendgrid_mailer_main()
         return {
-            "message": "FAST_API: scrape Ogre city sent as "
-                       " background task using cloud ws file run completed"
+            "message": "FAST_API: scrape Ogre city apartments"
+                       " task using cloud ws file run completed"
         }
 
     lst_run_state = check_lst_run_state(CITY_NAME)
@@ -88,26 +85,24 @@ async def run_long_task(city: str):
         return {"message": "Local scraper job already has run,"
                            " in last 24H will not run today again"}
 
-    log.info(
-        "Sent scrape_website task to background: will create local ws file")
-    scrape_website()
-    log.info("Sent data_formater_main task to background:")
-    cloud_data_formater_main()
-    log.info("Sent df_cleaner_main task to background:")
-    df_cleaner_main()
-    log.info("Sent db_worker_main task to background:")
-    db_worker_main()
-    log.info("Sent analytics_main task to background:")
-    analytics_main()
-    log.info("Sent sendgrid_mailer task to background:")
-    pdf_creator_main()
-    log.info("Sent pdf_creator task to background:")
-    sendgrid_mailer_main()
-    log.info("Send all taks to background completed")
-    return {
-        "message": "FAST_API: scrape Ogre city sent as "
-                   "background task local scrape job was completed"
-    }
+    if todays_cloud_data_file_exist is False:
+        log.info("Running scrape_website task will create local ws file")
+        scrape_website()
+        log.info("Running data_formater_main task: using locally scraped file")
+        cloud_data_formater_main()
+        log.info("Running df_cleaner_main task: using locally scraped file")
+        df_cleaner_main()
+        log.info("Running db_worker_main task: using locally scraped file")
+        db_worker_main()
+        log.info("Running analytics_main task: using locally scraped file")
+        analytics_main()
+        log.info("Running pdf_creator task: using locally scraped")
+        pdf_creator_main()
+        log.info("Running sendgrid_mailer task: using locally scraped file")
+        sendgrid_mailer_main()
+        log.info("sendgrid_mailer_main task completed")
+        return {"message": "FAST_API: scrape Ogre city apartments "
+                "task using local scrape job was completed"}
 
 
 def check_today_cloud_data_file_exist() -> bool:
