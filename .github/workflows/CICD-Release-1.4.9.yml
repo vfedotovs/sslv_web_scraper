@@ -97,4 +97,5 @@ jobs:
                 ls -l ./src/db/ && \
                 docker-compose --env-file .env.prod up -d && sleep 15 && \
                 docker ps
+                curl http://0.0.0.0:80/run-task/ogre
                 '
