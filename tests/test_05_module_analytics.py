@@ -1,7 +1,3 @@
-from src.ws.app.wsmodules.analytics import calculate_stats_by_price
-import pandas as pd
-
-
 def test_calculate_stats_by_price():
     # Test with a dataframe that contains price values
     df = pd.DataFrame({"Price_in_eur": [100, 200, 300, 400, 500]})
@@ -27,3 +23,4 @@ def test_calculate_stats_by_price():
                                                             "Min price: 0 EUR",
                                                             "Max price: 0 EUR",
                                                             "Price range: 0"]
+

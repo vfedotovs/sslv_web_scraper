@@ -64,16 +64,23 @@ deploy               Deploying app to AWS EC2 ...(not implemented)
 ```
 
 
-## How to generate project documentation: 
-```bash
-mkdocks serve 
+## Project documentation - Work in progress to migrate to Sphinx: 
 
-To acess navigate http://127.0.0.1:8000/sslv_web_scraper/
-```
 
 ## Currently available features
-- [x] Parse ss.lv website and extract information from section apartments for sale (currently hardcoded for Ogre city adjust to your needs)
+- [x] Scrape ss.lv website to extract advert data from Ogre city apartments for sale section
 - [x] Store scraped data in postgres database container tables listed_ads and removed_ads for tracking longer price trends
-- [x] Daily email (includes URLs and key data categorized by room count)
-- [x] Email contains MVP pdf attachment with basic price analytics for categorized by room count
-- [x] Github Actions CICD 
+- [x] Daily email is sent which includes advert URLs and key data categorized by room count
+- [x] Email contains pdf attachment with basic price analytics for categorized by room count
+- [x] Fully automated deployment for dev, release and main branches with Github Actions CICD 
+
+
+## TODO:
+1. Add feature for dev-1.4.xx cron job backup docker container DB on EC2 
+2. Add feature for dev-1.4.xx cron job upload DB backup file to S3 bucket so it can be used in next CICD deployments 
+3. Add feature for dev-1.4.xx save logs daily to one container and cron job to backup logs to S3 for root cause needs
+4. Add Sphinx project documentation 
+5. Improve pdf attachment file content
+6. Improve email body to contain added and removed ads for every day in current month
+7. Add WEB services GUI for data explore and analytics  
+
