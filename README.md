@@ -3,8 +3,8 @@
 ![CI Build ](https://github.com/vfedotovs/sslv_web_scraper/actions/workflows/main.yml/badge.svg)
 
 ## About application:
-Purpose: This application will parse information from ss.lv website from apartments for sale category in specific city of your choice
-and store scraped data in postgres database
+Purpose: This application will scrape daily ss.lv website from apartments for sale category in specific city of your choice
+and store scraped data in postgres database and will send daily email with report.
 
 
 ## Requirements
@@ -64,16 +64,20 @@ deploy               Deploying app to AWS EC2 ...(not implemented)
 ```
 
 
-## How to generate project documentation: 
-```bash
-mkdocks serve 
-
-To acess navigate http://127.0.0.1:8000/sslv_web_scraper/
-```
-
 ## Currently available features
-- [x] Parse ss.lv website and extract information from section apartments for sale (currently hardcoded for Ogre city adjust to your needs)
+- [x] Scrape ss.lv website to extract advert data from Ogre city apartments for sale section
 - [x] Store scraped data in postgres database container tables listed_ads and removed_ads for tracking longer price trends
-- [x] Daily email (includes URLs and key data categorized by room count)
-- [x] Email contains MVP pdf attachment with basic price analytics for categorized by room count
-- [x] Github Actions CICD 
+- [x] Daily email is sent which includes advert URLs and key data categorized by room count
+- [x] Email contains pdf attachment with basic price analytics for categorized by room count
+- [x] Fully automated deployment for dev, release and main branches with Github Actions CICD to AWS EC2
+
+
+## TODO;
+- [ ] Add feature for dev-1.4.xx cron job backup docker container DB on EC2
+- [ ] Add feature for dev-1.4.xx cron job upload DB backup file to S3 bucket so it can be used in next CICD deployments
+- [ ] Add feature for dev-1.4.xx save logs daily to one container and cron job to backup logs to S3 for root cause needs
+- [ ] Add Sphinx project documentation and doc coverage in README.md
+- [ ] Improve pdf attachment file content
+- [ ] Improve email body to contain added and removed ads for every day in current month
+- [ ] Add WEB services GUI for data explore and analytics
+- [ ] Add test coverage on CICD and in README.md
