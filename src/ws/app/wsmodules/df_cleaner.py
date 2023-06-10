@@ -10,8 +10,6 @@ import os
 from datetime import datetime
 
 
-
-
 def clean_data_frame(df_name):
     df = df_name.replace(to_replace=r'Istabas:>', value='', regex=True)
     df.replace(to_replace=r'Platiba:>', value='', regex=True, inplace=True)
@@ -25,10 +23,12 @@ def clean_data_frame(df_name):
 
 def clean_sqm_column(df_name):
     # Sptitting column value in to new columns by separator
-    df = df_name["Size_sq_m"].str.split(" ", n=1, expand=True)  # n=1 == in 2 slices
+    df = df_name["Size_sq_m"].str.split(
+        " ", n=1, expand=True)  # n=1 == in 2 slices
     # Create new column and sourcing data from 0th split index
     df_name["Size_sqm"] = df[0]  # 0 - index at separation
-    df = df_name.loc[:, df_name.columns != 'Size_sq_m']  # Drop old split column
+    df = df_name.loc[:, df_name.columns !=
+                     'Size_sq_m']  # Drop old split column
     clean_df = df.loc[:, df.columns != 'Unnamed: 0']  # Drop duplicate  column
     return clean_df
 
@@ -84,7 +84,8 @@ def create_email_body(clean_data_frame, file_name: str) -> None:
         room_count_str = str(room_count + 1)
         section_line = str(room_count_str + " room apartment segment:")
         email_body_txt.append(section_line)
-        filtered_by_room_count = clean_data_frame.loc[clean_data_frame['Room_count'] == int(room_count_str)]
+        filtered_by_room_count = clean_data_frame.loc[clean_data_frame['Room_count'] == int(
+            room_count_str)]
         colum_line = "[Rooms, Floor, Size , Price, SQM Price, Apartment Street, Pub_date,  URL]"
         email_body_txt.append(colum_line)
         for index, row in filtered_by_room_count.iterrows():
@@ -106,7 +107,6 @@ def create_email_body(clean_data_frame, file_name: str) -> None:
                           str(url_str)
             email_body_txt.append(report_line)
     save_text_report_to_file(email_body_txt, file_name)
-
 
 
 def df_cleaner_main():
@@ -135,4 +135,5 @@ def create_file_copy() -> None:
     os.system(copy_cmd)
 
 
-df_cleaner_main()
+if __name__ == "__main__":
+    df_cleaner_main()

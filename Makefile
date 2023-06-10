@@ -45,7 +45,7 @@ prune_containers: ## Cleans all docker containers locally
 	@docker system prune -a
 
 build_ts: ## Building task_scheduler container
-	@docker build -t sslv-dev-ts --file src/ts/Dockerfile .
+	@docker build src/ts -t sslv-dev-ts --file src/ts/Dockerfile
 
 push_ts: ## Tagging and pushing ts to AWS ECR
 	@aws ecr get-login-password --region eu-west-1 | docker login --username AWS --password-stdin $(TS_IMAGE_REPO)
@@ -53,7 +53,7 @@ push_ts: ## Tagging and pushing ts to AWS ECR
 	@docker push $(TS_IMAGE_REPO)/sslv-dev-ts:latest
 
 build_db: ## Building db container
-	@docker build -t sslv-dev-db --file src/db/Dockerfile .
+	@docker build src/db -t sslv-dev-db --file src/db/Dockerfile
 
 push_db: ## Tagging and pushing db container to AWS ECR
 	@aws ecr get-login-password --region eu-west-1 | docker login --username AWS --password-stdin $(TS_IMAGE_REPO)
@@ -61,7 +61,7 @@ push_db: ## Tagging and pushing db container to AWS ECR
 	@docker push $(TS_IMAGE_REPO)/sslv-dev-db:latest
 
 build_ws: ## Building web_scraper container
-	@docker build -t sslv-dev-ws --file src/ws/Dockerfile .
+	@docker build src/ws -t sslv-dev-ws --file src/ws/Dockerfile
 
 push_ws: ## Tagging and pushing ws container to AWS ECR
 	@aws ecr get-login-password --region eu-west-1 | docker login --username AWS --password-stdin $(TS_IMAGE_REPO)
