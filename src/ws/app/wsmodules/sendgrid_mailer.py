@@ -25,7 +25,7 @@ from sendgrid.helpers.mail import (Mail,
 from sendgrid import SendGridAPIClient
 
 
-log = logging.getLogger('')
+log = logging.getLogger('sendgrid_mailer')
 log.setLevel(logging.INFO)
 fa_log_format = logging.Formatter(
     "%(asctime)s [%(threadName)-12.12s] "

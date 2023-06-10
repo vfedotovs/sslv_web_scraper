@@ -31,9 +31,9 @@ ch = logging.StreamHandler(sys.stdout)
 ch.setFormatter(fastapi_log_format)
 log.addHandler(ch)
 
-fh = handlers.RotatingFileHandler('fastapi.log',
+fh = handlers.RotatingFileHandler('ws_main.log',
                                   maxBytes=(1048576*5),
-                                  backupCount=7)
+                                  backupCount=5)
 fh.setFormatter(fastapi_log_format)
 log.addHandler(fh)
 

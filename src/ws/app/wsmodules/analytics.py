@@ -13,7 +13,7 @@ import sys
 import pandas as pd
 
 
-log = logging.getLogger('')
+log = logging.getLogger('analytics')
 log.setLevel(logging.INFO)
 fa_log_format = logging.Formatter(
     "%(asctime)s [%(threadName)-12.12s] [%(levelname)-5.5s] : %(funcName)s: %(lineno)d: %(message)s")
