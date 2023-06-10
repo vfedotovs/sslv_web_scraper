@@ -1,0 +1,35 @@
+ 
+### 1 room apartment price analysis ###
+Advertisement count: 2
+Average price: 28750.0 EUR
+Min price: 28000 EUR
+Max price: 29500 EUR
+Price range: 1500
+ 
+### 2 room apartment price analysis ###
+Advertisement count: 13
+Average price: 53314.62 EUR
+Min price: 28000 EUR
+Max price: 82000 EUR
+Price range: 54000
+ 
+### 3 room apartment price analysis ###
+Advertisement count: 6
+Average price: 74666.67 EUR
+Min price: 65000 EUR
+Max price: 88000 EUR
+Price range: 23000
+ 
+### 4 room apartment price analysis ###
+Advertisement count: 4
+Average price: 109497.5 EUR
+Min price: 78990 EUR
+Max price: 189000 EUR
+Price range: 110010
+ 
+### 5 room apartment price analysis ###
+Advertisement count: 25
+Average price: 65463.2 EUR
+Min price: 28000 EUR
+Max price: 189000 EUR
+Price range: 161000
