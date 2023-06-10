@@ -1,6 +1,3 @@
-from src.ws.app.wsmodules.pdf_creator import split_data_frame
-import pandas as pd
-
 
 def test_split_data_frame():
     # Create a test dataframe
@@ -9,9 +6,9 @@ def test_split_data_frame():
 
     # Test with a valid dataframe
     assert split_data_frame(df, "Room_count", 1) == [df[df["Room_count"] == 1],
-                                                     df[df["Room_count"] == 2],
-                                                     df[df["Room_count"] == 3],
-                                                     df[df["Room_count"] == 4]]
+                                                      df[df["Room_count"] == 2],
+                                                      df[df["Room_count"] == 3],
+                                                      df[df["Room_count"] == 4]]
 
     # Test with an empty dataframe
     df = pd.DataFrame()

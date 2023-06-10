@@ -5,7 +5,6 @@ on:
     branches:
       - release-1.4.9
       - dev-1.4.10
-      - dev-1.4.11
 jobs:
   build_containers:
     runs-on: ubuntu-latest
@@ -87,7 +86,7 @@ jobs:
                 folder_name="${curr_time}-deploy" && \ 
                 mkdir $folder_name && cd $folder_name && \
                 git clone https://github.com/vfedotovs/sslv_web_scraper.git . && pwd && \
-                git switch dev-1.4.11 && ls -la && \
+                git switch dev-1.4.10 && ls -la && \
                 cp ../.env.prod . && cp ../database.ini ./src/ws/ && \
                 export AWS_ACCESS_KEY_ID=${{ secrets.AWS_ACCESS_KEY_ID }} && \
                 export AWS_SECRET_ACCESS_KEY=${{ secrets.AWS_SECRET_ACCESS_KEY }} && \
@@ -97,5 +96,4 @@ jobs:
                 ls -l ./src/db/ && \
                 docker-compose --env-file .env.prod up -d && sleep 15 && \
                 docker ps
-                curl http://0.0.0.0:80/run-task/ogre
                 '

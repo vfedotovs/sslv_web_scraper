@@ -20,14 +20,13 @@ import time
 logger = logging.getLogger('web_scraper')
 logger.setLevel(logging.INFO)
 ws_log_format = logging.Formatter(
-    "%(asctime)s [%(threadName)-12.12s] [%(levelname)-5.5s] %(name)s : %(funcName)s: %(lineno)d: %(message)s")
+        "%(asctime)s [%(threadName)-12.12s] [%(levelname)-5.5s] %(name)s : %(funcName)s: %(lineno)d: %(message)s")
 
 ch = logging.StreamHandler(sys.stdout)
 ch.setFormatter(ws_log_format)
 logger.addHandler(ch)
 
-fh = handlers.RotatingFileHandler(
-    'web_scraper.log', maxBytes=(1048576*5), backupCount=7)
+fh = handlers.RotatingFileHandler('web_scraper.log', maxBytes=(1048576*5), backupCount=7)
 fh.setFormatter(ws_log_format)
 logger.addHandler(fh)
 
@@ -44,8 +43,7 @@ def scrape_website():
     logger.info("Building non-duplicate URL list from BS4 objects")
     valid_msg_urls = find_single_page_urls(ogre_object)
     logger.info(f"Found {str(len(valid_msg_urls))} parsable message URLs")
-    logger.info(
-        "Extracting data for Ogre city apartments for sell task and saving as Ogre-raw-data-report.txt")
+    logger.info("Extracting data for Ogre city apartments for sell task and saving as Ogre-raw-data-report.txt")
     extract_data_from_url(valid_msg_urls, 'Ogre-raw-data-report.txt')
     logger.info("Creating file Ogre-raw-data-report.txt copy in data folder")
     create_file_copy()
@@ -64,8 +62,7 @@ def extract_data_from_url(nondup_urls: list, dest_file: str) -> None:
         logger.info(f"Extracting data from message URL  {i + 1}")
         write_line(current_msg_url, dest_file)
         for idx in range(len(table_opt_names) - 1):
-            text_line = table_opt_names[idx] + \
-                ">" + table_opt_values[idx] + "\n"
+            text_line = table_opt_names[idx] + ">" + table_opt_values[idx] + "\n"
             write_line(text_line, dest_file)
 
         # Extract message price field
@@ -81,8 +78,9 @@ def extract_data_from_url(nondup_urls: list, dest_file: str) -> None:
                 date_clean = date_and_time.split()[0]
                 date_field = "Date:>" + str(date_clean) + "\n"
         write_line(date_field, dest_file)
-        # adding deplay between scraping each URL 5 sec (for Ogre 5x30=150 sec or 2.5 min should last )
+        # adding deplay between scraping each URL 5 sec (for Ogre 5x30=150 sec or 2.5 min should last ) 
         time.sleep(5)
+
 
         # TODO: Fix-me Extract message view count always returns view count = 1
         # views = get_msg_field_info(nondup_urls[i], "show_cnt_stat")
@@ -157,11 +155,10 @@ def create_file_copy() -> None:
     """Creates report file copy in data folder"""
     todays_date = datetime.today().strftime('%Y-%m-%d')
     dest_file = 'Ogre-raw-data-report-' + todays_date + '.txt'
-    copy_cmd = 'cp Ogre-raw-data-report.txt local_lambda_raw_scraped_data/' + dest_file
-    if not os.path.exists('local_lambda_raw_scraped_data'):
-        os.makedirs('local_lambda_raw_scraped_data')
+    copy_cmd = 'cp Ogre-raw-data-report.txt data/' + dest_file
+    if not os.path.exists('data'):
+        os.makedirs('data')
     os.system(copy_cmd)
 
 
-if __name__ == "__main__":
-    scrape_website()
+scrape_website()
