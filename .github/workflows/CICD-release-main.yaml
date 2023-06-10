@@ -1,10 +1,9 @@
 ---
-name: CICD-Release-1.4.9
+name: CICD-release-main
 on:
   push:
     branches:
-      - release-1.4.9
-      - dev-1.4.10
+      - main
 jobs:
   build_containers:
     runs-on: ubuntu-latest
@@ -50,11 +49,9 @@ jobs:
           pwd
           docker-compose --env-file .env.prod up -d
       - name: List DB table sizes to confirm if DB import was correct
-        run: >
+        run: |
           sleep 15
-
           docker-compose ps
-
           docker exec sslv_web_scraper_db_1  psql -U new_docker_user -d new_docker_db -c '\dt+'
       - name: Run docker compose ps
         run: |
@@ -74,7 +71,6 @@ jobs:
           USER_NAME: ${{ secrets.DEV_EC2_USER  }}
         run: >
           echo "$PRIVATE_KEY" > private_key && chmod 600 private_key
-
           ssh -o StrictHostKeyChecking=no -i private_key ${USER_NAME}@${HOSTNAME} '
                 pwd && ls -lah && \
                 docker ps && echo "---- before stopping ---" && \

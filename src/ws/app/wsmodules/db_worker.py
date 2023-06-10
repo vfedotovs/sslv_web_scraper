@@ -602,5 +602,4 @@ def list_rows_in_removed_table() -> None:
             conn.close()
 
 
-if __name__ == "__main__":
-    db_worker_main()
+db_worker_main()

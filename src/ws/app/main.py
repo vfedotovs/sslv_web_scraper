@@ -1,18 +1,18 @@
-""" This module is processing HTTP get requsts
-to scrape property data form ss.lv """
+""" This module is processing HTTP get requsts to scrape property data form ss.lv"""
 
 
 from datetime import datetime
 import logging
-import logging.handlers as handlers
+from logging import handlers
 from logging.handlers import RotatingFileHandler
 import os
+from re import T
 import sys
 import uvicorn
-from fastapi import FastAPI
-from app.wsmodules.file_downloader import download_latest_lambda_file
+from fastapi import BackgroundTasks, FastAPI
+# from app.wsmodules.file_downloader import download_latest_lambda_file
 from app.wsmodules.web_scraper import scrape_website
-from app.wsmodules.data_format_changer import cloud_data_formater_main
+from app.wsmodules.data_format_changer import data_formater_main
 from app.wsmodules.df_cleaner import df_cleaner_main
 from app.wsmodules.db_worker import db_worker_main
 from app.wsmodules.analytics import analytics_main
@@ -20,21 +20,16 @@ from app.wsmodules.pdf_creator import pdf_creator_main
 from app.wsmodules.sendgrid_mailer import sendgrid_mailer_main
 
 
-log = logging.getLogger('fastapi')
+log = logging.getLogger('')
 log.setLevel(logging.INFO)
-fastapi_log_format = logging.Formatter(
-    "%(asctime)s [%(threadName)-12.12s]"
-    " [%(levelname)-5.5s] : %(funcName)s:"
-    " %(lineno)d: %(message)s")
+fa_log_format = logging.Formatter("%(asctime)s [%(threadName)-12.12s] [%(levelname)-5.5s] : %(funcName)s: %(lineno)d: %(message)s")
 
 ch = logging.StreamHandler(sys.stdout)
-ch.setFormatter(fastapi_log_format)
+ch.setFormatter(fa_log_format)
 log.addHandler(ch)
 
-fh = handlers.RotatingFileHandler('fastapi.log',
-                                  maxBytes=(1048576*5),
-                                  backupCount=7)
-fh.setFormatter(fastapi_log_format)
+fh = handlers.RotatingFileHandler('fast_api.log', maxBytes=(1048576*5), backupCount=7)
+fh.setFormatter(fa_log_format)
 log.addHandler(fh)
 
 app = FastAPI()
@@ -44,125 +39,93 @@ CITY_NAME = 'Ogre'
 @app.get("/")
 def home():
     """Test enpoint to verify if fast-api is live"""
-    log.info("Recieved GET request on / FastAPI server is ready ...")
-
     return {"FastAPI server is ready !!!"}
 
 
 @app.get("/run-task/{city}")
-async def run_long_task(city: str):
+async def run_long_task(city: str, background_tasks: BackgroundTasks):
     """ Endpint to trigger scrape, format and insert data in DB"""
-    log.info("Recieved GET request to start scraping job for %s city", city)
-    download_latest_lambda_file()
-    todays_cloud_data_file_exist = check_today_cloud_data_file_exist()
-
-    if todays_cloud_data_file_exist is True:
-        last_cloud_file_name = get_todays_cloud_data_file_name()
-        log.info("Cloud scraper module data file: %s "
-                 "found will be used in "
-                 " data_formater_module ", last_cloud_file_name)
-        log.info("Running cloud_data_formater_main task: using cloud ws file")
-        cloud_data_formater_main()
-        log.info("Running df_cleaner_main task: using cloud ws file")
-        df_cleaner_main()
-        log.info("Running db_worker_main task: using cloud ws file")
-        db_worker_main()
-        log.info("Running analytics_main task: using cloud ws file")
-        analytics_main()
-        log.info("Running pdf_creator task: using cloud ws file ")
-        pdf_creator_main()
-        log.info("Running sendgrid_mailer task: using cloud ws file")
-        sendgrid_mailer_main()
-        return {
-            "message": "FAST_API: scrape Ogre city apartments"
-                       " task using cloud ws file run completed"
-        }
-
-    lst_run_state = check_lst_run_state(CITY_NAME)
-    if lst_run_state:
-        log.info("EXIT: will not call ws_worker "
-                 "module because task was run last 24H")
-        return {"message": "Local scraper job already has run,"
-                           " in last 24H will not run today again"}
-
-    if todays_cloud_data_file_exist is False:
-        log.info("Running scrape_website task will create local ws file")
-        scrape_website()
-        log.info("Running data_formater_main task: using locally scraped file")
-        cloud_data_formater_main()
-        log.info("Running df_cleaner_main task: using locally scraped file")
-        df_cleaner_main()
-        log.info("Running db_worker_main task: using locally scraped file")
-        db_worker_main()
-        log.info("Running analytics_main task: using locally scraped file")
-        analytics_main()
-        log.info("Running pdf_creator task: using locally scraped")
-        pdf_creator_main()
-        log.info("Running sendgrid_mailer task: using locally scraped file")
-        sendgrid_mailer_main()
-        log.info("sendgrid_mailer_main task completed")
-        return {"message": "FAST_API: scrape Ogre city apartments "
-                "task using local scrape job was completed"}
+    # background_tasks.add_task(download_latest_lambda_file)
+    # todays_cloud_data_file_exist = check_today_cloud_data_file_exist()
+    
+    # if todays_cloud_data_file_exist is True:
+    #     last_cloud_file_name = get_todays_cloud_data_file_name()
+    #     log.info("TODO: cloud scraper module data file: %s found will be used in data_formater_module", last_cloud_file_name)
+    #     pass
+        
+    # if todays_cloud_data_file_exist is False:
+    #     # check if local sraper job did run today and save output file in "data" folder
+    local_sraper_task_has_run_today = check_local_scraper_task_runned_today(CITY_NAME)
+    if local_sraper_task_has_run_today:
+        log.info("EXIT: will not call ws_worker module because task was run last 24H")
+        return {"message": "Local scraper job already has run in last 24H will not run today again"}
+    
+    log.info("Sent scrape_website task to background - time to complete 150 sec")
+    background_tasks.add_task(scrape_website)
+    log.info("Sent data_formater_main task to background: TTC < 2 sec")
+    background_tasks.add_task(data_formater_main)
+    log.info("Sent df_cleaner_main task to background: TTC < 2 sec")
+    background_tasks.add_task(df_cleaner_main)
+    log.info("Sent db_worker_main task to background: TTC < 3 sec")
+    background_tasks.add_task(db_worker_main)
+    log.info("Sent analytics_main task to background: TTC < 5 sec")
+    background_tasks.add_task(analytics_main)
+    log.info("Sent sendgrid_mailer task to background: TTC < 5 sec")
+    background_tasks.add_task(pdf_creator_main)
+    log.info("Sent pdf_creator task to background: TTC < 5 sec")
+    background_tasks.add_task(sendgrid_mailer_main)
+    log.info("Send all taks to background completed")
+    return {
+            "message": "FAST_API_REPLAY scrape Ogre city sent as background task"
+    }
 
 
 def check_today_cloud_data_file_exist() -> bool:
     """Checks if file Ogre-raw-data-report-YYYY-MM-DDTMM-HH-SS.txt
-    which was generated by AWS lambda scraper and downloaded from S3 bucket
+    which was generated by AWS lambda scraper and downloaded from S3 bucket 
     exist in local_lambda_raw_scraped_datafolder with todays date"""
-    cloud_file_folder = "local_lambda_raw_scraped_data"
+    cloud_file_folder="local_lambda_raw_scraped_data"
     todays_date = datetime.today().strftime('%Y-%m-%d')
-    log.info("Searching for cloud files with todays date: %s ", todays_date)
+    log.info(f"Searching for cloud files with todays date: {todays_date}")
     if not os.path.exists(cloud_file_folder):
-        log.error("Folder %s does not exist "
-                  "creating empty folder", cloud_file_folder)
+        log.error(f'Folder {cloud_file_folder} does not exist creating empty folder')
         os.makedirs(cloud_file_folder)
     for file_name in os.listdir(cloud_file_folder):
         if todays_date in file_name:
-            log.info('File %s containing today'
-                     ' date %s found, ', file_name, todays_date)
+            log.info('File %s containing today date %s found, ', file_name, todays_date)
             return True
-    log.info('File containing today date %s was not found,'
-             ' will try to find local craper file', todays_date)
+    log.info('File containing today date %s was not found, will try to find local craper file', todays_date)
     return False
 
 
 def get_todays_cloud_data_file_name() -> str:
     """Checks if file Ogre-raw-data-report-YYYY-MM-DDTMM-HH-SS.txt
-    which was generated by AWS lambda scraper and
-    downloaded from S3 bucket exist in local_lambda_raw_scraped_data
-    folder with todays date and returns file name"""
+    which was generated by AWS lambda scraper and downloaded from S3 bucket 
+    exist in local_lambda_raw_scraped_data folder with todays date and returns file name"""
 
-    cloud_file_folder = "local_lambda_raw_scraped_data"
+    cloud_file_folder="local_lambda_raw_scraped_data"
     todays_date = datetime.today().strftime('%Y-%m-%d')
-    log.info("Searching for cloud scraper file "
-             " with todays date: %s ", todays_date)
+    log.info(f"Searching for cloud scraper file with todays date: {todays_date}")
     if not os.path.exists(cloud_file_folder):
-        log.error("Folder %s does not exist "
-                  "creating empty folder ", cloud_file_folder)
+        log.error(f'Folder {cloud_file_folder} does not exist creating empty folder')
         os.makedirs(cloud_file_folder)
     for file_name in os.listdir(cloud_file_folder):
         if todays_date in file_name:
-            log.info("File %s containing todays date"
-                     "%s found", file_name, todays_date)
+            log.info('File %s containing today date %s found, ', file_name, todays_date)
             return file_name
 
 
-def check_lst_run_state(city_name) -> bool:
-    """
-    Returns true if Ogre-raw-data-report-YYYY-MM-DD.txt
-    with todays date exists.
-    """
+def check_local_scraper_task_runned_today(city_name) -> bool:
+    """Checks if file Ogre-raw-data-report-YYYY-MM-DD.txt with todays data exist"""
     todays_date = datetime.today().strftime('%Y-%m-%d')
     target_filename = city_name + '-raw-data-report-' + todays_date + '.txt'
     if not os.path.exists('data'):
         os.makedirs('data')
     for filename in os.listdir("data"):
         if filename == target_filename:
-            log.info('File %s found, task for '
-                     'Ogre has run today', target_filename)
+            log.info('File %s found, task for Ogre has run today', target_filename)
             return True
-    log.info('File %s was not found, running '
-             ' scrape task for Ogre city', target_filename)
+    log.info('File %s was not found, running scrape task for Ogre city', target_filename)
     return False
 
 
