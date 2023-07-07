@@ -72,12 +72,12 @@ deploy               Deploying app to AWS EC2 ...(not implemented)
 - [x] Fully automated deployment for dev, release and main branches with Github Actions CICD to AWS EC2
 
 
-## TODO;
-- [ ] Add feature for dev-1.4.xx cron job backup docker container DB on EC2
-- [ ] Add feature for dev-1.4.xx cron job upload DB backup file to S3 bucket so it can be used in next CICD deployments
+## TODO:
+- [x] Add feature for dev-1.4.xx cron job backup docker container DB on EC2
+- [x] Add feature for dev-1.4.xx cron job upload DB backup file to S3 bucket so it can be used in next CICD deployments
 - [ ] Add feature for dev-1.4.xx save logs daily to one container and cron job to backup logs to S3 for root cause needs
 - [ ] Add Sphinx project documentation and doc coverage in README.md
-- [ ] Improve pdf attachment file content
-- [ ] Improve email body to contain added and removed ads for every day in current month
-- [ ] Add WEB services GUI for data explore and analytics
+- [ ] Improve pdf attachment file content (Priority)
+- [ ] Improve email body to contain added and removed ads for every day in current month (Priority)
+- [ ] Add WEB services GUI for data explore and analytics (Work inprogress)
 - [ ] Add test coverage on CICD and in README.md
