@@ -4,6 +4,7 @@ import boto3
 import logging
 from logging import handlers
 from logging.handlers import RotatingFileHandler
+import shutil
 import sys
 
 
@@ -63,12 +64,16 @@ def get_last_file_name(s3_bucket_name: str) -> str:
 
 
 def move_file_to(folder: str, src_file_name: str, dst_file_name: str) -> None:
-    """ Moves file in to local_lambda_raw_scraped_data folder"""
-    move_cmd = 'mv ' + src_file_name + ' ' + folder + '/' + dst_file_name
+    """Moves file into the specified folder."""
     if not os.path.exists(folder):
         os.makedirs(folder)
-    os.system(move_cmd)
-    log.info(f"Command: {move_cmd} was completed")
+    src_path = os.path.join(os.getcwd(), src_file_name)
+    dst_path = os.path.join(folder, dst_file_name)
+    try:
+        shutil.move(src_path, dst_path)
+        log.info(f"File {src_file_name} moved to {dst_path}")
+    except Exception as e:
+        log.error(f"Error moving {src_file_name} to {dst_path}: {e}")
 
 
 def download_latest_lambda_file() -> None:
