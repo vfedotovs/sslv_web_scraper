@@ -1,4 +1,6 @@
-from src.ws.app.wsmodules.db_worker import extract_hash
+# from src.ws.app.wsmodules.db_worker import extract_hash
+# from src.ws.app.wsmodules.config import config
+#
 # import psycopg2
 
 
