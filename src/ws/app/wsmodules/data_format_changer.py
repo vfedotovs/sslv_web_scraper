@@ -77,10 +77,10 @@ def check_todays_cloud_data_file_exist() -> bool:
     exist in local_lambda_raw_scraped_datafolder with todays date"""
     cloud_file_folder = "local_lambda_raw_scraped_data"
     todays_date = datetime.today().strftime('%Y-%m-%d')
-    log.info(f"Searching for cloud files with todays date: {todays_date}")
+    log.info("Searching for cloud files with todays date: %s ", todays_date)
     if not os.path.exists(cloud_file_folder):
-        log.error(f'Folder {cloud_file_folder}'
-                  ' does not exist creating empty folder')
+        log.error("Folder %s does not exist. Creating empty folder ",
+                  cloud_file_folder)
         os.makedirs(cloud_file_folder)
     cwd = os.getcwd()
     for file_name in os.listdir(cloud_file_folder):
@@ -109,13 +109,13 @@ def cloud_data_formater_main() -> None:
     """Read raw data from Ogre-raw-data-report.txt and save to pandas_df.csv"""
     log.info(' --- Started data_format_changer module ---')
     todays_cloud_ws_fp = get_cloud_ws_fp()
-    log.info("AWS lambda scraped file path: " + todays_cloud_ws_fp)
+    log.info("AWS lambda scraped file path: %s ", todays_cloud_ws_fp)
     todays_local_ws_fp = get_local_ws_fp()
     todays_cloud_ws_file_exist = check_todays_cloud_data_file_exist()
-    log.info("AWS lambda scraped file exists: " +
+    log.info("AWS lambda scraped file exists: %s ",
              str(todays_cloud_ws_file_exist))
     if todays_cloud_ws_file_exist is True:
-        log.info('Creating one-line report using lambda scraped file: ',
+        log.info("Creating one-line report using lambda scraped file: %s",
                  todays_cloud_ws_fp)
         detailed_cws_fp = get_detailed_file_path()
         ogre_city_data_frame = create_oneline_report(detailed_cws_fp)
@@ -123,7 +123,7 @@ def cloud_data_formater_main() -> None:
         create_file_copy()
     elif todays_cloud_ws_file_exist is False:
         log.info(
-            "Creating one-line report using locally scraped file: " + todays_local_ws_fp)
+            "Creating one-line report using locally scraped file: %s ", todays_local_ws_fp)
         ogre_city_data_frame = create_oneline_report(todays_local_ws_fp)
         if ogre_city_data_frame is not None:
             ogre_city_data_frame.to_csv("pandas_df.csv")
@@ -222,10 +222,10 @@ def create_oneline_report(source_file: str) -> pd.DataFrame:
             return pandas_df
 
     except FileNotFoundError:
-        log.error("Error: The file '" + source_file + "' does not exist.")
+        log.error("Error: The file %s does not exist", source_file)
     except Exception as e:
-        log.error("An error occurred while processing the file '" +
-                  source_file + "': " + str(e))
+        log.error(
+            "An error occurred while processing the file %s : %s ", source_file, str(e))
 
 
 def create_file_copy() -> None:
