@@ -110,7 +110,7 @@ def save_text_report_to_file(text_lines: list, file_name: str) -> None:
     log.info(f"Saving text report to file : {file_name}")
     with open(file_name, 'a') as the_file:
         for text_line in text_lines:
-            the_file.write(f"{text_lines}\n")
+            the_file.write(f"{text_line}\n")
     text_line_cnt = len(text_lines)
     log.info(
         f"Completed writing {text_line_cnt} lines of text report to {file_name}")
