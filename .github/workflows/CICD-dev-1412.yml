@@ -5,6 +5,19 @@ on:
     branches:
       - dev-1.4.12
 jobs:
+  Test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - name: Test with pytest
+        run: |
+          pytest --cov --cov-report=xml
+      - name: Upload coverage reports to Codecov
+        uses: codecov/codecov-action@v3
+        env:
+          CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
+
+          
   Build_Docker_Containers:
     runs-on: ubuntu-latest
     env:
@@ -13,10 +26,6 @@ jobs:
       AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
     steps:
       - uses: actions/checkout@v3
-      - name: Upload coverage reports to Codecov
-        uses: codecov/codecov-action@v3
-        env:
-          CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
       - name: Setup creating database.ini env file
         run: |
           echo "[postgresql]" > src/ws/database.ini
