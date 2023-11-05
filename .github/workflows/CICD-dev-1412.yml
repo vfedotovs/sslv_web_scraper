@@ -17,7 +17,9 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install pytest
-          python -m pip install coverage  
+          python -m pip install coverage
+          pip install -r ./src/ws/requirements.txt 
+          pip install -r ./src/ts/requirements.txt 
       - name: Run pytest cov report
         run: |
           coverage run -m pytest
