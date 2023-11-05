@@ -16,8 +16,7 @@ jobs:
           python-version: 3.9  
       - name: Install dependencies
         run: |
-          python -m pip install pytest
-          working-directory: ${{ github.workspace }}
+          python -m pip install pytest  
       - name: Run pytest cov report
         run: |
           pytest ./src --cov --cov-report=xml
