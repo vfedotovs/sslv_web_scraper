@@ -5,7 +5,7 @@ on:
     branches:
       - dev-1.4.12
 jobs:
-  build_containers:
+  Build_Docker_Containers:
     runs-on: ubuntu-latest
     env:
       S3_BUCKET: ${{ secrets.S3_BUCKET }}
@@ -13,6 +13,10 @@ jobs:
       AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
     steps:
       - uses: actions/checkout@v3
+      - name: Upload coverage reports to Codecov
+        uses: codecov/codecov-action@v3
+        env:
+          CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
       - name: Setup creating database.ini env file
         run: |
           echo "[postgresql]" > src/ws/database.ini
@@ -62,7 +66,7 @@ jobs:
       - name: Run compose down
         run: docker-compose down
   Deploy_to_AWS_EC2:
-    needs: build_containers
+    needs: Build_Docker_Containers
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v3
