@@ -19,7 +19,7 @@ jobs:
           python -m pip install pytest  
       - name: Run pytest cov report
         run: |
-          pytest /home/runner/work/sslv_web_scraper/sslv_web_scraper/src --cov --cov-report=xml
+          pytest --cov --cov-report=xml
         continue-on-error: true  # Ignore the failure of this step
       - name: Upload coverage reports to Codecov
         uses: codecov/codecov-action@v3
@@ -28,6 +28,7 @@ jobs:
 
           
   Build_Docker_Containers:
+    needs: Test
     runs-on: ubuntu-latest
     env:
       S3_BUCKET: ${{ secrets.S3_BUCKET }}
