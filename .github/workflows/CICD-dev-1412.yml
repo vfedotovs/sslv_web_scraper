@@ -19,10 +19,14 @@ jobs:
           python -m pip install pytest  
       - name: Run pytest cov report
         run: |
-          pytest --cov --cov-report=xml
+          coverage run -m pytest
+          coverage xml -o coverage.xml
         continue-on-error: true  # Ignore the failure of this step
       - name: Upload coverage reports to Codecov
         uses: codecov/codecov-action@v3
+        with:
+          name: coverage-report
+          path: coverage.xml
         env:
           CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
 
