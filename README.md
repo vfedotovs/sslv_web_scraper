@@ -1,6 +1,10 @@
 # SS.LV Web Scraper 
 
-![CI Build ](https://github.com/vfedotovs/sslv_web_scraper/actions/workflows/main.yml/badge.svg)
+| | |
+| --- | --- |
+| Build and Deploy | [![CI - Test](https://github.com/vfedotovs/sslv_web_scraper/actions/workflows/CICD-dev-1412.yml/badge.svg)](https://github.com/vfedotovs/sslv_web_scraper/actions/workflows/CICD-dev-1412.yml) |
+| Coverage | [![Coverage](https://codecov.io/github/pandas-dev/pandas/coverage.svg?branch=main)](https://codecov.io/gh/pandas-dev/pandas) |
+
 
 ## About application:
 Purpose: This application will scrape daily ss.lv website from apartments for sale category in specific city of your choice
