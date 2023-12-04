@@ -170,17 +170,30 @@ def df_cleaner_main():
     all_ads_df = pd.read_csv("cleaned-sorted-df.csv", index_col=False)
     create_file_copy()
     create_email_body(all_ads_df, 'email_body_txt_m4.txt')
-    # print("Debug info: Completed dat_formater module ... ")
+    create_mb_file_copy()
     log.info(" --- Completed df_cleaner module ---")
 
 
 def create_file_copy() -> None:
     """Creates file copy in data folder"""
     log.info(
-        "Started creating copy of cleaned-sorted-df-YYYY-MM-DD.csv in data folder")
+        "Started copy of cleaned-sorted-df-YYYY-MM-DD.csv in data folder")
     todays_date = datetime.today().strftime('%Y-%m-%d')
     dest_file = 'cleaned-sorted-df-' + todays_date + '.csv'
     copy_cmd = 'cp cleaned-sorted-df.csv data/' + dest_file
+    if not os.path.exists('data'):
+        os.makedirs('data')
+    os.system(copy_cmd)
+    log.info(f"Completed creating file copy of {dest_file}")
+
+
+def create_mb_file_copy() -> None:
+    """Creates file copy in data folder"""
+    log.info(
+        "Started copy of email_body_txt_m4-YYYY-MM-DD.txt in data folder")
+    todays_date = datetime.today().strftime('%Y-%m-%d')
+    dest_file = 'email_body_txt_m4-' + todays_date + '.txt'
+    copy_cmd = 'cp email_body_txt_m4.txt data/' + dest_file
     if not os.path.exists('data'):
         os.makedirs('data')
     os.system(copy_cmd)
