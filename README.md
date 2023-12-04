@@ -64,13 +64,6 @@ deploy               Deploying app to AWS EC2 ...(not implemented)
 ```
 
 
-## How to generate project documentation: 
-```bash
-mkdocks serve 
-
-To acess navigate http://127.0.0.1:8000/sslv_web_scraper/
-```
-
 ## Currently available features
 - [x] Parse ss.lv website and extract information from section apartments for sale (currently hardcoded for Ogre city adjust to your needs)
 - [x] Store scraped data in postgres database container tables listed_ads and removed_ads for tracking longer price trends
