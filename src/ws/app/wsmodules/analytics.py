@@ -2,7 +2,7 @@
 This module  main functionality:
     1. Load pandas data frame from cleaned-sorted-df.csv file
     2. Split data frame to 4 data frames filtered by room count criteria
-    3. Calculate basic price statistics (min/max/average price for each cateogry)
+    3. Calculate basic price stats (min/max/average price for each cateogry)
     and save to file  basic_price_stats.txt
     4. basic_price_stats.txt later is used by pdf_cretor.py module to include in pdf file
 """
@@ -44,20 +44,24 @@ def analytics_main() -> None:
     write_lines(price_data, 'basic_price_stats.txt')
     log.info(" --- Ended analitics module --- ")
 
-    # Category 2 - analysis by advert square meter price - FIXME: need to implemet
+    # - FIXME: need to implement
+    # Category 2 - analysis by advert square meter price
     # 6. get min / max / average sqm size
     # 7. print chart price sqm
 
-    # Next 3 most valuable features: - FIXME: need to implemet
+    # Next 3 most valuable features:
+    # - FIXME: need to implement
     # Category 2 - filter adverts by floor location analysis
     #    - improves filtering out not needed candidates
     #    - complexity to implement easy
     #    - need to detect first and last flor  1/x or  5/5 or x/9
     #    - need exclude first and last floor and 9 floor houses
 
-    # This will be when database milestone will be implemented - FIXME: need to implemet
+    # - FIXME: need to implemet
+    # This will be when database milestone will be implemented
     # Category 5 listed date analysis - requires correct datapoint fix bug
-    # Category 6 advert view count analysis - requires correct datapoint fix bug
+    # Category 6 advert view count analysis
+    #     - requires correct datapoint fix bug
     # Category 4 advert street location analysis
 
 
@@ -94,26 +98,39 @@ def calculate_stats_by_price(df_name, filter_column: str) -> list:
         4. Price range
 
         Returns these values as list"""
-    log.info(f'Calculating stats_by_price for data frame')
+    log.info(f'Calculating stats_by_price basd on column: {filter_column} ')
     lines = []
-    filter_col = 'Price_in_eur'
     price_list = df_name[filter_column].tolist()
-    avg_price = sum(price_list) / len(price_list)
-    avg_price = str(round(avg_price, 2))
-    min_price = min(price_list)
-    max_price = max(price_list)
-    price_range = max_price - min_price
-    str_ac = "Advertisement count: " + str(len(price_list))
-    str_avp = "Average price: " + str(avg_price) + " EUR"
-    str_minp = "Min price: " + str(min_price) + " EUR"
-    str_maxp = "Max price: " + str(max_price) + " EUR"
-    str_pr = "Price range: " + str(price_range)
-    lines.append(str_ac)
-    lines.append(str_avp)
-    lines.append(str_minp)
-    lines.append(str_maxp)
-    lines.append(str_pr)
-    return lines
+    if len(price_list) > 0:
+        avg_price = sum(price_list) / len(price_list)
+        avg_price = str(round(avg_price, 2))
+        min_price = min(price_list)
+        max_price = max(price_list)
+        price_range = max_price - min_price
+        str_ac = "Advertisement count: " + str(len(price_list))
+        str_avp = "Average price: " + str(avg_price) + " EUR"
+        str_minp = "Min price: " + str(min_price) + " EUR"
+        str_maxp = "Max price: " + str(max_price) + " EUR"
+        str_pr = "Price range: " + str(price_range)
+        lines.append(str_ac)
+        lines.append(str_avp)
+        lines.append(str_minp)
+        lines.append(str_maxp)
+        lines.append(str_pr)
+        return lines
+    else:
+        log.error(f'Column {filter_column} has 0 prices')
+        str_ac = "Advertisement count: 0"
+        str_avp = "Average price: 0 EUR"
+        str_minp = "Min price: 0 EUR"
+        str_maxp = "Max price: 0 EUR"
+        str_pr = "Price range: 0"
+        lines.append(str_ac)
+        lines.append(str_avp)
+        lines.append(str_minp)
+        lines.append(str_maxp)
+        lines.append(str_pr)
+        return lines
 
 
 def create_multi_category_stats(data_frames: list) -> list:
