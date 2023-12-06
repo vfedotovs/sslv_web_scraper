@@ -113,7 +113,7 @@ def save_text_report_to_file(text_lines: list, file_name: str) -> None:
             the_file.write(f"{text_line}\n")
     text_line_cnt = len(text_lines)
     log.info(
-        f"Completed writing {text_line_cnt} lines of text report to {file_name}")
+        f"Completed writing {text_line_cnt} lines to {file_name} file ")
 
 
 def create_email_body(clean_data_frame, file_name: str) -> None:
@@ -159,18 +159,42 @@ def create_email_body(clean_data_frame, file_name: str) -> None:
 def df_cleaner_main():
     """ Cleans df, sorts df by price in EUR, save to csv file """
     log.info(" --- Started df_cleaner module ---")
-    # print("Debug info: Starting data frame cleaning module ... ")
-    df_to_clean = pd.read_csv("pandas_df.csv")
-    clean_df = clean_data_frame(df_to_clean)
-    clean_sqm_col = clean_sqm_column(clean_df)
-    clean_price_col = split_price_column(clean_sqm_col)
-    clean_df = clean_sqm_eur_col(clean_price_col)
-    sorted_df = clean_df.sort_values(by='Price_in_eur', ascending=True)
-    sorted_df.to_csv("cleaned-sorted-df.csv")
-    all_ads_df = pd.read_csv("cleaned-sorted-df.csv", index_col=False)
-    create_file_copy()
-    create_email_body(all_ads_df, 'email_body_txt_m4.txt')
-    create_mb_file_copy()
+    RAW_DATA_FILE = 'pandas_df.csv'
+    DEFAULT_DATA_FILE = 'pandas_df_default.csv'
+    EMAIL_BODY_OUTPUT_FILE = 'email_body_txt_m4.txt'
+    try:
+        log.info(f'Loading {RAW_DATA_FILE} file.')
+        with open(RAW_DATA_FILE, 'r') as file:
+            content = file.read()
+            raw_data_frame = pd.read_csv(RAW_DATA_FILE)
+            clean_df = clean_data_frame(raw_data_frame)
+            clean_sqm_col = clean_sqm_column(clean_df)
+            clean_price_col = split_price_column(clean_sqm_col)
+            clean_df = clean_sqm_eur_col(clean_price_col)
+            sorted_df = clean_df.sort_values(by='Price_in_eur', ascending=True)
+            sorted_df.to_csv("cleaned-sorted-df.csv")
+            all_ads_df = pd.read_csv("cleaned-sorted-df.csv", index_col=False)
+            create_file_copy()
+            create_email_body(all_ads_df, EMAIL_BODY_OUTPUT_FILE)
+            log.info(
+                f'Completed write data email template to {EMAIL_BODY_OUTPUT_FILE} file.')
+            create_mb_file_copy()
+    except FileNotFoundError:
+        log.error(f'File {RAW_DATA_FILE} not found')
+        try:
+            log.info(f'Loading {DEFAULT_DATA_FILE} file.')
+            with open(DEFAULT_DATA_FILE, 'r') as file:
+                content = file.read()
+                empty_df_mail_template = "No data was collected during last scraping job."
+                with open(EMAIL_BODY_OUTPUT_FILE, 'w') as out_file:
+                    # Write the entire string to the file
+                    out_file.write(empty_df_mail_template)
+                log.info(
+                    f'Completed write empty email template to {EMAIL_BODY_OUTPUT_FILE} file.')
+        except FileNotFoundError:
+            log.error(f'{DEFAULT_DATA_FILE} does not exist.')
+        except Exception as e:
+            log.error(f"An error occurred: {e}")
     log.info(" --- Completed df_cleaner module ---")
 
 
