@@ -1,11 +1,32 @@
 #!/usr/bin/env python3
+"""
+df_cleaner.py module functionality is to clean data values in DataFrame columns
 
-""" df_cleaner.py module
 
-Main features of this module:
-    1. Read csv to pandas df in memory
-    2. Clean up values in df columns
-    3. Save as clean df  in csv format
+Module requires input files
+    - pandas_df.csv
+
+Module has following functins
+    - clean_data_frame -  Deletes multiple latvian keywords from column values
+    - clean_sqm_column(df_name) - Removes m2 charecter from each sqm value
+    - split_price_column - Creates separate column for sqm price value and for ad price value
+    - clean_sqm_eur_col - Removes unused characters from sqm column
+    - save_text_report_to_file - Writes email body text to file
+    - get_room_count_values - Extracts only valid int values from room_count column
+    - gen_email_body - formats data in list of lists data structure
+    - print_body_table - prints new email body table
+    - create_email_body - generates and saves Milestone 4 legacy report content to file
+    - df_cleaner_main - main entry point
+    - create_file_copy - backups file with name-YYYY-MMDD format to /data folder 
+    - create_mb_file_copy - backups mail body file with name-YYYY-MMDD format to /data folder 
+
+Module creates output file:
+    - cleaned-sorted-df.csv
+    - email_body_txt_m4.txt
+
+Modulel TODO tasks:
+    - [ ] move gen_email_body function to sendgrid_mailer.py module
+    - [ ] refactor create file backup function 
 """
 from datetime import datetime
 import logging
@@ -56,7 +77,7 @@ def clean_data_frame(df_name):
 
 
 def clean_sqm_column(df_name):
-    """TODO: add docstring"""
+    """ Removes m2 charecter from each sqm value """
     # Sptitting column value in to new columns by separator
     log.info("Started sqm column cleanup from data frame")
     df = df_name["Size_sq_m"].str.split(
@@ -71,7 +92,11 @@ def clean_sqm_column(df_name):
 
 
 def split_price_column(df_name):
-    """TODO: add docstring"""
+    """ Raw data has total price and SQM price values in the
+    same column (example: 175 000 € (2 302.63 €/m²))
+    Creates separate column for sqm price value and for ad
+    price value and removes not used characters
+    """
     # Spitting and cleanup for price column
     # value in to new columns by separator
     log.info("Started price column split")
