@@ -12,6 +12,7 @@ import logging
 from logging.handlers import RotatingFileHandler
 import os
 import sys
+from tabulate import tabulate
 import pandas as pd
 
 
@@ -116,6 +117,83 @@ def save_text_report_to_file(text_lines: list, file_name: str) -> None:
         f"Completed writing {text_line_cnt} lines to {file_name} file ")
 
 
+def get_room_count_values(data_frame) -> list:
+    """ Returns uniq values from rom count columns
+    """
+    log.info("Describing DataFrame column data types ")
+    column_data_types = data_frame.dtypes
+    log.info(f'{column_data_types}')
+    rc_values = data_frame['Room_count'].tolist()
+    unique_elements = set(rc_values)
+    unique_rc_values = list(unique_elements)
+    log.info(f'rc vals: {unique_rc_values} type: {type(unique_rc_values)}')
+    unique_rc_values.sort()
+    rc_digit_values = [int(x) for x in unique_rc_values if x.isdigit()]
+    log.info(f"DataFrame room count values: {rc_digit_values}")
+    return rc_digit_values
+
+
+def gen_email_body(data_frame, body_out_file_name: str) -> str:
+    """ Creates categorised email body from data frame
+    based on room count value
+    """
+    log.info("Started new_email_body gen task")
+    all_ads_data_rows = []
+    valid_room_count_values = get_room_count_values(data_frame)
+    for valid_room_count_value in valid_room_count_values:
+        filtered_by_room_count = data_frame.loc[data_frame['Room_count'] == str(
+            valid_room_count_value)]
+        print(f'---- {valid_room_count_value} ----')
+        for index, row in filtered_by_room_count.iterrows():
+            curr_ad_data = []
+            ad_room_count = row['Room_count']
+            curr_ad_data.append(ad_room_count)
+            ad_floor_location = row["Floor"]
+            curr_ad_data.append(ad_floor_location)
+            ad_size_sqm = row["Size_sqm"]
+            curr_ad_data.append(ad_size_sqm)
+            price = row["Price_in_eur"]
+            curr_ad_data.append(price)
+            ad_sqm_price = row['SQ_meter_price']
+            curr_ad_data.append(ad_sqm_price)
+            ad_street_location = row['Street']
+            curr_ad_data.append(ad_street_location)
+            ad_pub_date = row['Pub_date']
+            curr_ad_data.append(ad_pub_date)
+            ad_url = row["URL"]
+            curr_ad_data.append(ad_url)
+            all_ads_data_rows.append(curr_ad_data)
+            print(curr_ad_data)
+    return all_ads_data_rows
+
+
+def print_body_table(table_data) -> None:
+    """ Print data in improved table format using lib
+    """
+    headers = ['Rooms', 'Floor', 'Size', 'Price',
+               'SQM Price', 'Apartment Street', 'Pub_date', 'URL']
+# Determine the number of columns in each segment
+    segment_length = len(headers)
+
+# Separate data into segments based on the number of columns
+    data_segments = [table_data[i:i + segment_length]
+                     for i in range(0, len(table_data), segment_length)]
+
+# Print each segment with headers
+    for segment in data_segments:
+        print(tabulate(segment, headers=headers, tablefmt="grid"))
+        print()  # Add an empty line between segments
+
+    # Separate data into segments based on the number of columns
+    # segment_lengths = [len(headers)] * (len(table_data[0]) // len(headers))
+    # data_segments = [table_data[i:i + len(headers)]
+    #                  for i in range(0, len(table_data), len(headers))]
+    with open('output.txt', 'w') as file:
+        for segment in data_segments:
+            file.write(tabulate(segment, headers=headers, tablefmt="grid"))
+            file.write('\n\n')  # Add an empty line between segments
+
+
 def create_email_body(clean_data_frame, file_name: str) -> None:
     """Creates categorized by room count ad hash : data for email body.
 
@@ -162,6 +240,7 @@ def df_cleaner_main():
     RAW_DATA_FILE = 'pandas_df.csv'
     DEFAULT_DATA_FILE = 'pandas_df_default.csv'
     EMAIL_BODY_OUTPUT_FILE = 'email_body_txt_m4.txt'
+    NEW_EMAIL_BODY_FILE = 'new_email_body.txt'
     try:
         log.info(f'Loading {RAW_DATA_FILE} file.')
         with open(RAW_DATA_FILE, 'r') as file:
@@ -176,6 +255,10 @@ def df_cleaner_main():
             all_ads_df = pd.read_csv("cleaned-sorted-df.csv", index_col=False)
             create_file_copy()
             create_email_body(all_ads_df, EMAIL_BODY_OUTPUT_FILE)
+            get_room_count_values(all_ads_df)
+            tbl_data = gen_email_body(all_ads_df, NEW_EMAIL_BODY_FILE)
+            print_body_table(tbl_data)
+# Column headers
             log.info(
                 f'Completed write data email template to {EMAIL_BODY_OUTPUT_FILE} file.')
             create_mb_file_copy()
