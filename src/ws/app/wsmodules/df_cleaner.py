@@ -33,7 +33,7 @@ import logging
 from logging.handlers import RotatingFileHandler
 import os
 import sys
-from tabulate import tabulate
+# from tabulate import tabulate
 import pandas as pd
 
 
