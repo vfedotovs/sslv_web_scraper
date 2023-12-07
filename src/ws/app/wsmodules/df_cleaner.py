@@ -17,7 +17,7 @@ Module has following functins
     - print_body_table - prints new email body table
     - create_email_body - generates and saves Milestone 4 legacy report content to file
     - df_cleaner_main - main entry point
-    - create_file_copy - backups file with name-YYYY-MMDD format to /data folder 
+    - create_file_copy - backups file with name-YYYY-MMDD format to /data folder
     - create_mb_file_copy - backups mail body file with name-YYYY-MMDD format to /data folder 
 
 Module creates output file:
@@ -26,7 +26,7 @@ Module creates output file:
 
 Modulel TODO tasks:
     - [ ] move gen_email_body function to sendgrid_mailer.py module
-    - [ ] refactor create file backup function 
+    - [ ] refactor create file backup function
 """
 from datetime import datetime
 import logging
@@ -39,25 +39,19 @@ import pandas as pd
 
 log = logging.getLogger(__name__)
 log.setLevel(logging.INFO)
-
 LOG_FILE = "dfcleaner.log"
-# Create a rotating file handler
 file_handler = RotatingFileHandler(LOG_FILE,
                                    maxBytes=1024 * 1024,
                                    backupCount=9)
 file_formatter = logging.Formatter(
     "%(asctime)s [%(threadName)-12.12s] "
     "[%(levelname)-5.5s] : %(funcName)s: %(lineno)d: %(message)s")
-
 file_handler.setFormatter(file_formatter)
 log.addHandler(file_handler)
-
-# Create a stdout (console) handler
 stdout_handler = logging.StreamHandler(sys.stdout)
 stdout_formatter = logging.Formatter(
     "%(asctime)s [%(threadName)-12.12s] "
     "[%(levelname)-5.5s] : %(funcName)s: %(lineno)d: %(message)s")
-
 stdout_handler.setFormatter(stdout_formatter)
 log.addHandler(stdout_handler)
 
@@ -115,7 +109,7 @@ def split_price_column(df_name):
 
 
 def clean_sqm_eur_col(df_name):
-    """TODO: add docstring"""
+    """sqm price column value cleanup removal of non int characters"""
     # Split value at EUR  symbol
     log.info("Started EUR sqm column cleanup")
     new = df_name["SQ_M_EUR"].str.split("€", n=1, expand=True)
@@ -146,8 +140,6 @@ def get_room_count_values(data_frame) -> list:
     """ Returns uniq values from rom count columns
     """
     log.info("Describing DataFrame column data types ")
-    column_data_types = data_frame.dtypes
-    log.info(f'{column_data_types}')
     rc_values = data_frame['Room_count'].tolist()
     unique_elements = set(rc_values)
     unique_rc_values = list(unique_elements)
@@ -158,17 +150,16 @@ def get_room_count_values(data_frame) -> list:
     return rc_digit_values
 
 
-def gen_email_body(data_frame, body_out_file_name: str) -> str:
+def gen_email_body(data_frame) -> list:
     """ Creates categorised email body from data frame
     based on room count value
     """
-    log.info("Started new_email_body gen task")
+    log.info("Creating new email body data structure")
     all_ads_data_rows = []
     valid_room_count_values = get_room_count_values(data_frame)
     for valid_room_count_value in valid_room_count_values:
         filtered_by_room_count = data_frame.loc[data_frame['Room_count'] == str(
             valid_room_count_value)]
-        print(f'---- {valid_room_count_value} ----')
         for index, row in filtered_by_room_count.iterrows():
             curr_ad_data = []
             ad_room_count = row['Room_count']
@@ -188,32 +179,23 @@ def gen_email_body(data_frame, body_out_file_name: str) -> str:
             ad_url = row["URL"]
             curr_ad_data.append(ad_url)
             all_ads_data_rows.append(curr_ad_data)
-            print(curr_ad_data)
     return all_ads_data_rows
 
 
-def print_body_table(table_data) -> None:
+def save_email_body_table(table_data, NEW_EMAIL_BODY_FILE) -> None:
     """ Print data in improved table format using lib
     """
     headers = ['Rooms', 'Floor', 'Size', 'Price',
                'SQM Price', 'Apartment Street', 'Pub_date', 'URL']
-# Determine the number of columns in each segment
+    # Determine the number of columns in each segment
     segment_length = len(headers)
-
-# Separate data into segments based on the number of columns
+    # Separate data into segments based on the number of columns
     data_segments = [table_data[i:i + segment_length]
                      for i in range(0, len(table_data), segment_length)]
-
-# Print each segment with headers
-    for segment in data_segments:
-        print(tabulate(segment, headers=headers, tablefmt="grid"))
-        print()  # Add an empty line between segments
-
-    # Separate data into segments based on the number of columns
-    # segment_lengths = [len(headers)] * (len(table_data[0]) // len(headers))
-    # data_segments = [table_data[i:i + len(headers)]
-    #                  for i in range(0, len(table_data), len(headers))]
-    with open('output.txt', 'w') as file:
+    # for segment in data_segments:
+    #     print(tabulate(segment, headers=headers, tablefmt="grid"))
+    #     print()  # Add an empty line between segments
+    with open(NEW_EMAIL_BODY_FILE, 'w') as file:
         for segment in data_segments:
             file.write(tabulate(segment, headers=headers, tablefmt="grid"))
             file.write('\n\n')  # Add an empty line between segments
@@ -233,7 +215,7 @@ def create_email_body(clean_data_frame, file_name: str) -> None:
         room_count_str = str(room_count + 1)
         section_line = str(room_count_str + " room apartment segment:")
         email_body_txt.append(section_line)
-        filtered_by_room_count = clean_data_frame.loc[clean_data_frame['Room_count'] == int(
+        filtered_by_room_count = clean_data_frame.loc[clean_data_frame['Room_count'] == str(
             room_count_str)]
         colum_line = "[Rooms, Floor, Size , Price, SQM Price, Apartment Street, Pub_date,  URL]"
         email_body_txt.append(colum_line)
@@ -280,12 +262,11 @@ def df_cleaner_main():
             all_ads_df = pd.read_csv("cleaned-sorted-df.csv", index_col=False)
             create_file_copy()
             create_email_body(all_ads_df, EMAIL_BODY_OUTPUT_FILE)
-            get_room_count_values(all_ads_df)
-            tbl_data = gen_email_body(all_ads_df, NEW_EMAIL_BODY_FILE)
-            print_body_table(tbl_data)
-# Column headers
+            # TODO: fix bug incorrect room counts in 2 and more room segments
+            # tbl_data = gen_email_body(all_ads_df)
+            # save_email_body_table(tbl_data, NEW_EMAIL_BODY_FILE)
             log.info(
-                f'Completed write data email template to {EMAIL_BODY_OUTPUT_FILE} file.')
+                f'Completed write data email template to {NEW_EMAIL_BODY_FILE} file.')
             create_mb_file_copy()
     except FileNotFoundError:
         log.error(f'File {RAW_DATA_FILE} not found')
