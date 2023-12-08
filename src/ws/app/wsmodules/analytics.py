@@ -77,9 +77,56 @@ def check_files(file_names: list) -> None:
             sys.exit()
 
 
+def split_dataframe_by_column(dataframe, column_name: str) -> dict:
+    """
+    Split DataFrame into multiple DataFrames based on unique values
+    in the specified column.
+
+    Parameters:
+    - dataframe (pd.DataFrame): The input DataFrame.
+    - column_name (str): The name of the column for which
+      to split DataFrame.
+
+    - Returns:
+    - dict (vale: pd.DataFrame) or None: The dict of DataFrames
+      if the DataFrame is not empty, otherwise returns None.
+    """
+    if not dataframe.empty:
+        unique_values = dataframe[column_name].unique()
+        dataframes = {
+            value: dataframe[dataframe[column_name] == value]
+            for value in unique_values
+        }
+        return dataframes
+    else:
+        return None
+
+
+def get_column_dtype(dataframe, column_name: str) -> str:
+    """
+    Get the data type of a specific column in a DataFrame.
+
+    Parameters:
+    - dataframe (pd.DataFrame): The input DataFrame.
+    - column_name (str): The name of the column for which
+      to retrieve the data type.
+
+    - Returns:
+    - numpy.dtype (str) or None: The data type of the
+      specified column if the DataFrame is not empty,
+      otherwise returns None.
+    """
+    if not dataframe.empty:
+        return str(dataframe[column_name].dtype)
+    else:
+        return None
+
+
 def categorize_data() -> list:
-    """Load all apartment data to df and Split in 4 categories based on room count"""
-    log.info('Categorizing all apartment data in categories based on room count ')
+    """Load all apartment data to df and split
+    in 4 categories based on room count"""
+    log.info(
+        'Categorizing all apartment data in categories based on room count ')
     all_ads_df = pd.read_csv("cleaned-sorted-df.csv", index_col=False)
     only_1_rooms = all_ads_df[all_ads_df['Room_count'] == 1]
     only_2_rooms = all_ads_df[all_ads_df['Room_count'] == 2]
