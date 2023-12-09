@@ -3,69 +3,16 @@ This module  main functionality:
     1. Load pandas data frame from cleaned-sorted-df.csv file
     2. Split data frame to 4 data frames filtered by room count criteria
     3. Calculate basic price stats (min/max/average price for each cateogry)
-    and save to file  basic_price_stats.txt
-    4. basic_price_stats.txt later is used by pdf_cretor.py module to include in pdf file
-    
-"""
-import logging
-from logging import handlers
-from logging.handlers import RotatingFileHandler
-import sys
-import os
-import pandas as pd
+       and save to file  basic_price_stats.txt
+    4. basic_price_stats.txt later is used by pdf_cretor.py module to
+       include in pdf file
 
-
-log = logging.getLogger('analytics')
-log.setLevel(logging.INFO)
-fa_log_format = logging.Formatter(
-    "%(asctime)s [%(threadName)-12.12s] [%(levelname)-5.5s] : %(funcName)s: %(lineno)d: %(message)s")
-ch = logging.StreamHandler(sys.stdout)
-ch.setFormatter(fa_log_format)
-log.addHandler(ch)
-fh = handlers.RotatingFileHandler(
-    'analytics.log', maxBytes=(1048576*5), backupCount=7)
-fh.setFormatter(fa_log_format)
-log.addHandler(fh)
-
-
-DATA_FRAME_FILE = 'cleaned-sorted-df.csv'
-ROOM_COUNT_COLUMN = 'Room_count'
-PRICE_COLUMN = 'Price_in_eur'
-
-
-def analytics_main() -> None:
-    """Main enrty point in module"""
-    log.info(" --- Starting analitics module --- ")
-    REQUIRED_FILES = ['cleaned-sorted-df.csv']
-    data_frame_file_exists = file_exists(DATA_FRAME_FILE)
-    if data_frame_file_exists:
-        log.info(f'Requred input file {DATA_FRAME_FILE} exists.')
-        full_data_frame = pd.read_csv(DATA_FRAME_FILE, index_col=False)
-        col_dtype = get_column_dtype(full_data_frame, ROOM_COUNT_COLUMN)
-        if col_dtype == 'object':
-            data_frame_segments = split_dataframe_by_column(
-                full_data_frame, ROOM_COUNT_COLUMN)
-            # print(data_frame_segments)i
-
-    check_files(REQUIRED_FILES)
-    categorized_dfs = categorize_data()  # list of 4 data frames
-
-    # Module functional requirements
-    # Category 1 - analysis by advert price:
-    # 1. I have interested in 1  and 2 rooms     - implemented
-    # 2. get count of apartments for sale        - implemented
-    # 3. get price range for each room category  - implemented
-    # 4. get min / max / average price           - implemented
-    price_data = create_multi_category_stats(categorized_dfs)
-    write_lines(price_data, 'basic_price_stats.txt')
-    log.info(" --- Ended analitics module --- ")
-
+# Functionality that is planned to be implemented
     # - FIXME: need to implement
     # Category 2 - analysis by advert square meter price
     # 6. get min / max / average sqm size
     # 7. print chart price sqm
 
-    # Next 3 most valuable features:
     # - FIXME: need to implement
     # Category 2 - filter adverts by floor location analysis
     #    - improves filtering out not needed candidates
@@ -79,6 +26,96 @@ def analytics_main() -> None:
     # Category 6 advert view count analysis
     #     - requires correct datapoint fix bug
     # Category 4 advert street location analysis
+"""
+import logging
+from logging import handlers
+from logging.handlers import RotatingFileHandler
+import sys
+import os
+import pandas as pd
+
+
+log = logging.getLogger('analytics')
+log.setLevel(logging.INFO)
+fa_log_format = logging.Formatter(
+    "%(asctime)s [%(threadName)-12.12s] [%(levelname)-5.5s]"
+    " : %(funcName)s: %(lineno)d: %(message)s"
+)
+ch = logging.StreamHandler(sys.stdout)
+ch.setFormatter(fa_log_format)
+log.addHandler(ch)
+fh = handlers.RotatingFileHandler(
+    'analytics.log', maxBytes=(1048576*5), backupCount=7)
+fh.setFormatter(fa_log_format)
+log.addHandler(fh)
+
+
+DATA_FRAME_FILE = 'cleaned-sorted-df.csv'
+ROOM_COUNT_COLUMN = 'Room_count'
+PRICE_COLUMN = 'Price_in_eur'
+# 4. basic_price_stats.txt later is used by pdf_cretor.py module to
+PRICE_STATS_DATA = 'Price_stats_by_room_segment.txt'
+
+
+def analytics_main() -> None:
+    """Main enrty point in module"""
+    log.info(" --- Starting analitics module --- ")
+    REQUIRED_FILES = ['cleaned-sorted-df.csv']
+    data_frame_file_exists = file_exists(DATA_FRAME_FILE)
+    if data_frame_file_exists:
+        log.info(f'Requred input file {DATA_FRAME_FILE} exists.')
+        full_data_frame = pd.read_csv(DATA_FRAME_FILE, index_col=False)
+        col_dtype = get_column_dtype(full_data_frame, ROOM_COUNT_COLUMN)
+        if col_dtype == 'object' or 'int64':
+            data_frame_segments = split_dataframe_by_column(
+                full_data_frame, ROOM_COUNT_COLUMN)
+            # print(data_frame_segments)
+            price_stats_by_room = gen_stats_data(
+                data_frame_segments, PRICE_COLUMN)
+            formatted_price_stats = format_price_stats_data(
+                price_stats_by_room)
+            write_report_to(PRICE_STATS_DATA, formatted_price_stats)
+
+    else:
+        log.error(f'Requred input file {DATA_FRAME_FILE} DOES NOT exist.')
+
+    # TODO: rewrite legacy code below
+    check_files(REQUIRED_FILES)
+    categorized_dfs = categorize_data()
+    price_data = create_multi_category_stats(categorized_dfs)
+    write_lines(price_data, 'basic_price_stats.txt')
+    log.info(" --- Ended analitics module --- ")
+
+
+def gen_stats_data(data_frame_segments, column_name) -> dict:
+    # TODO implemnt this function
+    """Docstring"""
+    for k, v in data_frame_segments.items():
+        log.info(f'Generatintig stats data for room segment: {k} ...')
+
+
+def format_price_stats_data(dict) -> list:
+    # TODO implement this function
+    """Docstring"""
+    log.info('Formatting to table format price column data ...')
+    sample_text = ['Text Line 1', 'Text Line 2', 'Text Line 3']
+    return sample_text
+
+
+def write_report_to(file_name: str, report_data: list) -> None:
+    """Writes formatted statistical data to file.
+
+    Args:
+        file_name (str): Name of the file to write the lines to.
+        report_sata (list): List of strings representing
+                            the lines to be written.
+
+    Returns:
+        None
+    """
+    log.info(f'Writing stats report data to {file_name} file ...')
+    with open(file_name, 'w') as filehandle:
+        filehandle.writelines("%s\n" % line for line in report_data)
 
 
 def file_exists(file_name) -> bool:
@@ -96,13 +133,15 @@ def file_exists(file_name) -> bool:
 
 def check_files(file_names: list) -> None:
     """Verifying if required module files exist before executing module code"""
-    log.info('Verifying if all required module exist')
     for file in file_names:
         try:
+            log.info(f'Checking if file: {file} exists ...')
             file_handle = open(file, 'r')
         except IOError:
             log.error(
-                f'There was an error opening the file {file} or it does not exist!')
+                f'There was an error opening the file '
+                f'{file} or it does not exist!'
+            )
             sys.exit()
 
 
@@ -123,6 +162,10 @@ def split_dataframe_by_column(dataframe, column_name: str) -> dict:
     if not dataframe.empty:
         log.info('Loaded DataFrame is not empty')
         unique_values = dataframe[column_name].unique()
+        log.info(
+            f'Found these {unique_values} values '
+            f'in DataFrame {column_name} column'
+        )
         dataframes = {
             value: dataframe[dataframe[column_name] == value]
             for value in unique_values
