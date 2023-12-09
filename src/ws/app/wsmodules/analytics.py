@@ -5,11 +5,13 @@ This module  main functionality:
     3. Calculate basic price stats (min/max/average price for each cateogry)
     and save to file  basic_price_stats.txt
     4. basic_price_stats.txt later is used by pdf_cretor.py module to include in pdf file
+    
 """
 import logging
 from logging import handlers
 from logging.handlers import RotatingFileHandler
 import sys
+import os
 import pandas as pd
 
 
@@ -26,12 +28,26 @@ fh.setFormatter(fa_log_format)
 log.addHandler(fh)
 
 
+DATA_FRAME_FILE = 'cleaned-sorted-df.csv'
+ROOM_COUNT_COLUMN = 'Room_count'
+PRICE_COLUMN = 'Price_in_eur'
+
+
 def analytics_main() -> None:
     """Main enrty point in module"""
     log.info(" --- Starting analitics module --- ")
     REQUIRED_FILES = ['cleaned-sorted-df.csv']
+    data_frame_file_exists = file_exists(DATA_FRAME_FILE)
+    if data_frame_file_exists:
+        log.info(f'Requred input file {DATA_FRAME_FILE} exists.')
+        full_data_frame = pd.read_csv(DATA_FRAME_FILE, index_col=False)
+        col_dtype = get_column_dtype(full_data_frame, ROOM_COUNT_COLUMN)
+        if col_dtype == 'object':
+            data_frame_segments = split_dataframe_by_column(
+                full_data_frame, ROOM_COUNT_COLUMN)
+            # print(data_frame_segments)i
+
     check_files(REQUIRED_FILES)
-    # df = load_csv_to_df('cleaned-sorted-df.csv')
     categorized_dfs = categorize_data()  # list of 4 data frames
 
     # Module functional requirements
@@ -65,6 +81,19 @@ def analytics_main() -> None:
     # Category 4 advert street location analysis
 
 
+def file_exists(file_name) -> bool:
+    """
+    Check if the file exists.
+
+    Parameters:
+    - file_name (str): The name of the file to check.
+
+    Returns:
+    - bool: True if the file exists, False otherwise.
+    """
+    return os.path.exists(file_name)
+
+
 def check_files(file_names: list) -> None:
     """Verifying if required module files exist before executing module code"""
     log.info('Verifying if all required module exist')
@@ -92,6 +121,7 @@ def split_dataframe_by_column(dataframe, column_name: str) -> dict:
       if the DataFrame is not empty, otherwise returns None.
     """
     if not dataframe.empty:
+        log.info('Loaded DataFrame is not empty')
         unique_values = dataframe[column_name].unique()
         dataframes = {
             value: dataframe[dataframe[column_name] == value]
@@ -99,6 +129,7 @@ def split_dataframe_by_column(dataframe, column_name: str) -> dict:
         }
         return dataframes
     else:
+        log.error('Loaded DataFrame is empty')
         return None
 
 
@@ -117,8 +148,11 @@ def get_column_dtype(dataframe, column_name: str) -> str:
       otherwise returns None.
     """
     if not dataframe.empty:
-        return str(dataframe[column_name].dtype)
+        column_dtype = str(dataframe[column_name].dtype)
+        log.info(f'DataFrame column: {column_name} dtype is : {column_dtype}')
+        return column_dtype
     else:
+        log.error('Loaded DataFrame is empty')
         return None
 
 
@@ -181,19 +215,34 @@ def calculate_stats_by_price(df_name, filter_column: str) -> list:
 
 
 def create_multi_category_stats(data_frames: list) -> list:
-    """Create elemenntary price type report from all data frames
+    """
+    Create a statistical report for different apartment
+    categories based on price.
+
+    This function generates a summary report containing information
+    such as the number of advertisements, average price, minimum price,
+    maximum price, and price range for each apartment category.
 
     Example of printout:
     # Title line
-    # print("Advertisement count: ",  len(price_list))
+    # print("Advertisement count: ", len(price_list))
     # print(f'Average price: {avg_price} EUR')
     # print(f'Min price: {min_price} EUR')
     # print(f'Max price: {max_price} EUR')
     # print(f'Price range: {price_range} ')
 
-    Returns: list of 4 lists that is used for writing in file and creting pdf file"""
-    log.info('Creating stats_by_price report for each for apartment type category')
+    Parameters:
+    - data_frames (list): A list of pandas DataFrames representing
+      different apartment categories.
 
+    Returns:
+    - list: A list of strings containing the statistical report for
+      each apartment category.
+      This can be used for writing to a file or creating a PDF report.
+    """
+    log.info(
+        'Creating price column stats report for each apartment type category')
+    # TODO - refactor this function
     stats_report_lines = []
     txt_reports = []
     for i, current_df in enumerate(data_frames):
