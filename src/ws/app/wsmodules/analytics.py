@@ -33,6 +33,7 @@ from logging.handlers import RotatingFileHandler
 import sys
 import os
 import pandas as pd
+from tabulate import tabulate
 
 
 log = logging.getLogger('analytics')
@@ -53,53 +54,114 @@ log.addHandler(fh)
 DATA_FRAME_FILE = 'cleaned-sorted-df.csv'
 ROOM_COUNT_COLUMN = 'Room_count'
 PRICE_COLUMN = 'Price_in_eur'
-# 4. basic_price_stats.txt later is used by pdf_cretor.py module to
-PRICE_STATS_DATA = 'Price_stats_by_room_segment.txt'
+TEMP_OUTPUT_FILE = 'basic_price_stats.txt'  # is used by pdf_cretor.py module
+# PRICE_STATS_DATA = 'Price_stats_by_room_segment.txt'
 
 
 def analytics_main() -> None:
     """Main enrty point in module"""
     log.info(" --- Starting analitics module --- ")
-    REQUIRED_FILES = ['cleaned-sorted-df.csv']
+    # REQUIRED_FILES = ['cleaned-sorted-df.csv']
     data_frame_file_exists = file_exists(DATA_FRAME_FILE)
     if data_frame_file_exists:
         log.info(f'Requred input file {DATA_FRAME_FILE} exists.')
         full_data_frame = pd.read_csv(DATA_FRAME_FILE, index_col=False)
-        col_dtype = get_column_dtype(full_data_frame, ROOM_COUNT_COLUMN)
-        if col_dtype == 'object' or 'int64':
-            data_frame_segments = split_dataframe_by_column(
-                full_data_frame, ROOM_COUNT_COLUMN)
-            # print(data_frame_segments)
-            price_stats_by_room = gen_stats_data(
-                data_frame_segments, PRICE_COLUMN)
-            formatted_price_stats = format_price_stats_data(
-                price_stats_by_room)
-            write_report_to(PRICE_STATS_DATA, formatted_price_stats)
-
+        data_frame_segments = split_dataframe_by_column(
+            full_data_frame, ROOM_COUNT_COLUMN)
+        price_stats_by_room = extract_data_from(
+            PRICE_COLUMN, data_frame_segments)
+        calc_price_data = calculate_price_stats(price_stats_by_room)
+        formatted_price_stats = format_price_stats_data(
+            calc_price_data)
+        write_report_to(TEMP_OUTPUT_FILE, formatted_price_stats)
     else:
         log.error(f'Requred input file {DATA_FRAME_FILE} DOES NOT exist.')
-
-    # TODO: rewrite legacy code below
-    check_files(REQUIRED_FILES)
-    categorized_dfs = categorize_data()
-    price_data = create_multi_category_stats(categorized_dfs)
-    write_lines(price_data, 'basic_price_stats.txt')
     log.info(" --- Ended analitics module --- ")
 
 
-def gen_stats_data(data_frame_segments, column_name) -> dict:
-    # TODO implemnt this function
-    """Docstring"""
-    for k, v in data_frame_segments.items():
-        log.info(f'Generatintig stats data for room segment: {k} ...')
+def extract_data_from(column_name: str, data_frame_segments) -> dict:
+    """Extracts price data from specified column for different room
+       count segments.
+
+    Args:
+        column_name (str): The name of the column from which to extract data.
+        data_frame_segments (dict): A dictionary containing room count segments
+            as keys and corresponding DataFrame segments as values.
+
+    Returns:
+        dict: A dictionary where keys are room count values, and values are
+        lists containing the extracted price data for each room count segment.
+
+    Note:
+        Function expects that each DataFrame segment in `data_frame_segments`
+        has the specified `column_name`.
+    """
+    stats_data = {}
+    if data_frame_segments is not None:
+        for room_count_value, add_data in data_frame_segments.items():
+            curr_room_value_prices = add_data[column_name].tolist()
+            stats_data[room_count_value] = curr_room_value_prices
+    for key, value in stats_data.items():
+        log.info(f'Extracted price data for {key} '
+                 f'room segment prices: {value}')
+    return stats_data
 
 
-def format_price_stats_data(dict) -> list:
-    # TODO implement this function
-    """Docstring"""
+def calculate_price_stats(price_data: dict) -> dict:
+    """Calculates min, average, max, and price range for each room segment.
+
+    Args:
+        price_data (dict): A dictionary where keys are room segments and values
+                          are lists of prices.
+
+    Returns:
+        dict: A dictionary containing calculated statistics for eachroom
+              room segment.
+              Keys are room segments, and values are lists containing:
+              [ad_count, min_price, max_price, price_range, avg_price].
+    """
+    calculated_data = {}
+    sorted_price_data = dict(sorted(price_data.items()))
+    for room_vlaue, prices in sorted_price_data.items():
+        data_values = []
+        ad_count = str(len(prices))
+        min_price = str(min(prices))
+        max_price = str(max(prices))
+        avg_price = str((min(prices) + max(prices)) / 2)
+        price_range = str(max(prices) - min(prices))
+        data_values.append(ad_count)
+        data_values.append(min_price)
+        data_values.append(max_price)
+        data_values.append(price_range)
+        data_values.append(avg_price)
+        calculated_data[room_vlaue] = data_values
+    for key, value in calculated_data.items():
+        log.info(f'Calculated price data for {key} room segment data: {value}')
+    return calculated_data
+
+
+def format_price_stats_data(price_data: dict) -> list:
+    """Format price data into a table format.
+
+    Args:
+        price_data (dict): A dictionary containing room segments as keys
+                          and corresponding price statistics.
+
+    Returns:
+        list: A list representing the formatted table.
+
+    This function takes a dictionary of price data, sorts it by room segments,
+    and formats it into a table using the tabulate module. The resulting table
+    includes columns for 'Room Segment', 'Ad count', 'Min Price', 'Max Price',
+    'Price Range', and 'Avg Price'.
+    """
     log.info('Formatting to table format price column data ...')
-    sample_text = ['Text Line 1', 'Text Line 2', 'Text Line 3']
-    return sample_text
+    ordered_data = dict(sorted(price_data.items()))
+    table_data = [(key, *value) for key, value in ordered_data.items()]
+    headers = ['Room Segment', 'Ad count', 'Min Price',
+               'Max Price', 'Price Range', 'Avg Price']
+    table = tabulate(table_data, headers=headers, tablefmt="pretty")
+    return table
 
 
 def write_report_to(file_name: str, report_data: list) -> None:
@@ -107,15 +169,15 @@ def write_report_to(file_name: str, report_data: list) -> None:
 
     Args:
         file_name (str): Name of the file to write the lines to.
-        report_sata (list): List of strings representing
+        report_data (list): List of strings representing
                             the lines to be written.
 
     Returns:
         None
     """
     log.info(f'Writing stats report data to {file_name} file ...')
-    with open(file_name, 'w') as filehandle:
-        filehandle.writelines("%s\n" % line for line in report_data)
+    with open(file_name, 'w') as file:
+        file.write(report_data)
 
 
 def file_exists(file_name) -> bool:
@@ -129,20 +191,6 @@ def file_exists(file_name) -> bool:
     - bool: True if the file exists, False otherwise.
     """
     return os.path.exists(file_name)
-
-
-def check_files(file_names: list) -> None:
-    """Verifying if required module files exist before executing module code"""
-    for file in file_names:
-        try:
-            log.info(f'Checking if file: {file} exists ...')
-            file_handle = open(file, 'r')
-        except IOError:
-            log.error(
-                f'There was an error opening the file '
-                f'{file} or it does not exist!'
-            )
-            sys.exit()
 
 
 def split_dataframe_by_column(dataframe, column_name: str) -> dict:
@@ -197,116 +245,6 @@ def get_column_dtype(dataframe, column_name: str) -> str:
     else:
         log.error('Loaded DataFrame is empty')
         return None
-
-
-def categorize_data() -> list:
-    """Load all apartment data to df and split
-    in 4 categories based on room count"""
-    log.info(
-        'Categorizing all apartment data in categories based on room count ')
-    all_ads_df = pd.read_csv("cleaned-sorted-df.csv", index_col=False)
-    only_1_rooms = all_ads_df[all_ads_df['Room_count'] == 1]
-    only_2_rooms = all_ads_df[all_ads_df['Room_count'] == 2]
-    only_3_rooms = all_ads_df[all_ads_df['Room_count'] == 3]
-    only_4_rooms = all_ads_df[all_ads_df['Room_count'] == 4]
-    cat_list = [only_1_rooms, only_2_rooms,
-                only_3_rooms, only_4_rooms, all_ads_df]
-    return cat_list
-
-
-def calculate_stats_by_price(df_name, filter_column: str) -> list:
-    """Extracts only EUR price column values, calculates elementary stats:
-        1. Total ad count
-        2. Min/Max price
-        3. Average price
-        4. Price range
-
-        Returns these values as list"""
-    log.info(f'Calculating stats_by_price basd on column: {filter_column} ')
-    lines = []
-    price_list = df_name[filter_column].tolist()
-    if len(price_list) > 0:
-        avg_price = sum(price_list) / len(price_list)
-        avg_price = str(round(avg_price, 2))
-        min_price = min(price_list)
-        max_price = max(price_list)
-        price_range = max_price - min_price
-        str_ac = "Advertisement count: " + str(len(price_list))
-        str_avp = "Average price: " + str(avg_price) + " EUR"
-        str_minp = "Min price: " + str(min_price) + " EUR"
-        str_maxp = "Max price: " + str(max_price) + " EUR"
-        str_pr = "Price range: " + str(price_range)
-        lines.append(str_ac)
-        lines.append(str_avp)
-        lines.append(str_minp)
-        lines.append(str_maxp)
-        lines.append(str_pr)
-        return lines
-    else:
-        log.error(f'Column {filter_column} has 0 prices')
-        str_ac = "Advertisement count: 0"
-        str_avp = "Average price: 0 EUR"
-        str_minp = "Min price: 0 EUR"
-        str_maxp = "Max price: 0 EUR"
-        str_pr = "Price range: 0"
-        lines.append(str_ac)
-        lines.append(str_avp)
-        lines.append(str_minp)
-        lines.append(str_maxp)
-        lines.append(str_pr)
-        return lines
-
-
-def create_multi_category_stats(data_frames: list) -> list:
-    """
-    Create a statistical report for different apartment
-    categories based on price.
-
-    This function generates a summary report containing information
-    such as the number of advertisements, average price, minimum price,
-    maximum price, and price range for each apartment category.
-
-    Example of printout:
-    # Title line
-    # print("Advertisement count: ", len(price_list))
-    # print(f'Average price: {avg_price} EUR')
-    # print(f'Min price: {min_price} EUR')
-    # print(f'Max price: {max_price} EUR')
-    # print(f'Price range: {price_range} ')
-
-    Parameters:
-    - data_frames (list): A list of pandas DataFrames representing
-      different apartment categories.
-
-    Returns:
-    - list: A list of strings containing the statistical report for
-      each apartment category.
-      This can be used for writing to a file or creating a PDF report.
-    """
-    log.info(
-        'Creating price column stats report for each apartment type category')
-    # TODO - refactor this function
-    stats_report_lines = []
-    txt_reports = []
-    for i, current_df in enumerate(data_frames):
-        df_report = calculate_stats_by_price(current_df, 'Price_in_eur')
-        txt_reports.append(df_report)
-    for i, reports in enumerate(txt_reports):
-        empty_line = ' '
-        title_line = ("### " + str(i + 1) +
-                      " room apartment price analysis ###")
-        stats_report_lines.append(empty_line)
-        stats_report_lines.append(title_line)
-        for line in reports:
-            stats_report_lines.append(line)
-    return stats_report_lines
-
-
-def write_lines(text_lines: list, file_name: str) -> None:
-    """Function writes text lines to file"""
-    log.info(f'Saving analysis_by_price to {file_name} file')
-    with open(file_name, 'w') as filehandle:
-        filehandle.writelines("%s\n" % line for line in text_lines)
 
 
 if __name__ == "__main__":

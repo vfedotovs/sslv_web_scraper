@@ -9,4 +9,5 @@ matplotlib
 fpdf 
 plotly
 boto3
+tabulate
 
