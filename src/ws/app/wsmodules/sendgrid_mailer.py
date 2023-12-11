@@ -92,6 +92,9 @@ def sendgrid_mailer_main() -> None:
     mail_body_text = ''.join([i for i in file_content[1:]])
     debug_subject = gen_debug_subject()
 
+    with open('basic_price_stats.txt') as file_object:
+        mail_body_text += '\n'.join(file_object.readlines())
+
     # Creates Mail object instance
     message = Mail(
         from_email=(os.environ.get('SRC_EMAIL')),
