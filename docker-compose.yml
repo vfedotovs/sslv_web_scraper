@@ -8,7 +8,13 @@ services:
       POSTGRES_USER: new_docker_user
       POSTGRES_DB: new_docker_db
     volumes:
-      - ./postgresql_data:/var/lib/postgresql/data
+      - db_data:/var/lib/postgresql/data
+    # Health check configuration
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U new_docker_user"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
     networks:
       - postgresql
   ws:
@@ -49,3 +55,6 @@ services:
 networks:
   postgresql:
     driver: bridge
+volumes:
+  db_data:
+    driver: local
