@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 """ This module is processing HTTP get requsts
 to scrape property data form ss.lv """
 

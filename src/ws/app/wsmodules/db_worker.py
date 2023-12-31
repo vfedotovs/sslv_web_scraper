@@ -32,8 +32,8 @@ from logging.handlers import RotatingFileHandler
 from datetime import datetime
 import pandas as pd
 import psycopg2
-from app.wsmodules.config import config
-#from config import config
+# from app.wsmodules.config import config
+from config import config  # for manual run
 
 
 logger = logging.getLogger('db_worker')
