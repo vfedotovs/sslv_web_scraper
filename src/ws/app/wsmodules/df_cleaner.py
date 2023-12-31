@@ -210,14 +210,20 @@ def create_email_body(clean_data_frame, file_name: str) -> None:
     Creates:
         email_body_txt_m4.txt: text file"""
     log.info(f"Started creation of {file_name} file")
+    rc_column_dtype = clean_data_frame['Room_count'].dtype
+    log.info(f"DataFrame Room_count column dtype: {rc_column_dtype}")
     email_body_txt = []
     for room_count in range(4):
         room_count_str = str(room_count + 1)
         section_line = str(room_count_str + " room apartment segment:")
         email_body_txt.append(section_line)
-        filtered_by_room_count = clean_data_frame.loc[clean_data_frame['Room_count'] == str(
-            room_count_str)]
-        colum_line = "[Rooms, Floor, Size , Price, SQM Price, Apartment Street, Pub_date,  URL]"
+        if rc_column_dtype == 'int64':
+            filtered_by_room_count = clean_data_frame.loc[clean_data_frame['Room_count'] == int(
+                room_count_str)]
+        if rc_column_dtype == 'object':
+            filtered_by_room_count = clean_data_frame.loc[clean_data_frame['Room_count'] == str(
+                room_count_str)]
+        colum_line = "[Rooms, Floor, Size, Price, SQM Price, Apartment Street, Pub_date,  URL]"
         email_body_txt.append(colum_line)
         for index, row in filtered_by_room_count.iterrows():
             url_str = row["URL"]
