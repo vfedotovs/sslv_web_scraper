@@ -46,6 +46,7 @@ data_files = ['email_body_txt_m4.txt',
               'cleaned-sorted-df.csv',
               'pandas_df.csv',
               'basic_price_stats.txt',
+              'email_body_add_dates_table.txt',
               '1_rooms_tmp.txt',
               '1-4_rooms.png',
               '1_rooms.png',
@@ -93,6 +94,9 @@ def sendgrid_mailer_main() -> None:
     debug_subject = gen_debug_subject()
 
     with open('basic_price_stats.txt') as file_object:
+        mail_body_text += ''.join(file_object.readlines())
+
+    with open('email_body_add_dates_table.txt') as file_object:
         mail_body_text += ''.join(file_object.readlines())
 
     # Creates Mail object instance
