@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 """
 This is ss.lv parser project web scraper module.
 Module main purpouse is to use ss.lv website as data source and

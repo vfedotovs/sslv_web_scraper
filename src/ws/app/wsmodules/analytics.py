@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 """ analitics.py module
 This module  main functionality:
     1. Load pandas data frame from cleaned-sorted-df.csv file

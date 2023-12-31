@@ -23,6 +23,7 @@ Module has following functins
 Module creates output file:
     - cleaned-sorted-df.csv
     - email_body_txt_m4.txt
+    - email_body_add_date_table.txt
 
 Modulel TODO tasks:
     - [ ] move gen_email_body function to sendgrid_mailer.py module
@@ -247,6 +248,79 @@ def create_email_body(clean_data_frame, file_name: str) -> None:
     save_text_report_to_file(email_body_txt, file_name)
 
 
+def extract_uniq_date_count(dataframe) -> dict:
+    """ Extracts dates from DataFrame Pub_date column
+        and count uniq date occourences.
+    """
+    log.info("Started inserted add date extraction")
+    add_date_list = dataframe['Pub_date'].tolist()
+    log.info(f" dates_list type {type(add_date_list)}")
+    return {date: add_date_list.count(date) for date in set(add_date_list)}
+
+
+def order_keys_by_month(data: dict) -> list:
+    """
+    Extracts unique month values from keys in the given
+    dictionary and sorts them.
+
+    Args:
+        data (dict): A dictionary where keys are date strings
+                     in the format 'DD.MM.YYYY' and values
+                     represent some counts or data associated
+                     with those dates.
+    Returns:
+        list: A sorted list of unique month values extractedfrom
+              from the keys of the dictionary.
+    Example:
+        >>> data = {'01.12.2023': 5, '15.11.2023': 3, '20.12.2023': 7}
+        >>> order_keys_by_month(data)
+        ['11.2023', '12.2023']
+    """
+    log.info("Started ordered month value extraction")
+    month_list = []
+    for date_key, add_count in data.items():
+        curr_month_value = '.'.join(date_key.split('.')[1:3])
+        month_list.append(curr_month_value)
+    unique_months = list(set(month_list))
+    log.info(f"List of only uniq month values: {unique_months}")
+    unique_months .sort()
+    return unique_months
+
+
+def split_pub_dates_by_month(data: dict, months: list) -> list:
+    """TODO: add docstring"""
+    list_of_dicts = []
+    pub_date_report_lines = []
+    for month in months:
+        curr_dict = {}
+        for key_date, add_count in data.items():
+            curr_month = '.'.join(key_date.split('.')[1:3])
+            if curr_month == month:
+                curr_dict[key_date] = add_count
+        list_of_dicts.append(curr_dict)
+    for month_dict in list_of_dicts:
+        month_line = "\n--- Month: ---"
+        pub_date_report_lines.append(month_line)
+        sorted_month_dict = dict(sorted(month_dict.items()))
+        for k, v in sorted_month_dict.items():
+            data_line = f"Pub_date: {k} ->  Listed add count: {v} "
+            pub_date_report_lines.append(data_line)
+    for line in pub_date_report_lines:
+        log.info(line)
+    return pub_date_report_lines
+
+
+def save_pub_dates_report_to(pubdates_out_file_name: str, month_data: list) -> None:
+    """Writes oneline data text to pub report file"""
+    log.info(f"Saving text report to file : {pubdates_out_file_name}")
+    with open(pubdates_out_file_name, 'a') as the_file:
+        for text_line in month_data:
+            the_file.write(f"{text_line}\n")
+    text_line_cnt = len(month_data)
+    log.info(
+        f"Completed writing {text_line_cnt} lines to {pubdates_out_file_name} file ")
+
+
 def df_cleaner_main():
     """ Cleans df, sorts df by price in EUR, save to csv file """
     log.info(" --- Started df_cleaner module ---")
@@ -274,6 +348,13 @@ def df_cleaner_main():
             log.info(
                 f'Completed write data email template to {NEW_EMAIL_BODY_FILE} file.')
             create_mb_file_copy()
+            sorted_pub_dates = extract_uniq_date_count(all_ads_df)
+            ordered_month_keys = order_keys_by_month(sorted_pub_dates)
+            splited_dates = split_pub_dates_by_month(
+                sorted_pub_dates, ordered_month_keys)
+            save_pub_dates_report_to(
+                'email_body_add_dates_table.txt', splited_dates)
+
     except FileNotFoundError:
         log.error(f'File {RAW_DATA_FILE} not found')
         try:

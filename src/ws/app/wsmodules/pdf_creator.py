@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 """ pdf_creator.py module
 
 Main module usage is for:
