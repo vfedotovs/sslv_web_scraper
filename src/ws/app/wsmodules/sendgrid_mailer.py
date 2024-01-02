@@ -99,6 +99,9 @@ def sendgrid_mailer_main() -> None:
     with open('email_body_add_dates_table.txt') as file_object:
         mail_body_text += ''.join(file_object.readlines())
 
+    with open('scraped_and_removed.txt') as file_object:
+        mail_body_text += ''.join(file_object.readlines())
+
     # Creates Mail object instance
     message = Mail(
         from_email=(os.environ.get('SRC_EMAIL')),
