@@ -167,7 +167,11 @@ def compare_df_to_db_hashes(df_hashes: list, db_hashes: list) -> list:
     existing_ads = []
     removed_ads = []
     logger.info(
-        f'Comparing {len(df_hashes)} todays scraped data hashes with {len(db_hashes)} DB listed_ads table hashes')
+        f'Comparing {len(df_hashes)} todays scraped data hashes '
+        f'with {len(db_hashes)} DB listed_ads table hashes'
+    )
+    # logger.info(
+    #     f'Comparing {len(df_hashes)} todays scraped data hashes with {len(db_hashes)} DB listed_ads table hashes')
     for df_hash in df_hashes:
         if df_hash in db_hashes:
             existing_ads.append(df_hash)
@@ -180,7 +184,17 @@ def compare_df_to_db_hashes(df_hashes: list, db_hashes: list) -> list:
     hash_categories.append(existing_ads)
     hash_categories.append(removed_ads)
     logger.info(
-        f'Result {len(new_ads)} new, {len(existing_ads)} still_listed, {len(removed_ads)} to_remove hashes ')
+        f'Result {len(new_ads)} new, {len(existing_ads)} still_listed, '
+        f'{len(removed_ads)} to_remove hashes '
+    )
+    today = datetime.today()
+    formatted_date = today.strftime('%Y-%m-%d')
+    todays_result = (
+        f'{formatted_date} : {len(new_ads)} today scraped ads, '
+        f'{len(existing_ads)} listed ads, {len(removed_ads)} removed ads '
+    )
+    with open('scraped_and_removed.txt', 'a') as file:
+        file.write(todays_result + '\n')  # Add a newline for clarity
     logger.info(f'New todays scraped hashes: {new_ads}')
     logger.info(f'Hashes from DB listed_ads table: {existing_ads}')
     logger.info(f'Hashes for DB removed_ads table: {removed_ads}')
