@@ -15,12 +15,15 @@ Todo functionality:
 -- to_remove_msg_hashes
 Next step extract 2 data dicts from df and one from db
 5.[x] extract new_msg_data from df - based on new_msg_hashes and df
-6.[x] extract to_removed_msg_data  from db listed_ads table - based on to_remove_hashes
+6.[x] extract to_removed_msg_data from db listed_ads table
+      - based on to_remove_hashes
 7.[x] Insert new_msg_data to listed_ads table
 8.[x] Insert to_remove_msg_data to removed_ads table
 9.[x] Delete db rows in listed table based on to_remove_msg_hashes
-10.[x] Update listed table: still_listed_msg_hashed for check and update listed days count every run
-11.[x] Check and update days listed in listed table rows based still_listed_msg_hashes
+10.[x] Update listed table: still_listed_msg_hashed for check and update
+       listed days count every run
+11.[x] Check and update days listed in listed table rows based
+       still_listed_msg_hashes
 TODO:
 12.[] Check if report day by last x days count and  generate report
 13.[] Write tests for db_worker module
@@ -42,7 +45,9 @@ fh = logging.handlers.RotatingFileHandler(
     'dbworker.log', maxBytes=1000000, backupCount=10)
 fh.setLevel(logging.INFO)
 formatter = logging.Formatter(
-    '%(asctime)s: %(name)s: %(levelname)s: %(funcName)s: %(lineno)d: %(message)s')
+    '%(asctime)s: %(name)s: %(levelname)s: '
+    '%(funcName)s: %(lineno)d: %(message)s'
+)
 fh.setFormatter(formatter)
 logger.addHandler(fh)
 
@@ -56,6 +61,7 @@ def db_worker_main() -> None:
     # Extract new and still listed message url hashes
     todays_url_hashes = extract_url_hashes_from_df(df)
     still_listed_table_url_hashes = extract_listed_url_hashes_from_db()
+    save_table_row_counts()
     # Sorting all hashes to 3 categories (new, still_listed, to_remove)
     hashe_categories = compare_df_to_db_hashes(
         todays_url_hashes, still_listed_table_url_hashes)
@@ -75,10 +81,22 @@ def db_worker_main() -> None:
     insert_data_to_removed_table(to_removed_msg_data)
     # Remove rows from listed_ads based on  to_remove hashes msg
     delete_db_listed_table_rows(to_remove_msg_hashes)
-    # Check and increment/update listed_ads all rows for listed days count value
+    # Check and increment/update listed_ads all rows for listed days cnt value
     todays_date = datetime.now()
     update_dlv_in_db_table(to_increment_msg_data, todays_date)
+    save_table_row_counts()
     logger.info(" --- Ended db_worker module ---")
+
+
+def save_table_row_counts() -> None:
+    """ Connects to DB tables and gets each table row count
+        and saves to file for debug info """
+    listed_tbl_hashes = extract_listed_url_hashes_from_db()
+    removed_tbl_row_cnt = list_rows_in_removed_table()
+    db_tbl_row_counts = (f'LA TBL rows: {len(listed_tbl_hashes)}'
+                         f' RA TBL rows: {removed_tbl_row_cnt}')
+    with open('scraped_and_removed.txt', 'a') as file:
+        file.write(db_tbl_row_counts + '\n')
 
 
 def check_files(file_names: list) -> None:
@@ -91,7 +109,9 @@ def check_files(file_names: list) -> None:
             file = open(file_name, 'r')
         except IOError:
             logger.error(
-                f'There was an error opening the file {file_name} or file does not exist!')
+                f'There was an error opening the file '
+                f'{file_name} or file does not exist!'
+            )
             sys.exit()
 
 
@@ -170,8 +190,6 @@ def compare_df_to_db_hashes(df_hashes: list, db_hashes: list) -> list:
         f'Comparing {len(df_hashes)} todays scraped data hashes '
         f'with {len(db_hashes)} DB listed_ads table hashes'
     )
-    # logger.info(
-    #     f'Comparing {len(df_hashes)} todays scraped data hashes with {len(db_hashes)} DB listed_ads table hashes')
     for df_hash in df_hashes:
         if df_hash in db_hashes:
             existing_ads.append(df_hash)
@@ -190,8 +208,10 @@ def compare_df_to_db_hashes(df_hashes: list, db_hashes: list) -> list:
     today = datetime.today()
     formatted_date = today.strftime('%Y-%m-%d')
     todays_result = (
-        f'{formatted_date} : {len(new_ads)} today scraped ads, '
-        f'{len(existing_ads)} listed ads, {len(removed_ads)} removed ads '
+        f'{formatted_date} : TSA [A]: {len(df_hashes)} '
+        f'LA TBL [B]: {len(db_hashes)} AinB [C]: {len(existing_ads)} KLAT '
+        f'A notin B [D]: {len(new_ads)} NewAds, B notin A [E]: '
+        f'{len(removed_ads)} RM from LAT'
     )
     with open('scraped_and_removed.txt', 'a') as file:
         file.write(todays_result + '\n')  # Add a newline for clarity
@@ -202,7 +222,8 @@ def compare_df_to_db_hashes(df_hashes: list, db_hashes: list) -> list:
 
 
 def extract_new_msg_data(df, new_msg_hashes: list) -> dict:
-    """ Extract data from df and return as dict hash: (list column data for hash row)"""
+    """ Extract data from df and return as dict hash:
+        (list column data for hash row)"""
     data_dict = {}
     logger.info(
         f'new_msg_hashes count {len(new_msg_hashes)}, hashes: {new_msg_hashes}')
@@ -580,7 +601,7 @@ def list_rows_in_listed_table() -> None:
         conn = psycopg2.connect(**params)
         cur = conn.cursor()
         cur.execute(
-            "SELECT * FROM listed_ads WHERE price < 150000 ORDER BY price")
+            "SELECT * FROM listed_ads WHERE price < 500000 ORDER BY price")
         print("The number of ads in listed_ads table: ", cur.rowcount)
         row = cur.fetchone()
         while row is not None:
@@ -594,26 +615,29 @@ def list_rows_in_listed_table() -> None:
             conn.close()
 
 
-def list_rows_in_removed_table() -> None:
+def list_rows_in_removed_table() -> int:
     """Iterates over all records in delisted_ads table and print them"""
     conn = None
+    # add_count = 0
     try:
         params = config()
         conn = psycopg2.connect(**params)
         cur = conn.cursor()
         cur.execute(
-            "SELECT * FROM removed_ads WHERE price < 150000 ORDER BY price")
-        print("The number of ads in delisted_ads table: ", cur.rowcount)
-        row = cur.fetchone()
-        while row is not None:
-            print(row)
-            row = cur.fetchone()
+            "SELECT * FROM removed_ads WHERE price < 500000 ORDER BY price")
+        logger.info(f'The number of ads in delisted_ads table: {cur.rowcount}')
+        # add_count = int(cur.rowcount)
+        # row = cur.fetchone()
+        # while row is not None:
+        #     print(row)
+        #     row = cur.fetchone()
         cur.close()
     except (Exception, psycopg2.DatabaseError) as error:
         print(error)
     finally:
         if conn is not None:
             conn.close()
+    return int(cur.rowcount)
 
 
 if __name__ == "__main__":
