@@ -580,7 +580,7 @@ def list_rows_in_listed_table() -> None:
         conn = psycopg2.connect(**params)
         cur = conn.cursor()
         cur.execute(
-            "SELECT * FROM listed_ads WHERE price < 150000 ORDER BY price")
+            "SELECT * FROM listed_ads WHERE price < 500000 ORDER BY price")
         print("The number of ads in listed_ads table: ", cur.rowcount)
         row = cur.fetchone()
         while row is not None:
@@ -602,7 +602,7 @@ def list_rows_in_removed_table() -> None:
         conn = psycopg2.connect(**params)
         cur = conn.cursor()
         cur.execute(
-            "SELECT * FROM removed_ads WHERE price < 150000 ORDER BY price")
+            "SELECT * FROM removed_ads WHERE price < 500000 ORDER BY price")
         print("The number of ads in delisted_ads table: ", cur.rowcount)
         row = cur.fetchone()
         while row is not None:
