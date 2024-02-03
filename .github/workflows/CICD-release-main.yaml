@@ -1,0 +1,95 @@
+---
+name: CICD-release-main
+on:
+  push:
+    branches:
+      - main
+jobs:
+  build_containers:
+    runs-on: ubuntu-latest
+    env:
+      S3_BUCKET: ${{ secrets.S3_BUCKET }}
+      AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+    steps:
+      - uses: actions/checkout@v2
+      - name: Setup creating database.ini env file
+        run: |
+          echo "[postgresql]" > src/ws/database.ini
+          echo "host=db" >> src/ws/database.ini
+          echo "${{ secrets.PG_DB_NAME }}" >> src/ws/database.ini
+          echo "${{ secrets.PG_DB_USER }}" >> src/ws/database.ini
+          echo "${{ secrets.PG_DB_PASS }}" >> src/ws/database.ini
+          ls -la src/ws | grep ini  
+          cat src/ws/database.ini
+      - name: Before build step 2 create .env.prod file
+        run: |
+          echo "# ws_worker container env variables" > .env.prod
+          echo "${{ secrets.DEST_EMAIL }}" >> .env.prod 
+          echo "${{ secrets.SRC_EMAIL }}" >> .env.prod 
+          echo "${{ secrets.SENDGRID_API_KEY }}" >> .env.prod
+          echo "${{ secrets.POSTGRES_PASSWORD }}" >> .env.prod 
+          ls -la | grep env
+          cat .env.prod 
+      - name: Show environment
+        run: |
+          cat /etc/os-release
+          docker -v
+          docker-compose -v
+          docker compose version
+          python3 -V
+          pip install boto3
+      - name: Setup step 3 download last DB file from S3 bucket
+        run: |
+          python3 ./src/db/get_last_db_backup.py
+          cp *.sql ./src/db 
+          ls -lh ./src/db | grep sql
+      - name: Start DB container ONLY
+        run: |
+          pwd
+          docker-compose --env-file .env.prod up -d
+      - name: List DB table sizes to confirm if DB import was correct
+        run: |
+          sleep 15
+          docker-compose ps
+          docker exec sslv_web_scraper_db_1  psql -U new_docker_user -d new_docker_db -c '\dt+'
+      - name: Run docker compose ps
+        run: |
+          sleep 10
+          docker-compose ps
+      - name: Run compose down
+        run: docker-compose down
+  Deploy_to_AWS_EC2:
+    needs: build_containers
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+      - name: Deploy to Release EC2
+        env:
+          PRIVATE_KEY: ${{ secrets.DEV_EC2_PRIVATE_KEY  }}
+          HOSTNAME: ${{ secrets.DEV_EC2_IP  }}
+          USER_NAME: ${{ secrets.DEV_EC2_USER  }}
+        run: >
+          echo "$PRIVATE_KEY" > private_key && chmod 600 private_key
+          ssh -o StrictHostKeyChecking=no -i private_key ${USER_NAME}@${HOSTNAME} '
+                pwd && ls -lah && \
+                docker ps && echo "---- before stopping ---" && \
+                docker ps -aq | xargs docker rm -f || true && \
+                docker images | xargs docker rmi -f || true && \
+                docker ps && echo "---- after stopping ---" && \
+                docker images && \
+                curr_time=$(date +%Y%m%d-%H%M) && \ 
+                folder_name="${curr_time}-deploy" && \ 
+                mkdir $folder_name && cd $folder_name && \
+                git clone https://github.com/vfedotovs/sslv_web_scraper.git . && pwd && \
+                git switch dev-1.4.10 && ls -la && \
+                cp ../.env.prod . && cp ../database.ini ./src/ws/ && \
+                export AWS_ACCESS_KEY_ID=${{ secrets.AWS_ACCESS_KEY_ID }} && \
+                export AWS_SECRET_ACCESS_KEY=${{ secrets.AWS_SECRET_ACCESS_KEY }} && \
+                export S3_BUCKET=${{ secrets.S3_BUCKET }} && \
+                ./src/db/get_last_db_backup.py && \
+                cp *.sql ./src/db/ && \
+                ls -l ./src/db/ && \
+                docker-compose --env-file .env.prod up -d && sleep 15 && \
+                docker ps
+                '
