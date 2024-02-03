@@ -1,18 +1,65 @@
-""" df_cleaner.py module
-
-Main features of this module:
-    1. Read csv to pandas df in memory
-    2. Clean up values in df columns
-    3. Save as clean df in csv format
+#!/usr/bin/env python3
 """
-import pandas as pd
-import os
+df_cleaner.py module functionality is to clean data values in DataFrame columns
+
+
+Module requires input files
+    - pandas_df.csv
+
+Module has following functins
+    - clean_data_frame -  Deletes multiple latvian keywords from column values
+    - clean_sqm_column(df_name) - Removes m2 charecter from each sqm value
+    - split_price_column - Creates separate column for sqm price value and for ad price value
+    - clean_sqm_eur_col - Removes unused characters from sqm column
+    - save_text_report_to_file - Writes email body text to file
+    - get_room_count_values - Extracts only valid int values from room_count column
+    - gen_email_body - formats data in list of lists data structure
+    - print_body_table - prints new email body table
+    - create_email_body - generates and saves Milestone 4 legacy report content to file
+    - df_cleaner_main - main entry point
+    - create_file_copy - backups file with name-YYYY-MMDD format to /data folder
+    - create_mb_file_copy - backups mail body file with name-YYYY-MMDD format to /data folder 
+
+Module creates output file:
+    - cleaned-sorted-df.csv
+    - email_body_txt_m4.txt
+    - email_body_add_date_table.txt
+
+Modulel TODO tasks:
+    - [ ] move gen_email_body function to sendgrid_mailer.py module
+    - [ ] refactor create file backup function
+"""
 from datetime import datetime
+import logging
+from logging.handlers import RotatingFileHandler
+import os
+import sys
+# from tabulate import tabulate
+import pandas as pd
 
 
+log = logging.getLogger(__name__)
+log.setLevel(logging.INFO)
+LOG_FILE = "dfcleaner.log"
+file_handler = RotatingFileHandler(LOG_FILE,
+                                   maxBytes=1024 * 1024,
+                                   backupCount=9)
+file_formatter = logging.Formatter(
+    "%(asctime)s [%(threadName)-12.12s] "
+    "[%(levelname)-5.5s] : %(funcName)s: %(lineno)d: %(message)s")
+file_handler.setFormatter(file_formatter)
+log.addHandler(file_handler)
+stdout_handler = logging.StreamHandler(sys.stdout)
+stdout_formatter = logging.Formatter(
+    "%(asctime)s [%(threadName)-12.12s] "
+    "[%(levelname)-5.5s] : %(funcName)s: %(lineno)d: %(message)s")
+stdout_handler.setFormatter(stdout_formatter)
+log.addHandler(stdout_handler)
 
 
 def clean_data_frame(df_name):
+    """Delete multiple latvian keywords from data frame to clean df"""
+    log.info("Started latvian keyword remove from data frame")
     df = df_name.replace(to_replace=r'Istabas:>', value='', regex=True)
     df.replace(to_replace=r'Platiba:>', value='', regex=True, inplace=True)
     df.replace(to_replace=r'Stavs:>', value='', regex=True, inplace=True)
@@ -20,21 +67,34 @@ def clean_data_frame(df_name):
     df.replace(to_replace=r'Iela:><b>', value='', regex=True, inplace=True)
     df.replace(to_replace=r'Price:>', value='', regex=True, inplace=True)
     df.replace(to_replace=r'Date:>', value='', regex=True, inplace=True)
+    log.info("Completed latvian keyword remove from data frame")
     return df
 
 
 def clean_sqm_column(df_name):
+    """ Removes m2 charecter from each sqm value """
     # Sptitting column value in to new columns by separator
-    df = df_name["Size_sq_m"].str.split(" ", n=1, expand=True)  # n=1 == in 2 slices
+    log.info("Started sqm column cleanup from data frame")
+    df = df_name["Size_sq_m"].str.split(
+        " ", n=1, expand=True)  # n=1 == in 2 slices
     # Create new column and sourcing data from 0th split index
     df_name["Size_sqm"] = df[0]  # 0 - index at separation
-    df = df_name.loc[:, df_name.columns != 'Size_sq_m']  # Drop old split column
+    df = df_name.loc[:, df_name.columns !=
+                     'Size_sq_m']  # Drop old split column
     clean_df = df.loc[:, df.columns != 'Unnamed: 0']  # Drop duplicate  column
+    log.info("Completed sqm column cleanup from data frame")
     return clean_df
 
 
 def split_price_column(df_name):
-    # Spitting and cleanup for price column value in to new columns by separator
+    """ Raw data has total price and SQM price values in the
+    same column (example: 175 000 € (2 302.63 €/m²))
+    Creates separate column for sqm price value and for ad
+    price value and removes not used characters
+    """
+    # Spitting and cleanup for price column
+    # value in to new columns by separator
+    log.info("Started price column split")
     new = df_name["Price"].str.split("(", n=1, expand=True)
     # Creating separate columns for price and SQM new data frame
     df_name["Price_EUR"] = new[0]
@@ -50,7 +110,9 @@ def split_price_column(df_name):
 
 
 def clean_sqm_eur_col(df_name):
+    """sqm price column value cleanup removal of non int characters"""
     # Split value at EUR  symbol
+    log.info("Started EUR sqm column cleanup")
     new = df_name["SQ_M_EUR"].str.split("€", n=1, expand=True)
     # Create new column with from split df  and use only 0 index
     df_name["SQ_meter_price"] = new[0]
@@ -60,14 +122,84 @@ def clean_sqm_eur_col(df_name):
     df_name['SQ_meter_price'] = df_name['SQ_meter_price'].astype(float)
     # Drop old SQ_M_EUR column
     final_df = df_name.loc[:, df_name.columns != 'SQ_M_EUR']
+    log.info("combines EUR sqm column cleanup")
     return final_df
 
 
-def save_text_report_to_file(text: list, file_name: str) -> None:
+def save_text_report_to_file(text_lines: list, file_name: str) -> None:
     """Writes oneline data text to mailer report file"""
+    log.info(f"Saving text report to file : {file_name}")
     with open(file_name, 'a') as the_file:
-        for line in text:
-            the_file.write(f"{line}\n")
+        for text_line in text_lines:
+            the_file.write(f"{text_line}\n")
+    text_line_cnt = len(text_lines)
+    log.info(
+        f"Completed writing {text_line_cnt} lines to {file_name} file ")
+
+
+def get_room_count_values(data_frame) -> list:
+    """ Returns uniq values from rom count columns
+    """
+    log.info("Describing DataFrame column data types ")
+    rc_values = data_frame['Room_count'].tolist()
+    unique_elements = set(rc_values)
+    unique_rc_values = list(unique_elements)
+    log.info(f'rc vals: {unique_rc_values} type: {type(unique_rc_values)}')
+    unique_rc_values.sort()
+    rc_digit_values = [int(x) for x in unique_rc_values if x.isdigit()]
+    log.info(f"DataFrame room count values: {rc_digit_values}")
+    return rc_digit_values
+
+
+def gen_email_body(data_frame) -> list:
+    """ Creates categorised email body from data frame
+    based on room count value
+    """
+    log.info("Creating new email body data structure")
+    all_ads_data_rows = []
+    valid_room_count_values = get_room_count_values(data_frame)
+    for valid_room_count_value in valid_room_count_values:
+        filtered_by_room_count = data_frame.loc[data_frame['Room_count'] == str(
+            valid_room_count_value)]
+        for index, row in filtered_by_room_count.iterrows():
+            curr_ad_data = []
+            ad_room_count = row['Room_count']
+            curr_ad_data.append(ad_room_count)
+            ad_floor_location = row["Floor"]
+            curr_ad_data.append(ad_floor_location)
+            ad_size_sqm = row["Size_sqm"]
+            curr_ad_data.append(ad_size_sqm)
+            price = row["Price_in_eur"]
+            curr_ad_data.append(price)
+            ad_sqm_price = row['SQ_meter_price']
+            curr_ad_data.append(ad_sqm_price)
+            ad_street_location = row['Street']
+            curr_ad_data.append(ad_street_location)
+            ad_pub_date = row['Pub_date']
+            curr_ad_data.append(ad_pub_date)
+            ad_url = row["URL"]
+            curr_ad_data.append(ad_url)
+            all_ads_data_rows.append(curr_ad_data)
+    return all_ads_data_rows
+
+
+def save_email_body_table(table_data, NEW_EMAIL_BODY_FILE) -> None:
+    """ Print data in improved table format using lib
+    """
+    headers = ['Rooms', 'Floor', 'Size', 'Price',
+               'SQM Price', 'Apartment Street', 'Pub_date', 'URL']
+    # Determine the number of columns in each segment
+    segment_length = len(headers)
+    # Separate data into segments based on the number of columns
+    data_segments = [table_data[i:i + segment_length]
+                     for i in range(0, len(table_data), segment_length)]
+    # for segment in data_segments:
+    #     print(tabulate(segment, headers=headers, tablefmt="grid"))
+    #     print()  # Add an empty line between segments
+    with open(NEW_EMAIL_BODY_FILE, 'w') as file:
+        for segment in data_segments:
+            file.write(tabulate(segment, headers=headers, tablefmt="grid"))
+            file.write('\n\n')  # Add an empty line between segments
 
 
 def create_email_body(clean_data_frame, file_name: str) -> None:
@@ -78,14 +210,21 @@ def create_email_body(clean_data_frame, file_name: str) -> None:
 
     Creates:
         email_body_txt_m4.txt: text file"""
-
+    log.info(f"Started creation of {file_name} file")
+    rc_column_dtype = clean_data_frame['Room_count'].dtype
+    log.info(f"DataFrame Room_count column dtype: {rc_column_dtype}")
     email_body_txt = []
     for room_count in range(4):
         room_count_str = str(room_count + 1)
         section_line = str(room_count_str + " room apartment segment:")
         email_body_txt.append(section_line)
-        filtered_by_room_count = clean_data_frame.loc[clean_data_frame['Room_count'] == int(room_count_str)]
-        colum_line = "[Rooms, Floor, Size , Price, SQM Price, Apartment Street, Pub_date,  URL]"
+        if rc_column_dtype == 'int64':
+            filtered_by_room_count = clean_data_frame.loc[clean_data_frame['Room_count'] == int(
+                room_count_str)]
+        if rc_column_dtype == 'object':
+            filtered_by_room_count = clean_data_frame.loc[clean_data_frame['Room_count'] == str(
+                room_count_str)]
+        colum_line = "[Rooms, Floor, Size, Price, SQM Price, Apartment Street, Pub_date,  URL]"
         email_body_txt.append(colum_line)
         for index, row in filtered_by_room_count.iterrows():
             url_str = row["URL"]
@@ -105,34 +244,161 @@ def create_email_body(clean_data_frame, file_name: str) -> None:
                           str(pub_date_str) + " " + \
                           str(url_str)
             email_body_txt.append(report_line)
+    log.info(f"Completed creation of {file_name} file")
     save_text_report_to_file(email_body_txt, file_name)
 
+
+def extract_uniq_date_count(dataframe) -> dict:
+    """ Extracts dates from DataFrame Pub_date column
+        and count uniq date occourences.
+    """
+    log.info("Started inserted add date extraction")
+    add_date_list = dataframe['Pub_date'].tolist()
+    log.info(f" dates_list type {type(add_date_list)}")
+    return {date: add_date_list.count(date) for date in set(add_date_list)}
+
+
+def order_keys_by_month(data: dict) -> list:
+    """
+    Extracts unique month values from keys in the given
+    dictionary and sorts them.
+
+    Args:
+        data (dict): A dictionary where keys are date strings
+                     in the format 'DD.MM.YYYY' and values
+                     represent some counts or data associated
+                     with those dates.
+    Returns:
+        list: A sorted list of unique month values extractedfrom
+              from the keys of the dictionary.
+    Example:
+        >>> data = {'01.12.2023': 5, '15.11.2023': 3, '20.12.2023': 7}
+        >>> order_keys_by_month(data)
+        ['11.2023', '12.2023']
+    """
+    log.info("Started ordered month value extraction")
+    month_list = []
+    for date_key, add_count in data.items():
+        curr_month_value = '.'.join(date_key.split('.')[1:3])
+        month_list.append(curr_month_value)
+    unique_months = list(set(month_list))
+    log.info(f"List of only uniq month values: {unique_months}")
+    unique_months .sort()
+    return unique_months
+
+
+def split_pub_dates_by_month(data: dict, months: list) -> list:
+    """TODO: add docstring"""
+    list_of_dicts = []
+    pub_date_report_lines = []
+    for month in months:
+        curr_dict = {}
+        for key_date, add_count in data.items():
+            curr_month = '.'.join(key_date.split('.')[1:3])
+            if curr_month == month:
+                curr_dict[key_date] = add_count
+        list_of_dicts.append(curr_dict)
+    for month_dict in list_of_dicts:
+        month_line = "\n--- Month: ---"
+        pub_date_report_lines.append(month_line)
+        sorted_month_dict = dict(sorted(month_dict.items()))
+        for k, v in sorted_month_dict.items():
+            data_line = f"Pub_date: {k} ->  Listed add count: {v} "
+            pub_date_report_lines.append(data_line)
+    for line in pub_date_report_lines:
+        log.info(line)
+    return pub_date_report_lines
+
+
+def save_pub_dates_report_to(pubdates_out_file_name: str, month_data: list) -> None:
+    """Writes oneline data text to pub report file"""
+    log.info(f"Saving text report to file : {pubdates_out_file_name}")
+    with open(pubdates_out_file_name, 'a') as the_file:
+        for text_line in month_data:
+            the_file.write(f"{text_line}\n")
+    text_line_cnt = len(month_data)
+    log.info(
+        f"Completed writing {text_line_cnt} lines to {pubdates_out_file_name} file ")
 
 
 def df_cleaner_main():
     """ Cleans df, sorts df by price in EUR, save to csv file """
-    print("Debug info: Starting data frame cleaning module ... ")
-    df_to_clean = pd.read_csv("pandas_df.csv")
-    clean_df = clean_data_frame(df_to_clean)
-    clean_sqm_col = clean_sqm_column(clean_df)
-    clean_price_col = split_price_column(clean_sqm_col)
-    clean_df = clean_sqm_eur_col(clean_price_col)
-    sorted_df = clean_df.sort_values(by='Price_in_eur', ascending=True)
-    sorted_df.to_csv("cleaned-sorted-df.csv")
-    all_ads_df = pd.read_csv("cleaned-sorted-df.csv", index_col=False)
-    create_file_copy()
-    create_email_body(all_ads_df, 'email_body_txt_m4.txt')
-    print("Debug info: Completed dat_formater module ... ")
+    log.info(" --- Started df_cleaner module ---")
+    RAW_DATA_FILE = 'pandas_df.csv'
+    DEFAULT_DATA_FILE = 'pandas_df_default.csv'
+    EMAIL_BODY_OUTPUT_FILE = 'email_body_txt_m4.txt'
+    NEW_EMAIL_BODY_FILE = 'new_email_body.txt'
+    try:
+        log.info(f'Loading {RAW_DATA_FILE} file.')
+        with open(RAW_DATA_FILE, 'r') as file:
+            content = file.read()
+            raw_data_frame = pd.read_csv(RAW_DATA_FILE)
+            clean_df = clean_data_frame(raw_data_frame)
+            clean_sqm_col = clean_sqm_column(clean_df)
+            clean_price_col = split_price_column(clean_sqm_col)
+            clean_df = clean_sqm_eur_col(clean_price_col)
+            sorted_df = clean_df.sort_values(by='Price_in_eur', ascending=True)
+            sorted_df.to_csv("cleaned-sorted-df.csv")
+            all_ads_df = pd.read_csv("cleaned-sorted-df.csv", index_col=False)
+            create_file_copy()
+            create_email_body(all_ads_df, EMAIL_BODY_OUTPUT_FILE)
+            # TODO: fix bug incorrect room counts in 2 and more room segments
+            # tbl_data = gen_email_body(all_ads_df)
+            # save_email_body_table(tbl_data, NEW_EMAIL_BODY_FILE)
+            log.info(
+                f'Completed write data email template to {NEW_EMAIL_BODY_FILE} file.')
+            create_mb_file_copy()
+            sorted_pub_dates = extract_uniq_date_count(all_ads_df)
+            ordered_month_keys = order_keys_by_month(sorted_pub_dates)
+            splited_dates = split_pub_dates_by_month(
+                sorted_pub_dates, ordered_month_keys)
+            save_pub_dates_report_to(
+                'email_body_add_dates_table.txt', splited_dates)
+
+    except FileNotFoundError:
+        log.error(f'File {RAW_DATA_FILE} not found')
+        try:
+            log.info(f'Loading {DEFAULT_DATA_FILE} file.')
+            with open(DEFAULT_DATA_FILE, 'r') as file:
+                content = file.read()
+                empty_df_mail_template = "No data was collected during last scraping job."
+                with open(EMAIL_BODY_OUTPUT_FILE, 'w') as out_file:
+                    # Write the entire string to the file
+                    out_file.write(empty_df_mail_template)
+                log.info(
+                    f'Completed write empty email template to {EMAIL_BODY_OUTPUT_FILE} file.')
+        except FileNotFoundError:
+            log.error(f'{DEFAULT_DATA_FILE} does not exist.')
+        except Exception as e:
+            log.error(f"An error occurred: {e}")
+    log.info(" --- Completed df_cleaner module ---")
 
 
 def create_file_copy() -> None:
     """Creates file copy in data folder"""
+    log.info(
+        "Started copy of cleaned-sorted-df-YYYY-MM-DD.csv in data folder")
     todays_date = datetime.today().strftime('%Y-%m-%d')
     dest_file = 'cleaned-sorted-df-' + todays_date + '.csv'
     copy_cmd = 'cp cleaned-sorted-df.csv data/' + dest_file
     if not os.path.exists('data'):
         os.makedirs('data')
     os.system(copy_cmd)
+    log.info(f"Completed creating file copy of {dest_file}")
 
 
-df_cleaner_main()
+def create_mb_file_copy() -> None:
+    """Creates file copy in data folder"""
+    log.info(
+        "Started copy of email_body_txt_m4-YYYY-MM-DD.txt in data folder")
+    todays_date = datetime.today().strftime('%Y-%m-%d')
+    dest_file = 'email_body_txt_m4-' + todays_date + '.txt'
+    copy_cmd = 'cp email_body_txt_m4.txt data/' + dest_file
+    if not os.path.exists('data'):
+        os.makedirs('data')
+    os.system(copy_cmd)
+    log.info(f"Completed creating file copy of {dest_file}")
+
+
+if __name__ == "__main__":
+    df_cleaner_main()

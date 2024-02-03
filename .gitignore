@@ -10,11 +10,22 @@
 __init__.pyc
 .coverage
 
-# postgress data base settings
+
+
+# But don't ignore these test_setup_files
+!scripts/test_setup_files/Ogre-raw-data-report.txt
+!scripts/test_setup_files/pandas_df.csv
+!scripts/test_setup_files/cleaned-sorted-df.csv
+!scripts/test_setup_files/Ogre_city_report.pdf
+!scripts/test_setup_files/basic_price_stats.txt
+!scripts/test_setup_files/email_body_txt_m4.txt
+
+
+# Exclude postgress data base settings
 database.ini
 
 
-# docker compose env file
+# Exclude docker compose env file
 .env.prod
 
 
@@ -31,6 +42,5 @@ src_email.env
 dest_email.env
 
 # Do not exclude
-!TODO_items.txt
 !requirements.txt
 !project_data.txt

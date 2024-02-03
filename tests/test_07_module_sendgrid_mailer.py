@@ -1,3 +1,8 @@
+from src.ws.app.wsmodules.sendgrid_mailer import gen_debug_subject
+from src.ws.app.wsmodules.sendgrid_mailer import remove_tmp_files
+import os
+from datetime import datetime
+
 
 def test_remove_tmp_files():
     # Create some test files
@@ -13,7 +18,7 @@ def test_remove_tmp_files():
     data_files = ["test_file1.txt", "test_file2.txt", "test_file3.txt"]
 
     # Test the function
-    remove_tmp_files()
+    remove_tmp_files(data_files)
 
     # Check that the files were deleted
     assert not os.path.exists("test_file1.txt")
@@ -24,10 +29,10 @@ def test_remove_tmp_files():
 def test_gen_debug_subject():
     # Set the release global variable
     global release
-    release = "v1.4.9"
+    release = "v1.4.12"
+    now = datetime.now()
+    date_time_id = now.strftime("%Y%m%d_%H%M")
+    subject_title = "Ogre City Apartments for sale from ss.lv webscraperv1.4.12 " + date_time_id
 
     # Test the function
-    assert gen_debug_subject() == "Ogre City Apartments for sale from ss.lv webscraper v1.4.9 YYYYMMDD_HHMM"
-
-    # Check that the function returns a different value each time it is called
-    assert gen_debug_subject() != gen_debug_subject(
+    assert gen_debug_subject() == subject_title

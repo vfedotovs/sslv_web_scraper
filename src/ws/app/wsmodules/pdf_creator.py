@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 """ pdf_creator.py module
 
 Main module usage is for:
@@ -32,7 +33,6 @@ def pdf_creator_main():
     data_frame_file = 'cleaned-sorted-df.csv'
     all_rooms_data_frame = pd.read_csv(data_frame_file)
 
-
     # categorize to segments by room count type
     # FIXME move to function that has for loop with range 4 and returns list of 4 dfs
     one_room_df = filter_df_by(all_rooms_data_frame, 'Room_count', 1)
@@ -43,25 +43,24 @@ def pdf_creator_main():
     # generating and saving charts to files for Size_sqm/Price_in_eur relationships
     # FIXME move to function that has for loop with range 4 that creates  4 png files + allroom.png file
     create_png_plot(all_rooms_data_frame, 'Size_sqm', "Price_in_eur",
-            "All 1-4 room apartments", '1-4_rooms.png')
+                    "All 1-4 room apartments", '1-4_rooms.png')
     create_png_plot(one_room_df, 'Size_sqm', "Price_in_eur",
-            "Single room apartments", '1_rooms.png')
+                    "Single room apartments", '1_rooms.png')
     create_png_plot(two_room_df, 'Size_sqm', "Price_in_eur",
-            "Double room apartments", '2_rooms.png')
+                    "Double room apartments", '2_rooms.png')
     create_png_plot(three_room_df, 'Size_sqm', "Price_in_eur",
-            "Three room apartments", '3_rooms.png')
+                    "Three room apartments", '3_rooms.png')
     create_png_plot(four_room_df, 'Size_sqm', "Price_in_eur",
-            "Four room apartments", '4_rooms.png')
-
+                    "Four room apartments", '4_rooms.png')
 
     # continue work from here
     # starnge var naming should include analytics type
-    report_txt_lines  = read_file_to_list('basic_price_stats.txt')
+    report_txt_lines = read_file_to_list('basic_price_stats.txt')
     # seems missing 3 files for other room types
     # one_room_apt_txt_lines = read_file_to_list('1_rooms_tmp.txt')
     one_room_apt_txt_lines = ['Some text goes here']
 
-    # creating pdf file 
+    # creating pdf file
     # FIXME include todays data
     create_pdf_report(report_txt_lines, one_room_apt_txt_lines)
     print("Debug info: Completed pdf creator module module ... ")
@@ -71,35 +70,34 @@ def create_sqm_price_images(data_frames,
                             first_column: str, second_column: str) -> None:
     """ TODO """
     titles_image_names = {
-            'Single room apartments' : '1_rooms.png',
-            'Double room apartments' : '2_rooms.png',
-            'Three room apartments' : '3_rooms.png',
-            'Four room apartments' : '4_rooms.png'}
+        'Single room apartments': '1_rooms.png',
+        'Double room apartments': '2_rooms.png',
+        'Three room apartments': '3_rooms.png',
+        'Four room apartments': '4_rooms.png'}
     all_apts_df = pd.read_csv('cleaned-sorted-df.csv')
 
     i = 0
     for title, file_name in titles_image_names.items():
         create_and_save_chart(
-                data_frames[i], # << seem to be misisng i
-                first_column,
-                second_column,
-                title,
-                file_name
+            data_frames[i],  # << seem to be misisng i
+            first_column,
+            second_column,
+            title,
+            file_name
         )
         i = i + 1
 
     # case of all apartments
     create_and_save_chart(
-                all_apts_df,
-                first_column,
-                second_column,
-                'All apartments',
-                'all_rooms.png'
+        all_apts_df,
+        first_column,
+        second_column,
+        'All apartments',
+        'all_rooms.png'
     )
 
 
-
-def split_data_frame(all_rooms_df, column_name :str, column_value: int) -> list:
+def split_data_frame(all_rooms_df, column_name: str, column_value: int) -> list:
     """filter data frame by column name Room_count value
     and returns list with 4 filtered by room count value data frames"""
     data_frames = []
@@ -110,15 +108,15 @@ def split_data_frame(all_rooms_df, column_name :str, column_value: int) -> list:
 
 
 def create_and_save_chart(df_name: str, xcolumn_name: str,
-        ycolumn_name: str, title: str, file_name: str) -> None:
+                          ycolumn_name: str, title: str, file_name: str) -> None:
     """Generate scatter plot based x and y axsis as data frame column values,
     include title and save to *.png file"""
     ax = df_name.plot.scatter(
-            x=xcolumn_name,
-            y=ycolumn_name,
-            s=100,
-            title=title,
-            grid=True
+        x=xcolumn_name,
+        y=ycolumn_name,
+        s=100,
+        title=title,
+        grid=True
     )
     fig = ax.get_figure()
     # fi.show() # for debugging
@@ -126,14 +124,14 @@ def create_and_save_chart(df_name: str, xcolumn_name: str,
 
 
 def create_png_plot(df,
-                x_keyword: str,
-                y_keyword: str,
-                title: str,
-                file_to_save: str) -> None:
+                    x_keyword: str,
+                    y_keyword: str,
+                    title: str,
+                    file_to_save: str) -> None:
     """ This function generates scatter plots from dataframe
     based on x and y keywords and saves chart to png file"""
     ax = df.plot.scatter(x=x_keyword, y=y_keyword, s=100,
-                           title=title, grid=True)
+                         title=title, grid=True)
     fig = ax.get_figure()
     # fi.show() # for debugging
     fig.savefig(file_to_save)
@@ -169,21 +167,20 @@ def create_pdf_report(text_lines: list, msg_txt_lines: list) -> None:
         pdf.write(5, str_line)
         pdf.ln(5)
 
-
     pdf.ln(10)
     pdf.add_page()
     test_save_df_to_png()  # calling function to generate png from df
     pdf.ln(10)
     pdf.ln(10)
-    pdf.image("1_rooms.png", 20,10, 150)
+    pdf.image("1_rooms.png", 20, 10, 150)
     pdf.add_page()
-    pdf.image("2_rooms.png", 20,10, 150)
+    pdf.image("2_rooms.png", 20, 10, 150)
     pdf.add_page()
-    pdf.image("3_rooms.png", 20,10, 150)
+    pdf.image("3_rooms.png", 20, 10, 150)
     pdf.add_page()
-    pdf.image("4_rooms.png", 20,10, 150)
+    pdf.image("4_rooms.png", 20, 10, 150)
     pdf.add_page()
-    pdf.image("1-4_rooms.png", 20,10, 150)
+    pdf.image("1-4_rooms.png", 20, 10, 150)
     pdf.ln(10)
 
     pdf.output(name="Ogre_city_report.pdf")  # generate pdf files
@@ -232,7 +229,5 @@ def test_create_scatter_plot():
     #                                               autopct='%1.1f%%')
 
 
-# main code driver
-# test_save_df_to_png() - works
-pdf_creator_main()
-
+if __name__ == "__main__":
+    pdf_creator_main()
