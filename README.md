@@ -3,8 +3,7 @@
 | | |
 | --- | --- |
 | Build and Deploy | [![CI - Test](https://github.com/vfedotovs/sslv_web_scraper/actions/workflows/CICD-dev-1412.yml/badge.svg)](https://github.com/vfedotovs/sslv_web_scraper/actions/workflows/CICD-dev-1412.yml) |
-| Coverage | [![codecov](https://codecov.io/gh/vfedotovs/sslv_web_scraper/graph/badge.svg?token=Y9AQW4YEYH)](https://codecov.io/gh/vfedotovs/sslv_web_scraper) |
-
+| Coverage | [![Coverage](https://codecov.io/github/pandas-dev/pandas/coverage.svg?branch=main)](https://codecov.io/gh/pandas-dev/pandas) |
 
 ## About application:
 Purpose: This application will scrape daily ss.lv website from apartments for sale category in specific city of your choice
