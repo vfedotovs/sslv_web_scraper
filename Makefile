@@ -1,5 +1,6 @@
 # Setup before start development or local deploy
 PG_CONTAINER_NAME := `docker ps | grep db-1 | awk '{print $$NF }'`
+S3_BACKUP_BUCKET := `env | grep S3_BUCKET`
 
 
 .DEFAULT_GOAL := help
@@ -11,10 +12,13 @@ help:  ## 💬 This help message
 all: setup build up ## runs setup, build and up targets
 
 setup: ## gets database.ini and .env.prod and dowloads last DB bacukp file
-	@cp ~/sslv_envs/.env.prod .
-	@cp ~/sslv_envs/database.ini src/ws/
-	@python3 src/db/get_last_db_backup.py
-	@cp *.sql src/db/
+	@echo "Copying env files from home folder..."
+	cp ~/sslv_envs/.env.prod .
+	cp ~/sslv_envs/database.ini src/ws/
+	@echo "Downloading DB backup file from $(S3_BACKUP_BUCKET)..."
+	python3 src/db/get_last_db_backup.py
+	cp *.sql src/db/
+	ls -lh src/db/ | grep sql
 
 
 build: ## builds all containers 
@@ -23,24 +27,16 @@ build: ## builds all containers
 	@docker-compose --env-file .env.prod build ws
 
 up: ## starts all containers
-	@docker-compose --env-file .env.prod up -d
+	docker-compose --env-file .env.prod up -d
 
 down: ## stops all containers
-	@docker-compose --env-file .env.prod down
-
+	docker-compose --env-file .env.prod down
 
 clean: ## removes setup and DB files and folders
-	@rm .env.prod
-	@rm ./src/ws/database.ini
-	@rm *.sql
-	@rm ./src/db/pg_backup_*.sql
-	@rm -rf ./postgresql_data/
-
-
-
-get_env_files: # Fetches locally env files database.ini and .env.prod  
-	@cp ~/sslv_envs/.env.prod .
-	@cp ~/sslv_envs/database.ini src/ws/
+	rm .env.prod
+	rm ./src/ws/database.ini
+	rm *.sql
+	rm ./src/db/pg_backup_*.sql
 
 fetch_dump_example: # Example of fetch specific date DB dump file form S3 bucket
 	@echo "make fetch_dump DB_BACKUP_DATE=2022_11_05"
@@ -54,22 +50,13 @@ fetch_last_db_dump: # Fetches last Postgres DB dump from AWS S3 bucket
 	@python3 src/db/get_last_db_backup.py
 	@cp *.sql src/db/
 
-compose_db_up: # Starts DB container
-	@docker-compose --env-file .env.prod up db -d
-
-lt: ## Lists tables sizes in postgres docker allows to test if DB dump was restored correctly 
+lt: ## Lists tables sizes to test if DB dump was restored correctly 
 	@docker exec $(PG_CONTAINER_NAME) psql -U new_docker_user -d new_docker_db -c '\dt+'
 
-compose_up: # Starts remainig containers 
-	@docker-compose --env-file .env.prod up -d
-
-compose_down: # Stops all containers
-	@docker-compose --env-file .env.prod down
-
-test: # Runs pytests locally
+test: ## Runs pytests locally
 	pytest -v
 
-test_cov: # Runs pytest coverage report across project
+test_cov: ## Runs pytest coverage report across project
 	pytest --cov=.
 
 build_ts: # Building task_scheduler container
