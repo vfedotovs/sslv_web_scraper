@@ -62,14 +62,9 @@ lt                   Lists tables sizes in postgres docker allows to test if DB 
 - [x] Daily email is sent which includes advert URLs and key data categorized by room count
 - [x] Email contains pdf attachment with basic price analytics for categorized by room count
 - [x] Fully automated deployment for dev branche with Github Actions CICD to AWS EC2
+- [x] Add tests and test coverage step in CICD and in README.md
 
 
-## TODO:
-- [x] Add feature for dev-1.4.xx cron job backup docker container DB on EC2
-- [x] Add feature for dev-1.4.xx cron job upload DB backup file to S3 bucket so it can be used in next CICD deployments
-- [ ] Add feature for dev-1.4.xx save logs daily to one container and cron job to backup logs to S3 for root cause needs
-- [ ] Add Sphinx project documentation and doc coverage in README.md
-- [ ] Improve pdf attachment file content (Priority)
-- [ ] Improve email body to contain added and removed ads for every day in current month (Priority)
-- [ ] Add WEB services GUI for data explore and analytics (Work inprogress)
-- [ ] Add test coverage on CICD and in README.md
+## Worok in progress:
+- [ ] Add WEB service functionality for data explore using Pygwalker and Streamlit (Work inprogress)
+- [ ] Add doc and doc coverage step in CICD and in README.md
