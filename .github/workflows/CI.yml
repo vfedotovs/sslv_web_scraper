@@ -26,7 +26,7 @@ jobs:
           coverage xml -o coverage.xml
         continue-on-error: true  # Ignore the failure of this step
       - name: Upload coverage reports to Codecov
-        uses: codecov/codecov-action@v3
+        uses: codecov/codecov-action@v4
         with:
           name: coverage-report
           path: coverage.xml
