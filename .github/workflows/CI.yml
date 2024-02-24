@@ -1,5 +1,5 @@
 ---
-name: CICD-dev-1412-branch
+name: CI
 on:
   push:
     branches:
