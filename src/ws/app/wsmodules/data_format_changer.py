@@ -180,7 +180,7 @@ def create_oneline_report(source_file: str) -> pd.DataFrame:
     room_floors = []
     publish_dates = []
     try:
-        with open(source_file, 'r') as file_handle:
+        with open(source_file, 'r', encoding='utf-8') as file_handle:
             while True:
                 line = file_handle.readline()
                 match_url = re.search("https", line)
