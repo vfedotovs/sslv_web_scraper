@@ -3,7 +3,20 @@ name: CI
 on:
   push:
     branches:
-      - dev-1.5.1
+      - 'dev-1.5*.*'
+      - main
+    paths:
+      - '**.py'
+  pull_request:
+    types:
+      - opened
+    branches:
+      - 'dev-1.5*.*'
+      - main
+    paths:
+      - '**.py'
+
+
 jobs:
   Test:
     runs-on: ubuntu-latest
@@ -40,7 +53,7 @@ jobs:
       AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
       AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
       - name: Setup creating database.ini env file
         run: |
           echo "[postgresql]" > src/ws/database.ini
