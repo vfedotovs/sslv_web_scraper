@@ -3,7 +3,20 @@ name: CI
 on:
   push:
     branches:
-      - dev-1.5.1
+      - 'dev-1.5*.*'
+      - main
+    paths:
+      - '**.py'
+  pull_request:
+    types:
+      - opened
+    branches:
+      - 'dev-1.5*.*'
+      - main
+    paths:
+      - '**.py'
+
+
 jobs:
   Test:
     runs-on: ubuntu-latest
