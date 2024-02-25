@@ -2,7 +2,7 @@
 
 | | |
 | --- | --- |
-| Build and Deploy | [![CI - Test](https://github.com/vfedotovs/sslv_web_scraper/actions/workflows/CICD-dev-1412.yml/badge.svg)](https://github.com/vfedotovs/sslv_web_scraper/actions/workflows/CICD-dev-1412.yml) |
+| Test and Build | ![CI](https://github.com/vfedotovs/sslv_web_scraper/actions/workflows/CI.yml/badge.svg) |(https://github.com/vfedotovs/sslv_web_scraper/actions/workflows/CI.yml)|
 | Coverage | [![codecov](https://codecov.io/gh/vfedotovs/sslv_web_scraper/graph/badge.svg?token=Y9AQW4YEYH)](https://codecov.io/gh/vfedotovs/sslv_web_scraper) |
 
 ## About application:
