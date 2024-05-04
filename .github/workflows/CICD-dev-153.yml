@@ -6,12 +6,6 @@ on:
       - dev-1.5.3
     paths:
       - '**.py'
-  workflow_dispatch:
-    inputs:
-      environment:
-        description: 'Environment to deploy to'
-        required: true
-        default: 'production'
 
 jobs:
   Test:
