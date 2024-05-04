@@ -43,6 +43,7 @@ class DataFrameAvalyzer():
         pass
 
     def analyze_df_apt_loc_types(self, file) -> None:
+        """TODO add fuction description"
         pass
 
 
