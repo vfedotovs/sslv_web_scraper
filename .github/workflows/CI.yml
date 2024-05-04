@@ -3,19 +3,10 @@ name: CI
 on:
   push:
     branches:
-      - 'dev-1.5*.*'
-      - main
+      - 'dev-1.4*.*'  
     paths:
       - '**.py'
-  pull_request:
-    types:
-      - opened
-    branches:
-      - 'dev-1.5*.*'
-      - main
-    paths:
-      - '**.py'
-  workflow_dispatch:
+
 
 
 jobs:
