@@ -31,7 +31,7 @@ services:
       DB_USER: new_docker_user
       DB_PASSWORD: ${POSTGRES_PASSWORD}
     ports:
-      - "80:80"
+      - "8000:8000"
     depends_on:
       - db
     networks:
@@ -47,7 +47,7 @@ services:
       - postgresql
   curl-service:
     image: curlimages/curl
-    command: sh -c "sleep 30 && curl http://ws:80/run-task/ogre"
+    command: sh -c "sleep 30 && curl http://ws:8000/run-task/ogre"
     networks:
       - postgresql
     depends_on:
