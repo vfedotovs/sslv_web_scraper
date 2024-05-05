@@ -45,13 +45,21 @@ services:
       - ws
     networks:
       - postgresql
-  curl-service:
+  curl:
     image: curlimages/curl
     command: sh -c "sleep 30 && curl http://ws:8000/run-task/ogre"
     networks:
       - postgresql
     depends_on:
       - ts
+  web:
+    image: st-web:latest-amd64  # Use the specified Docker image
+    ports:
+      - "80:8501"
+    environment:
+      - STREAMLIT_SERVER_PORT=8501  # Set the port for the Streamlit server
+
+
 networks:
   postgresql:
     driver: bridge
