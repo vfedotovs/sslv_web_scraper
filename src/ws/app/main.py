@@ -1,7 +1,15 @@
 #!/usr/bin/env python3
-""" This module is processing HTTP get requsts
-to scrape property data form ss.lv """
+"""
+This is entry point for module that provides basic API interface which will trigger web scrape job for specific city.
 
+This module contains functions:
+- home
+- async run_long_task
+- check_today_cloud_data_file_exist
+- get_todays_cloud_data_file_name
+- check_lst_run_state
+
+"""
 
 from datetime import datetime
 import logging
