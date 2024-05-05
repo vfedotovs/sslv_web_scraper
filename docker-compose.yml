@@ -53,7 +53,7 @@ services:
     depends_on:
       - ts
   web:
-    image: st-web:latest-amd64  # Use the specified Docker image
+    image:  vfedotovsdocker/st-web:latest-amd64  # Use the specified Docker image
     ports:
       - "80:8501"
     environment:
