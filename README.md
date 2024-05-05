@@ -2,8 +2,9 @@
 
 | | |
 | --- | --- |
-| Test and Build | ![CI](https://github.com/vfedotovs/sslv_web_scraper/actions/workflows/CI.yml/badge.svg) |(https://github.com/vfedotovs/sslv_web_scraper/actions/workflows/CI.yml)|
+| Test, Build and Deploy | ![CI](https://github.com/vfedotovs/sslv_web_scraper/actions/workflows/CI.yml/badge.svg) |(https://github.com/vfedotovs/sslv_web_scraper/actions/workflows/CI.yml)|
 | Coverage | [![codecov](https://codecov.io/gh/vfedotovs/sslv_web_scraper/graph/badge.svg?token=Y9AQW4YEYH)](https://codecov.io/gh/vfedotovs/sslv_web_scraper) |
+| Embark on an exploration of Ogre City apartments for sale historical data here |http://propertydata.lv/|
 
 ## About application:
 Purpose: This application will scrape daily ss.lv website from apartments for sale category in specific city of your choice
@@ -63,8 +64,9 @@ lt                   Lists tables sizes in postgres docker allows to test if DB 
 - [x] Email contains pdf attachment with basic price analytics for categorized by room count
 - [x] Fully automated deployment for dev branche with Github Actions CICD to AWS EC2
 - [x] Add tests and test coverage step in CICD and in README.md
+- [x] Add WEB service functionality for data explore using Pygwalker and Streamlit
 
 
 ## Worok in progress:
-- [ ] Add WEB service functionality for data explore using Pygwalker and Streamlit (Work inprogress)
+- [ ] Add Streamlit web service to CICD 
 - [ ] Add doc and doc coverage step in CICD and in README.md
