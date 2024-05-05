@@ -39,7 +39,7 @@ stdout_formatter = logging.Formatter(
 stdout_handler.setFormatter(stdout_formatter)
 log.addHandler(stdout_handler)
 
-URL = 'http://ws:80/run-task/ogre'
+URL = 'http://ws:8000/run-task/ogre'
 
 
 def execute_ogre_task():
