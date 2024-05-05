@@ -25,6 +25,7 @@ build: ## builds all containers
 	@docker-compose --env-file .env.prod build db
 	@docker-compose --env-file .env.prod build ts
 	@docker-compose --env-file .env.prod build ws
+	@docker-compose --env-file .env.prod build web
 
 up: ## starts all containers
 	docker-compose --env-file .env.prod up -d
