@@ -11,7 +11,7 @@ services:
       - db_data:/var/lib/postgresql/data
     # Health check configuration
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U new_docker_user"]
+      test: ["CMD-SHELL", "pg_isready -U new_docker_user -d new_docker_db"]
       interval: 30s
       timeout: 10s
       retries: 3
