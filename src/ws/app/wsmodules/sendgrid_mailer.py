@@ -75,7 +75,7 @@ def gen_debug_subject() -> str:
     """Function generates uniq subject line to improve debugging
     Example of subject:
     Ogre City Apartments for sale from ss.lv webscraper v1.4.8 20221001_1019"""
-    release = "v1.4.12 "
+    release = "v1.5.4 "
     now = datetime.now()
     email_created = now.strftime("%Y%m%d_%H%M")
     city_name = 'Ogre City Apartments for sale from ss.lv webscraper'
