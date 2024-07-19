@@ -67,7 +67,14 @@ def scrape_website():
     page_one_msg_urls = find_single_page_urls(page_one_bs_obj)
     page_two_msg_urls = find_single_page_urls(page_two_bs_obj)
     page_three_msg_urls = find_single_page_urls(page_three_bs_obj)
-    valid_msg_urls = page_one_msg_urls +  page_two_msg_urls + page_three_msg_urls
+    combined_urls = page_one_msg_urls + page_two_msg_urls + page_three_msg_urls
+    # Since currently there is no dynamic page cound extraction avilable 
+    # curent behavior of ss.lv if you request none existing page it redirects to
+    # first page current quick fix is to remove duplicate entries because of scenario 
+    # if page 3 is missing an you have requested it will gra  urls from first page and 
+    # it will end up with duplicate entries
+    valid_msg_urls = list(set(combined_urls))
+
 
 
     logger.info(f"Found {str(len(valid_msg_urls))} parsable message URLs")
