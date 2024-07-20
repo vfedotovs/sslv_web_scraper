@@ -14,6 +14,15 @@ precheck:
 		echo "Error: S3_BACKUP_BUCKET is not not exported."; \
 		exit 1; \
 	fi
+	@if [ -z "$(RELEASE_VERSION)" ]; then \
+		echo "Error: RELEASE_VERSION is not not exported."; \
+		exit 1; \
+	fi
+		@if [ -z "$(SENDGRID_API_KEY)" ]; then \
+		echo "Error: SENDGRID_API_KEY is not not exported."; \
+		exit 1; \
+	fi
+
 
 
 PG_CONTAINER_NAME := `docker ps | grep db-1 | awk '{print $$NF }'`
@@ -74,10 +83,10 @@ fetch_last_db_dump: # Fetches last Postgres DB dump from AWS S3 bucket
 lt: ## Lists tables sizes to test if DB dump was restored correctly 
 	@docker exec $(PG_CONTAINER_NAME) psql -U new_docker_user -d new_docker_db -c '\dt+'
 
-test: ## Runs pytests locally
+test: precheck ## Runs pytests locally
 	pytest -v
 
-test_cov: ## Runs pytest coverage report across project
+test_cov: precheck ## Runs pytest coverage report across project
 	pytest --cov=.
 
 build_ts: # Building task_scheduler container
