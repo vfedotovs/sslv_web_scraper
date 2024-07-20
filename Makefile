@@ -30,7 +30,7 @@ S3_BACKUP_BUCKET := `env | grep S3_BUCKET`
 
 .DEFAULT_GOAL := help
 
-
+.PHONY: precheck build
 
 
 
