@@ -16,7 +16,7 @@ setup: ## gets database.ini and .env.prod and dowloads last DB bacukp file
 	cp ~/sslv_envs/.env.prod .
 	cp ~/sslv_envs/database.ini src/ws/
 	@echo "Downloading DB backup file from $(S3_BACKUP_BUCKET)..."
-	python3 src/db/get_last_db_backup.py
+	python3.11 src/db/get_last_db_backup.py
 	cp *.sql src/db/
 	ls -lh src/db/ | grep sql
 
