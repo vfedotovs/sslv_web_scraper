@@ -1,0 +1,30 @@
+name: Feature Request
+description: Propose new feature in the Web Scraper project
+title: "FEAT: "
+labels: [feat]
+
+body:
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Web Scraper version checks
+      options:
+        - label: >
+            I have checked that this feature has not already been reported.
+          required: true
+        - label: >
+            I have confirmed this feature does not exists on the latest version of Web Scraper.
+          required: true
+  - type: textarea
+    id: example
+    attributes:
+      label: Describe feature in detail
+      description: >
+        Here is description of proposed feature
+      placeholder: >
+        Paste your sugestions and examples here
+
+        ...
+      render: python
+    validations:
+      required: true

@@ -29,10 +29,11 @@ def test_remove_tmp_files():
 def test_gen_debug_subject():
     # Set the release global variable
     global release
-    release = "v1.4.12"
+    release = "v1.5.4"
+    RELEASE_VERSION = os.environ['RELEASE_VERSION'] 
     now = datetime.now()
     date_time_id = now.strftime("%Y%m%d_%H%M")
-    subject_title = "Ogre City Apartments for sale from ss.lv webscraperv1.4.12 " + date_time_id
+    subject_title = "Ogre City Apartments for sale from ss.lv web_scraper_v" + RELEASE_VERSION + "_" + date_time_id
 
     # Test the function
     assert gen_debug_subject() == subject_title

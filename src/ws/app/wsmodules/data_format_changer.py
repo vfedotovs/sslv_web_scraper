@@ -1,28 +1,32 @@
 #!/usr/bin/env python3
 """
-data_format_changer.py Module
+data_format_changer.py module functionality is to convert scraped multiline
+text data per advert entry in to singe line CSV format that later can be loaded
+in to pandas dataftame.
 
 Module functions:
-[x] 1. Reads scraped data from Ogre-raw-data-report-2022-12-03.txt file
-(text files can not be read by padas)
-[x] 2. Changes format 12 lines per ad entry to 1 line per ad entry.
-[x] 3. Writes pandas_df.csv and creates copy data/pandas_df.csv_2022-12-03.csv
-(later used as input file in analitics.py module and
-csv file can be very easy inported as pandas DataFrame.)
+[x] Reads scraped data from Ogre-raw-data-report-2022-12-03.txt file
+    (resolves limitation that text files can not be read by padas)
+[x] Changes format 12 lines per ad entry to 1 line per ad entry.
+[x] Writes pandas_df.csv and creates copy data/pandas_df.csv_2022-12-03.csv
+    (later used as input file in analitics.py module and csv file can be very
+    easy inported as pandas DataFrame.)
+[x] Allows to utilise daily AWS labmda scrape job output file that leads to
+    big perfommance improvement by eliminating need to re-scrape data on each
+    app deployment (This architectual steep does reduce email recieving time
+    by 4-5 min avoiding re-scraping data multiple times per day)
 
-#TODO: Implement these features
-[ ] 4. Some data like Serija,Majas tips and Kadastra numurs are not
-transfered to outut file.
-[ ] 5. Rename pandas_df.csv_2022-12-03.csv to better name
-ogre_city_data_2022_12_03.csv and Upload renamed file ro new S3 bucket
-(Big perfommance improvement by eliminating need to re-scrape data on each run)
-(This architectual steep can reduce email recieving time by 4-5 min avoiding
-re-scraping data multiple times per day)
+
+# TODO: Implement these features
+[ ] Some data like Serija,Majas tips and Kadastra numurs are not
+    transfered to outut file.
+[ ] Rename pandas_df.csv_2022-12-03.csv to better name for example to
+    ogre_city_data_2022_12_03.csv
 
 
 Module requires:
-[x] If today is 2022-12-03 file
-data/Ogre-raw-data-report-2022-12-03.txt must exist for module to run
+[x] If today is 2022-12-03 file data/Ogre-raw-data-report-2022-12-03.txt 
+    must exist for module to run
 
 Mudule creates:
 [x] File pandas_df.csv and makes copy data/pandas_df.csv_2022-12-03.csv

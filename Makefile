@@ -1,9 +1,38 @@
 # Setup before start development or local deploy
+
+# Define the precheck function
+precheck:
+	@if [ -z "$(AWS_ACCESS_KEY_ID)" ]; then \
+		echo "Error: AWS_ACCESS_KEY_ID is not exported."; \
+		exit 1; \
+	fi
+	@if [ -z "$(AWS_SECRET_ACCESS_KEY)" ]; then \
+		echo "Error: AWS_SECRET_ACCESS_KEY is not exported."; \
+		exit 1; \
+	fi
+	@if [ -z "$(S3_BACKUP_BUCKET)" ]; then \
+		echo "Error: S3_BACKUP_BUCKET is not not exported."; \
+		exit 1; \
+	fi
+	@if [ -z "$(RELEASE_VERSION)" ]; then \
+		echo "Error: RELEASE_VERSION is not not exported."; \
+		exit 1; \
+	fi
+		@if [ -z "$(SENDGRID_API_KEY)" ]; then \
+		echo "Error: SENDGRID_API_KEY is not not exported."; \
+		exit 1; \
+	fi
+
+
+
 PG_CONTAINER_NAME := `docker ps | grep db-1 | awk '{print $$NF }'`
 S3_BACKUP_BUCKET := `env | grep S3_BUCKET`
 
-
 .DEFAULT_GOAL := help
+
+.PHONY: precheck build
+
+
 
 help:  ## 💬 This help message
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "\033[36m%-20s\033[0m %s\n", $$1, $$2}'
@@ -11,12 +40,12 @@ help:  ## 💬 This help message
 
 all: setup build up ## runs setup, build and up targets
 
-setup: ## gets database.ini and .env.prod and dowloads last DB bacukp file
+setup: precheck ## gets database.ini and .env.prod and dowloads last DB bacukp file
 	@echo "Copying env files from home folder..."
 	cp ~/sslv_envs/.env.prod .
 	cp ~/sslv_envs/database.ini src/ws/
 	@echo "Downloading DB backup file from $(S3_BACKUP_BUCKET)..."
-	python3 src/db/get_last_db_backup.py
+	python3.11 src/db/get_last_db_backup.py
 	cp *.sql src/db/
 	ls -lh src/db/ | grep sql
 
@@ -25,6 +54,7 @@ build: ## builds all containers
 	@docker-compose --env-file .env.prod build db
 	@docker-compose --env-file .env.prod build ts
 	@docker-compose --env-file .env.prod build ws
+	@docker-compose --env-file .env.prod build web
 
 up: ## starts all containers
 	docker-compose --env-file .env.prod up -d
@@ -53,10 +83,10 @@ fetch_last_db_dump: # Fetches last Postgres DB dump from AWS S3 bucket
 lt: ## Lists tables sizes to test if DB dump was restored correctly 
 	@docker exec $(PG_CONTAINER_NAME) psql -U new_docker_user -d new_docker_db -c '\dt+'
 
-test: ## Runs pytests locally
+test: precheck ## Runs pytests locally
 	pytest -v
 
-test_cov: ## Runs pytest coverage report across project
+test_cov: precheck ## Runs pytest coverage report across project
 	pytest --cov=.
 
 build_ts: # Building task_scheduler container

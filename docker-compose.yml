@@ -11,7 +11,7 @@ services:
       - db_data:/var/lib/postgresql/data
     # Health check configuration
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U new_docker_user"]
+      test: ["CMD-SHELL", "pg_isready -U new_docker_user -d new_docker_db"]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -23,6 +23,7 @@ services:
     environment:
       DEST_EMAIL: ${DEST_EMAIL}
       SRC_EMAIL: ${SRC_EMAIL}
+      RELEASE_VERSION: ${RELEASE_VERSION}
       SENDGRID_API_KEY: ${SENDGRID_API_KEY}
       AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID}
       AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY}
@@ -45,13 +46,21 @@ services:
       - ws
     networks:
       - postgresql
-  curl-service:
+  curl:
     image: curlimages/curl
     command: sh -c "sleep 30 && curl http://ws:8000/run-task/ogre"
     networks:
       - postgresql
     depends_on:
       - ts
+  web:
+    image:  vfedotovsdocker/st-web:latest-amd64  # Use the specified Docker image
+    ports:
+      - "80:8501"
+    environment:
+      - STREAMLIT_SERVER_PORT=8501  # Set the port for the Streamlit server
+
+
 networks:
   postgresql:
     driver: bridge

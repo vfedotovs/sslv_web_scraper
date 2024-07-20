@@ -138,13 +138,12 @@ def save_text_report_to_file(text_lines: list, file_name: str) -> None:
 
 
 def get_room_count_values(data_frame) -> list:
-    """ Returns uniq values from rom count columns
-    """
+    """ Returns uniq values from rom count columns"""
     log.info("Describing DataFrame column data types ")
     rc_values = data_frame['Room_count'].tolist()
     unique_elements = set(rc_values)
     unique_rc_values = list(unique_elements)
-    log.info(f'rc vals: {unique_rc_values} type: {type(unique_rc_values)}')
+    log.info(f'Room count values: {unique_rc_values} type: {type(unique_rc_values)}')
     unique_rc_values.sort()
     rc_digit_values = [int(x) for x in unique_rc_values if x.isdigit()]
     log.info(f"DataFrame room count values: {rc_digit_values}")
