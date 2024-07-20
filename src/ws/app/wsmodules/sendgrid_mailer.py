@@ -76,10 +76,11 @@ def gen_debug_subject() -> str:
     Example of subject:
     Ogre City Apartments for sale from ss.lv webscraper v1.4.8 20221001_1019"""
     release = "v1.5.4 "
+    RELEASE_VERSION = os.environ['RELEASE_VERSION']
     now = datetime.now()
     email_created = now.strftime("%Y%m%d_%H%M")
-    city_name = 'Ogre City Apartments for sale from ss.lv webscraper'
-    return city_name + release + email_created
+    city_name = 'Ogre City Apartments for sale from ss.lv web_scraper_v'
+    return city_name + RELEASE_VERSION + "_" + email_created
 
 
 def sendgrid_mailer_main() -> None:
