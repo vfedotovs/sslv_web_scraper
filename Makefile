@@ -1,9 +1,29 @@
 # Setup before start development or local deploy
+
+# Define the precheck function
+precheck:
+	@if [ -z "$(AWS_ACCESS_KEY_ID)" ]; then \
+		echo "Error: AWS_ACCESS_KEY_ID is not exported."; \
+		exit 1; \
+	fi
+	@if [ -z "$(AWS_SECRET_ACCESS_KEY)" ]; then \
+		echo "Error: AWS_SECRET_ACCESS_KEY is not exported."; \
+		exit 1; \
+	fi
+	@if [ -z "$(S3_BACKUP_BUCKET)" ]; then \
+		echo "Error: S3_BACKUP_BUCKET is not not exported."; \
+		exit 1; \
+	fi
+
+
 PG_CONTAINER_NAME := `docker ps | grep db-1 | awk '{print $$NF }'`
 S3_BACKUP_BUCKET := `env | grep S3_BUCKET`
 
-
 .DEFAULT_GOAL := help
+
+
+
+
 
 help:  ## 💬 This help message
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "\033[36m%-20s\033[0m %s\n", $$1, $$2}'
@@ -11,7 +31,7 @@ help:  ## 💬 This help message
 
 all: setup build up ## runs setup, build and up targets
 
-setup: ## gets database.ini and .env.prod and dowloads last DB bacukp file
+setup: precheck ## gets database.ini and .env.prod and dowloads last DB bacukp file
 	@echo "Copying env files from home folder..."
 	cp ~/sslv_envs/.env.prod .
 	cp ~/sslv_envs/database.ini src/ws/
