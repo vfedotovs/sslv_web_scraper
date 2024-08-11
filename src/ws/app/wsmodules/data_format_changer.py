@@ -123,7 +123,7 @@ def cloud_data_formater_main() -> None:
                  todays_cloud_ws_fp)
         detailed_cws_fp = get_detailed_file_path()
         ogre_city_data_frame = create_oneline_report(detailed_cws_fp)
-        ogre_city_data_frame.to_csv("pandas_df.csv")
+        ogre_city_data_frame.to_csv("pandas_df.csv")   #286 BUG gets triggered here
         create_file_copy()
     elif todays_cloud_ws_file_exist is False:
         log.info(
