@@ -69,7 +69,6 @@ jobs:
         run: |
           cat /etc/os-release
           docker -v
-          docker-compose -v
           docker compose version
           python3 -V
           pip install boto3
@@ -81,20 +80,18 @@ jobs:
       - name: Start DB container ONLY
         run: |
           pwd
-          docker-compose --env-file .env.prod up -d
+          docker compose --env-file .env.prod up -d
       - name: List DB table sizes to confirm if DB import was correct
         run: >
           sleep 15
-
-          docker-compose ps
-
+          docker compose ps
           docker exec sslv_web_scraper_db_1  psql -U new_docker_user -d new_docker_db -c '\dt+'
-      - name: Run docker compose ps
+      - name: Wait for 15 seconds and run docker compose ps
         run: |
-          sleep 10
-          docker-compose ps
+          sleep 15
+          docker compose ps
       - name: Run compose down
-        run: docker-compose down
+        run: docker compose down
   Deploy_to_AWS_EC2:
     needs: Build_Docker_Containers
     runs-on: ubuntu-latest
