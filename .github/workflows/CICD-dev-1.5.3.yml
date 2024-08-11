@@ -84,7 +84,9 @@ jobs:
       - name: List DB table sizes to confirm if DB import was correct
         run: >
           sleep 15
+          
           docker compose ps
+          
           docker exec sslv_web_scraper_db_1  psql -U new_docker_user -d new_docker_db -c '\dt+'
       - name: Wait for 15 seconds and run docker compose ps
         run: |
