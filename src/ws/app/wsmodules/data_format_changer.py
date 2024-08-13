@@ -214,7 +214,11 @@ def create_oneline_report(source_file: str) -> pd.DataFrame:
                     room_floors.append(floors)
                 if not line:
                     break
-            # Create pandas data frame
+            lists = [urls, room_counts, room_sizes, room_floors, room_streets, room_prices, publish_dates]
+            validate_list_lengths(lists)
+            # TODO: add fix for inconsistent list lenght scenario
+
+            log.info("Creating dict datastructure from scraped raw data list datastructures")
             mydict = {'URL': urls,
                       'Room_count': room_counts,
                       'Size_sq_m': room_sizes,
@@ -222,14 +226,38 @@ def create_oneline_report(source_file: str) -> pd.DataFrame:
                       'Street': room_streets,
                       'Price': room_prices,
                       'Pub_date': publish_dates}
-            pandas_df = pd.DataFrame(mydict)
+            try:
+                log.info("Attempting to create the DataFrame ")
+                pandas_df = pd.DataFrame(mydict)
+            except Exception as e:
+              log.error(f"Failed to create DataFrame: {str(e)}")
+            log.info("DataFrame was created successfully. ")    
             return pandas_df
-
+            
     except FileNotFoundError:
         log.error("Error: The file %s does not exist", source_file)
     except Exception as e:
         log.error(
             "An error occurred while processing the file %s : %s ", source_file, str(e))
+
+
+def validate_list_lengths(lists) -> None:
+    """
+    Validates that all provided lists have the same length.
+
+    Args:
+        lists (list of lists): A list containing the lists to be validated.
+
+    Raises:
+        ValueError: If any of the lists have different lengths, the error is logged and then raised.
+    """
+    log.info("Validating that all provided data element lists have the same length")
+    list_lengths = [len(lst) for lst in lists]
+    if len(set(list_lengths)) > 1:
+        error_message = f"All lists must have the same length. Found lengths: {list_lengths}"
+        log.error(error_message)
+        raise ValueError(error_message)
+    log.info("Validation for all provided data element lists completed successfully")
 
 
 def create_file_copy() -> None:
