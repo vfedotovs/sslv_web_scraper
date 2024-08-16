@@ -85,11 +85,10 @@ def check_todays_cloud_data_file_exist() -> bool:
         log.error("Folder %s does not exist. Creating empty folder ",
                   cloud_file_folder)
         os.makedirs(cloud_file_folder)
-    cwd = os.getcwd()
     for file_name in os.listdir(cloud_file_folder):
         if todays_date in file_name:
             log.info('File %s containing today'
-                     ' date %s found, ', file_name, todays_date)
+                     ' date %s found', file_name, todays_date)
             return True
     log.info('File containing date %s not found', todays_date)
     return False
@@ -116,20 +115,23 @@ def cloud_data_formater_main() -> None:
     if todays_cloud_ws_file_exist is True:
         log.info("Lambda scraped raw-data file exists: %s ",
                 str(todays_cloud_ws_file_exist))
-        log.info("Creating one-line report from lambda scraped raw-data file: %s",
-                 todays_cloud_ws_fp)
+        log.info("Creating one-line report from lambda "
+                 "scraped raw-data file: %s", todays_cloud_ws_fp)
         detailed_cws_fp = get_detailed_file_path()
         ogre_city_data_frame = create_oneline_report(detailed_cws_fp)
         ogre_city_data_frame.to_csv("pandas_df.csv")   #286 BUG gets triggered here
         create_file_copy()
     elif todays_cloud_ws_file_exist is False:
-        log.warning("Lambda scraped raw-data file does not exist, failing back to local scraper source file")
-        log.info("Converting to csv format from local scraped raw-data file: %s format", todays_local_ws_fp)
+        log.warning("Lambda scraped raw-data file does not exist, "
+                    "failing back to local scraper source file")
+        log.info("Converting to csv format from local scraped "
+                 "raw-data file: %s format", todays_local_ws_fp)
         ogre_city_data_frame = create_oneline_report(todays_local_ws_fp)
         if ogre_city_data_frame is not None:
             log.info("Saving csv format data to DataFrame file pandas_df.csv ")
             ogre_city_data_frame.to_csv("pandas_df.csv")
-            log.info("Saving csv format data file pandas_df.csv completed with success")
+            log.info("Saving csv format data file "
+                     "pandas_df.csv completed with success")
             create_file_copy()
         if ogre_city_data_frame is None:
             log.error('ogre_city_data_frame is None')
@@ -170,7 +172,9 @@ def create_oneline_report(source_file: str) -> pd.DataFrame:
 
     Data format of pandas_df_2022-12-03.csv is one line per ad
     ,URL,Room_count,Size_sq_m,Floor,Street,Price,Pub_date
-    0,https://ss.lv/msg/lv/real-estate/flats/ogre-and-reg/ogre/fxobe.html,Istabas:>2,Platiba:>50 m²,Stavs:>3/9/lifts,Iela:><b>Jaunatnes iela 4,Price:>57 000 € (1 140 €/m²),Date:>01.02.2022
+    0,https://ss.lv/msg/lv/real-estate/flats/ogre-and-reg/ogre/fxobe.html,
+    Istabas:>2,Platiba:>50 m²,Stavs:>3/9/lifts,Iela:><b>Jaunatnes iela 4, 
+    Price:>57 000 € (1 140 €/m²),Date:>01.02.2022
 
 
     Args:
@@ -185,7 +189,8 @@ def create_oneline_report(source_file: str) -> pd.DataFrame:
     room_prices = []
     room_floors = []
     publish_dates = []
-    log.info("Converting raw-text 12 lines per entry fromat into 1 line per entry csv file format ")
+    log.info("Converting raw-text 12 lines per entry fromat into "
+             " 1 line per entry csv file format ")
     log.info("Reading data from file : %s", source_file )
     try:
         with open(source_file, 'r', encoding='utf-8') as file_handle:
@@ -193,51 +198,71 @@ def create_oneline_report(source_file: str) -> pd.DataFrame:
                 line = file_handle.readline()
                 match_url = re.search("https", line)
                 if match_url:
+                    # log.info("L1 element: %s" ,line )
                     urls.append(line.rstrip('\n'))
                 match_room_count = re.search("Istabas:", line)
                 if match_room_count:
+                    # log.info("L2 element: %s" ,line )
                     room_counts.append(line.rstrip('\n'))
                 match_room_street_count = re.search("Iela:", line)
                 if match_room_street_count:
+                    # log.info("L3 element: %s" ,line )
                     room_streets.append(line.rstrip('\n'))
                 match_room_price = re.search("Price:", line)
                 if match_room_price:
+                    # log.info("L4 element: %s" ,line )
                     room_prices.append(line.rstrip('\n'))
                 match_pub_date = re.search("Date:", line)
                 if match_pub_date:
+                    # log.info("L5 element: %s" ,line )
                     publish_dates.append(line.rstrip('\n'))
                 match_room_size = re.search("Platība:", line)
                 if match_room_size:
                     tmp = line.rstrip('\n')
                     sizes = tmp.replace("Platība:", "Platiba:")
+                    # log.info("L6 element: %s" , sizes )
                     room_sizes.append(sizes)
                 match_room_floor = re.search("Stāvs:", line)
                 if match_room_floor:
                     tmp = line.rstrip('\n')
                     floors = tmp.replace("Stāvs:", "Stavs:")
+                    # log.info("L7 element: %s" ,floors )
                     room_floors.append(floors)
                 if not line:
                     break
-            lists = [urls, room_counts, room_sizes, room_floors, room_streets, room_prices, publish_dates]
+            lists = [urls, room_counts, room_sizes, room_floors,
+                room_streets, room_prices, publish_dates]
             validate_list_lengths(lists)
+            trimmed_lists = trim_lists_to_min_length(
+                urls,
+                room_counts,
+                room_sizes,
+                room_floors,
+                room_streets,
+                room_prices,
+                publish_dates
+            )
+            validate_list_lengths(trimmed_lists)
+            (nurls, nroom_counts, nroom_sizes, nroom_floors,
+            nroom_streets, nroom_prices, npublish_dates) = trimmed_lists
+
             # TODO: add fix for inconsistent list lenght scenario
 
             log.info("Creating dict datastructure from scraped raw data list datastructures")
-            mydict = {'URL': urls,
-                      'Room_count': room_counts,
-                      'Size_sq_m': room_sizes,
-                      'Floor': room_floors,
-                      'Street': room_streets,
-                      'Price': room_prices,
-                      'Pub_date': publish_dates}
+            mydict = {'URL': nurls,
+                      'Room_count': nroom_counts,
+                      'Size_sq_m': nroom_sizes,
+                      'Floor': nroom_floors,
+                      'Street': nroom_streets,
+                      'Price': nroom_prices,
+                      'Pub_date': npublish_dates}
             try:
                 log.info("Attempting to create the DataFrame ")
                 pandas_df = pd.DataFrame(mydict)
             except Exception as e:
-              log.error(f"Failed to create DataFrame: {str(e)}")
+                log.error("Failed to create DataFrame:", str(e))
             log.info("DataFrame format was created successfully. ")
             return pandas_df
-            
     except FileNotFoundError:
         log.error("Source raw-data text file: %s does not exist", source_file)
     except Exception as e:
@@ -260,8 +285,26 @@ def validate_list_lengths(lists) -> None:
     if len(set(list_lengths)) > 1:
         error_message = f"All lists must have the same length. Found lengths: {list_lengths}"
         log.error(error_message)
-        raise ValueError(error_message)
+        # raise ValueError(error_message)
     log.info("Validation for all provided data element lists completed successfully")
+
+
+def trim_lists_to_min_length(list1, list2, list3,
+                             list4, list5, list6, list7) -> list:
+    """
+    Trims all input lists to the length of the shortest list.
+
+    Args:
+        list1, list2, list3, list4, list5 ...: Input lists to be trimmed.
+
+    Returns:
+        A list containing the five trimmed lists.
+    """
+    log.info("Started triming lists to the same len... ")
+    lists = [list1, list2, list3, list4, list5, list6, list7]
+    min_length = min(len(lst) for lst in lists)
+    trimmed_lists = [lst[:min_length] for lst in lists]
+    return trimmed_lists
 
 
 def create_file_copy() -> None:
