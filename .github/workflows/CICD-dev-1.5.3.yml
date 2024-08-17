@@ -45,6 +45,11 @@ jobs:
       S3_BUCKET: ${{ secrets.S3_BUCKET }}
       AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
       AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+      RELEASE_VERSION: ${{ secrets.RELEASE_VERSION }}
+      POSTGRES_PASSWORD: ${{ secrets.POSTGRES_PASSWORD }}
+      SRC_EMAIL: ${{ secrets.SRC_EMAIL }}
+      DEST_EMAIL: ${{ secrets.DEST_EMAIL }}
+      SENDGRID_API_KEY: ${{ secrets.SENDGRID_API_KEY }}
     steps:
       - uses: actions/checkout@v3
       - name: Setup creating database.ini env file
@@ -77,6 +82,7 @@ jobs:
           python3 ./src/db/get_last_db_backup.py
           cp *.sql ./src/db
           ls -lh ./src/db | grep sql
+          ls -l ./src/db | grep sql
       - name: Start DB container ONLY
         run: |
           pwd
