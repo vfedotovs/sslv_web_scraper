@@ -245,9 +245,6 @@ def create_oneline_report(source_file: str) -> pd.DataFrame:
             validate_list_lengths(trimmed_lists)
             (nurls, nroom_counts, nroom_sizes, nroom_floors,
             nroom_streets, nroom_prices, npublish_dates) = trimmed_lists
-
-            # TODO: add fix for inconsistent list lenght scenario
-
             log.info("Creating dict datastructure from scraped raw data list datastructures")
             mydict = {'URL': nurls,
                       'Room_count': nroom_counts,
@@ -260,7 +257,7 @@ def create_oneline_report(source_file: str) -> pd.DataFrame:
                 log.info("Attempting to create the DataFrame ")
                 pandas_df = pd.DataFrame(mydict)
             except Exception as e:
-                log.error("Failed to create DataFrame:", str(e))
+                log.error("Failed to create DataFrame: %s", str(e))
             log.info("DataFrame format was created successfully. ")
             return pandas_df
     except FileNotFoundError:
@@ -308,17 +305,35 @@ def trim_lists_to_min_length(list1, list2, list3,
 
 
 def create_file_copy() -> None:
-    """Creates copy of pandas_df.csv in as data/pandas_df.csv_2022-12-03.csv"""
-    # TODO: add more robust try except mv
+    """
+    Creates a timestamped backup copy of the file 'pandas_df.csv' in the 'data' directory.
+
+    The function generates a backup of the 'pandas_df.csv' file with the current date appended 
+    to the filename in the format 'pandas_df_YYYY-MM-DD.csv'. The backup file is 
+    saved in the 'data' directory. If the 'data' directory does not exist, it 
+    will be created.
+
+    The process involves:
+    - Checking if the 'data' directory exists; if not, it creates the directory.
+    - Copying the 'pandas_df.csv' file to the 'data' directory with a new name
+      that includes the current date.
+    - Logging the process of file backup creation.
+
+    Raises:
+        OSError: If the copying of the file fails, although this is not
+        explicitly caught in this function.
+    """
     todays_date = datetime.today().strftime('%Y-%m-%d')
     dest_file = 'pandas_df_' + todays_date + '.csv'
     copy_cmd = 'cp pandas_df.csv data/' + dest_file
-    log.info("Creating backup of file: %s in to folder data/ ", dest_file)
+    log.info("Creating backup of file: %s into folder 'data/'", dest_file)
+
     if not os.path.exists('data'):
-        log.warning("data folder does not exist creating folder")
+        log.warning("'data' folder does not exist. Creating folder.")
         os.makedirs('data')
+
     os.system(copy_cmd)
-    log.info("Completed file: %s move to folder data/ with success", dest_file)
+    log.info("Completed moving file: %s to folder 'data/' with success", dest_file)
 
 
 if __name__ == "__main__":
