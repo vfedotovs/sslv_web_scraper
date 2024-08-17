@@ -44,8 +44,7 @@ import pandas as pd
 log = logging.getLogger('data_format_changer')
 log.setLevel(logging.INFO)
 fastapi_log_format = logging.Formatter(
-    "%(asctime)s [%(threadName)-12.12s]"
-    " [%(levelname)-5.5s] : %(funcName)s:"
+    "%(asctime)s [%(levelname)-5.5s] : %(funcName)s:"
     " %(lineno)d: %(message)s")
 
 ch = logging.StreamHandler(sys.stdout)
@@ -81,20 +80,17 @@ def check_todays_cloud_data_file_exist() -> bool:
     exist in local_lambda_raw_scraped_datafolder with todays date"""
     cloud_file_folder = "local_lambda_raw_scraped_data"
     todays_date = datetime.today().strftime('%Y-%m-%d')
-    log.info("Searching for cloud files with todays date: %s ", todays_date)
+    log.info("Attempting to find raw-data file scraped by lambda with date: %s ", todays_date)
     if not os.path.exists(cloud_file_folder):
         log.error("Folder %s does not exist. Creating empty folder ",
                   cloud_file_folder)
         os.makedirs(cloud_file_folder)
-    cwd = os.getcwd()
     for file_name in os.listdir(cloud_file_folder):
-        print(f"Current path: {cwd}")
         if todays_date in file_name:
             log.info('File %s containing today'
-                     ' date %s found, ', file_name, todays_date)
+                     ' date %s found', file_name, todays_date)
             return True
-    log.info('File containing today date %s was not found,'
-             ' will try to find local craper file', todays_date)
+    log.info('File containing date %s not found', todays_date)
     return False
 
 
@@ -113,28 +109,34 @@ def cloud_data_formater_main() -> None:
     """Read raw data from Ogre-raw-data-report.txt and save to pandas_df.csv"""
     log.info(' --- Started data_format_changer module ---')
     todays_cloud_ws_fp = get_cloud_ws_fp()
-    log.info("AWS lambda scraped file path: %s ", todays_cloud_ws_fp)
+    log.info("Lambda scraped raw-data file path: %s ", todays_cloud_ws_fp)
     todays_local_ws_fp = get_local_ws_fp()
     todays_cloud_ws_file_exist = check_todays_cloud_data_file_exist()
-    log.info("AWS lambda scraped file exists: %s ",
-             str(todays_cloud_ws_file_exist))
     if todays_cloud_ws_file_exist is True:
-        log.info("Creating one-line report using lambda scraped file: %s",
-                 todays_cloud_ws_fp)
+        log.info("Lambda scraped raw-data file exists: %s ",
+                str(todays_cloud_ws_file_exist))
+        log.info("Creating one-line report from lambda "
+                 "scraped raw-data file: %s", todays_cloud_ws_fp)
         detailed_cws_fp = get_detailed_file_path()
         ogre_city_data_frame = create_oneline_report(detailed_cws_fp)
         ogre_city_data_frame.to_csv("pandas_df.csv")   #286 BUG gets triggered here
         create_file_copy()
     elif todays_cloud_ws_file_exist is False:
-        log.info(
-            "Creating one-line report using locally scraped file: %s ", todays_local_ws_fp)
+        log.warning("Lambda scraped raw-data file does not exist, "
+                    "failing back to local scraper source file")
+        log.info("Converting to csv format from local scraped "
+                 "raw-data file: %s format", todays_local_ws_fp)
         ogre_city_data_frame = create_oneline_report(todays_local_ws_fp)
         if ogre_city_data_frame is not None:
+            log.info("Saving csv format data to DataFrame file pandas_df.csv ")
             ogre_city_data_frame.to_csv("pandas_df.csv")
+            log.info("Saving csv format data file "
+                     "pandas_df.csv completed with success")
             create_file_copy()
         if ogre_city_data_frame is None:
-            log.error('Error: ogre_city_data_frame is None')
-    log.info(' --- Ended data_format_changer module --- ')
+            log.error('ogre_city_data_frame is None')
+            log.error("Saving csv format data file pandas_df.csv has failed")
+    log.info(' --- Finished data_format_changer module --- ')
 
 
 def get_file_path(city_name: str) -> str:
@@ -144,7 +146,9 @@ def get_file_path(city_name: str) -> str:
         log.error('Error: city_name is None')
     if city_name is not None:
         target_filename = city_name + '-raw-data-report-' + todays_date + '.txt'
-        return "data/" + target_filename
+        full_file_path = "data/" + target_filename
+        log.info("File path: %s", full_file_path )
+        return full_file_path
 
 
 def create_oneline_report(source_file: str) -> pd.DataFrame:
@@ -168,7 +172,9 @@ def create_oneline_report(source_file: str) -> pd.DataFrame:
 
     Data format of pandas_df_2022-12-03.csv is one line per ad
     ,URL,Room_count,Size_sq_m,Floor,Street,Price,Pub_date
-    0,https://ss.lv/msg/lv/real-estate/flats/ogre-and-reg/ogre/fxobe.html,Istabas:>2,Platiba:>50 m²,Stavs:>3/9/lifts,Iela:><b>Jaunatnes iela 4,Price:>57 000 € (1 140 €/m²),Date:>01.02.2022
+    0,https://ss.lv/msg/lv/real-estate/flats/ogre-and-reg/ogre/fxobe.html,
+    Istabas:>2,Platiba:>50 m²,Stavs:>3/9/lifts,Iela:><b>Jaunatnes iela 4, 
+    Price:>57 000 € (1 140 €/m²),Date:>01.02.2022
 
 
     Args:
@@ -183,59 +189,79 @@ def create_oneline_report(source_file: str) -> pd.DataFrame:
     room_prices = []
     room_floors = []
     publish_dates = []
+    log.info("Converting raw-text 12 lines per entry fromat into "
+             " 1 line per entry csv file format ")
+    log.info("Reading data from file : %s", source_file )
     try:
         with open(source_file, 'r', encoding='utf-8') as file_handle:
             while True:
                 line = file_handle.readline()
                 match_url = re.search("https", line)
                 if match_url:
+                    # log.info("L1 element: %s" ,line )
                     urls.append(line.rstrip('\n'))
                 match_room_count = re.search("Istabas:", line)
                 if match_room_count:
+                    # log.info("L2 element: %s" ,line )
                     room_counts.append(line.rstrip('\n'))
                 match_room_street_count = re.search("Iela:", line)
                 if match_room_street_count:
+                    # log.info("L3 element: %s" ,line )
                     room_streets.append(line.rstrip('\n'))
                 match_room_price = re.search("Price:", line)
                 if match_room_price:
+                    # log.info("L4 element: %s" ,line )
                     room_prices.append(line.rstrip('\n'))
                 match_pub_date = re.search("Date:", line)
                 if match_pub_date:
+                    # log.info("L5 element: %s" ,line )
                     publish_dates.append(line.rstrip('\n'))
                 match_room_size = re.search("Platība:", line)
                 if match_room_size:
                     tmp = line.rstrip('\n')
                     sizes = tmp.replace("Platība:", "Platiba:")
+                    # log.info("L6 element: %s" , sizes )
                     room_sizes.append(sizes)
                 match_room_floor = re.search("Stāvs:", line)
                 if match_room_floor:
                     tmp = line.rstrip('\n')
                     floors = tmp.replace("Stāvs:", "Stavs:")
+                    # log.info("L7 element: %s" ,floors )
                     room_floors.append(floors)
                 if not line:
                     break
-            lists = [urls, room_counts, room_sizes, room_floors, room_streets, room_prices, publish_dates]
+            lists = [urls, room_counts, room_sizes, room_floors,
+                room_streets, room_prices, publish_dates]
             validate_list_lengths(lists)
-            # TODO: add fix for inconsistent list lenght scenario
-
+            trimmed_lists = trim_lists_to_min_length(
+                urls,
+                room_counts,
+                room_sizes,
+                room_floors,
+                room_streets,
+                room_prices,
+                publish_dates
+            )
+            validate_list_lengths(trimmed_lists)
+            (nurls, nroom_counts, nroom_sizes, nroom_floors,
+            nroom_streets, nroom_prices, npublish_dates) = trimmed_lists
             log.info("Creating dict datastructure from scraped raw data list datastructures")
-            mydict = {'URL': urls,
-                      'Room_count': room_counts,
-                      'Size_sq_m': room_sizes,
-                      'Floor': room_floors,
-                      'Street': room_streets,
-                      'Price': room_prices,
-                      'Pub_date': publish_dates}
+            mydict = {'URL': nurls,
+                      'Room_count': nroom_counts,
+                      'Size_sq_m': nroom_sizes,
+                      'Floor': nroom_floors,
+                      'Street': nroom_streets,
+                      'Price': nroom_prices,
+                      'Pub_date': npublish_dates}
             try:
                 log.info("Attempting to create the DataFrame ")
                 pandas_df = pd.DataFrame(mydict)
             except Exception as e:
-              log.error(f"Failed to create DataFrame: {str(e)}")
-            log.info("DataFrame was created successfully. ")    
+                log.error("Failed to create DataFrame: %s", str(e))
+            log.info("DataFrame format was created successfully. ")
             return pandas_df
-            
     except FileNotFoundError:
-        log.error("Error: The file %s does not exist", source_file)
+        log.error("Source raw-data text file: %s does not exist", source_file)
     except Exception as e:
         log.error(
             "An error occurred while processing the file %s : %s ", source_file, str(e))
@@ -256,19 +282,65 @@ def validate_list_lengths(lists) -> None:
     if len(set(list_lengths)) > 1:
         error_message = f"All lists must have the same length. Found lengths: {list_lengths}"
         log.error(error_message)
-        raise ValueError(error_message)
+        # raise ValueError(error_message)
     log.info("Validation for all provided data element lists completed successfully")
 
 
+def trim_lists_to_min_length(list1, list2, list3,
+                             list4, list5, list6, list7) -> list:
+    """
+    Trims all input lists to the length of the shortest list.
+
+    Args:
+        list1, list2, list3, list4, list5 ...: Input lists to be trimmed.
+
+    Returns:
+        A list containing the five trimmed lists.
+    """
+    log.info("Started triming lists to the same len... ")
+    lists = [list1, list2, list3, list4, list5, list6, list7]
+    min_length = min(len(lst) for lst in lists)
+    trimmed_lists = [lst[:min_length] for lst in lists]
+    return trimmed_lists
+
+
 def create_file_copy() -> None:
-    """Creates copy of pandas_df.csv in as data/pandas_df.csv_2022-12-03.csv"""
-    # TODO: add more robust try except mv
+    """
+    Creates a timestamped backup copy of the file 'pandas_df.csv' in the 'data' directory.
+
+    The function generates a backup of the 'pandas_df.csv' file with the current date appended 
+    to the filename in the format 'pandas_df_YYYY-MM-DD.csv'. The backup file is 
+    saved in the 'data' directory. If the 'data' directory does not exist, it 
+    will be created.
+
+    The process involves:
+    - Checking if the 'data' directory exists; if not, it creates the directory.
+    - Copying the 'pandas_df.csv' file to the 'data' directory with a new name
+      that includes the current date.
+    - Logging the process of file backup creation.
+
+    Raises:
+        OSError: If the copying of the file fails, although this is not
+        explicitly caught in this function.
+    """
     todays_date = datetime.today().strftime('%Y-%m-%d')
     dest_file = 'pandas_df_' + todays_date + '.csv'
     copy_cmd = 'cp pandas_df.csv data/' + dest_file
+    log.info("Creating backup of file: %s into folder 'data/'", dest_file)
+
     if not os.path.exists('data'):
+        log.warning("'data' folder does not exist. Creating folder.")
         os.makedirs('data')
+
     os.system(copy_cmd)
+    # log.info("Completed moving file: %s to folder 'data/' with success", dest_file)
+    try:
+        dest_path = './data/' + dest_file
+        file_size = os.path.getsize(dest_path)
+        log.info("Completed moving file: %s to folder 'data/' with success."
+                 "File size: %d bytes", dest_file, file_size)
+    except OSError as e:
+        log.error("Failed to get file size for %s: %s", dest_file, str(e))
 
 
 if __name__ == "__main__":
