@@ -333,7 +333,14 @@ def create_file_copy() -> None:
         os.makedirs('data')
 
     os.system(copy_cmd)
-    log.info("Completed moving file: %s to folder 'data/' with success", dest_file)
+    # log.info("Completed moving file: %s to folder 'data/' with success", dest_file)
+    try:
+        dest_path = './data/' + dest_file
+        file_size = os.path.getsize(dest_path)
+        log.info("Completed moving file: %s to folder 'data/' with success."
+                 "File size: %d bytes", dest_file, file_size)
+    except OSError as e:
+        log.error("Failed to get file size for %s: %s", dest_file, str(e))
 
 
 if __name__ == "__main__":
