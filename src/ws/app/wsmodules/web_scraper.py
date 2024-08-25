@@ -21,7 +21,7 @@ import time
 logger = logging.getLogger('web_scraper')
 logger.setLevel(logging.INFO)
 ws_log_format = logging.Formatter(
-    "%(asctime)s [%(threadName)-12.12s] [%(levelname)-5.5s] %(name)s : %(funcName)s: %(lineno)d: %(message)s")
+    "%(asctime)s [%(levelname)-5.5s] %(name)s : %(funcName)s: %(lineno)d: %(message)s")
 
 ch = logging.StreamHandler(sys.stdout)
 ch.setFormatter(ws_log_format)
