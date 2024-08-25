@@ -102,8 +102,8 @@ def remove_old_file() -> None:
     logger.info("Removing file %s  as if oloder "
                 "than %s  day(s)", filename, days_old)
     if os.path.isfile(file_path):
-        file_time = datetime.datetime.fromtimestamp(os.path.getmtime(file_path))
-        now = datetime.datetime.now()
+        file_time = datetime.fromtimestamp(os.path.getmtime(file_path))
+        now = datetime.now()
 
         if (now - file_time).days > days_old:
             os.remove(file_path)
