@@ -121,30 +121,62 @@ def extract_data_from_url(nondup_urls: list, dest_file: str) -> None:
     msg_url_count = len(nondup_urls)
     for i in range(msg_url_count):
         current_msg_url = nondup_urls[i] + "\n"
-        table_opt_names = get_msg_table_info(nondup_urls[i], "ads_opt_name")
-        table_opt_values = get_msg_table_info(nondup_urls[i], "ads_opt")
-        table_price = get_msg_table_info(nondup_urls[i], "ads_price")
+        logger.info("Started scraping data from message URL %s" , str(i + 1))
+        table_opt_names = get_msg_table_data(nondup_urls[i], "ads_opt_name")
+        if table_opt_names:
+            logger.info(f"Successfully retrieved data from {nondup_urls[i]} ads_opt_name table")
+        else:
+            logger.warning(f"Skipping {nondup_urls[i]} due to repeated connection failures.")
+        table_opt_values = get_msg_table_data(nondup_urls[i], "ads_opt")
+        if table_opt_values:
+            logger.info(f"Successfully retrieved data from {nondup_urls[i]} ads_opt table")
+        else:
+            logger.warning(f"Skipping {nondup_urls[i]} due to repeated connection failures.")
+        table_price = get_msg_table_data(nondup_urls[i], "ads_price")
+        if table_price:
+            logger.info(f"Successfully retrieved data from {nondup_urls[i]} ads_price table")
+        else:
+            logger.warning(f"Skipping {nondup_urls[i]} due to repeated connection failures.")
 
-        logger.info("Extracting data from message URL %s" , str(i + 1))
-        write_line(current_msg_url, dest_file)
-        for idx in range(len(table_opt_names) - 1):
-            text_line = table_opt_names[idx] + \
-                ">" + table_opt_values[idx] + "\n"
-            write_line(text_line, dest_file)
+        try:
+            write_line(current_msg_url, dest_file)
+            for idx in range(len(table_opt_names) - 1):
+                text_line = table_opt_names[idx] + \
+                    ">" + table_opt_values[idx] + "\n"
+                write_line(text_line, dest_file)
+        except TypeError as e:
+            logger.error(f"Error writing data from {current_msg_url} to file : {e}")
 
-        # Extract message price field
+        if not table_price:
+            logging.error(f"Error writing data from {current_msg_url} to file: table_price is None or empty")
+            continue  # Skip further processing for this URL
+        try:
+            # Assuming table_price is a list and we want the first element
+            price_line = "Price:>" + table_price[0] + "\n"
+            write_line(price_line, dest_file)
+        except (TypeError, IndexError) as e:
+            logging.error(f"Error writing data from {current_msg_url} to file: {e}")
+
+
         price_line = "Price:>" + table_price[0] + "\n"
-        write_line(price_line, dest_file)
 
-        # Extract message publish date field
-        table_date = get_msg_table_info(nondup_urls[i], "msg_footer")
-        for date_idx in range(len(table_date)):
-            if date_idx == 2:
-                date_str = table_date[date_idx]
-                date_and_time = date_str.replace("Datums:", "")
-                date_clean = date_and_time.split()[0]
-                date_field = "Date:>" + str(date_clean) + "\n"
-        write_line(date_field, dest_file)
+        table_date = get_msg_table_data(nondup_urls[i], "msg_footer")
+        if table_date:
+            logger.info(f"Successfully retrieved data from {nondup_urls[i]} msg_footer table")
+        else:
+            logger.warning(f"Skipping {nondup_urls[i]} due to repeated connection failures.")
+
+        try:
+            for date_idx in range(len(table_date)):
+                if date_idx == 2:
+                    date_str = table_date[date_idx]
+                    date_and_time = date_str.replace("Datums:", "")
+                    date_clean = date_and_time.split()[0]
+                    date_field = "Date:>" + str(date_clean) + "\n"
+            write_line(date_field, dest_file)
+        except TypeError as e:
+            logger.error(f"Error writing data from {current_msg_url} to file : {e}")
+
         time.sleep(SCRAPE_DELAY_SEC)
 
         # TODO: Fix-me Extract message view count always returns view count = 1
@@ -208,6 +240,42 @@ def get_msg_table_info(msg_url: str, td_class: str) -> list:
         name = no_front.split("</", 1)[0]
         table_fields.append(name)
     return table_fields
+
+
+def get_msg_table_data(msg_url: str, td_class: str, retries=3, backoff_factor=0.3):
+    """
+    Fetch data from the given URL with a retry mechanism.
+    
+    :param msg_url: The URL to scrape.
+    :param table_name: The table name to retrieve information from.
+    :param retries: Number of retries in case of a connection error.
+    :param backoff_factor: The factor by which the delay increases after each retry.
+    :return: Response content or None if the request fails.
+    """
+    attempt = 0
+    while attempt < retries:
+        try:
+            logging.info(f"Attempting to fetch data from {msg_url}")
+            page = requests.get(msg_url)
+            soup = BeautifulSoup(page.content, "html.parser")
+            table = soup.find('table', id="page_main")
+
+            table_fields = []
+
+            table_data = table.findAll('td', {"class": td_class})
+            for data in table_data:
+                tostr = str(data)
+                no_front = tostr.split('">', 1)[1]
+                name = no_front.split("</", 1)[0]
+                table_fields.append(name)
+            return table_fields
+        except ConnectionError as e:
+            logging.error(f"ConnectionError: {e}, retrying in {backoff_factor * (2 ** attempt)} seconds...")
+            attempt += 1
+            time.sleep(backoff_factor * (2 ** attempt))
+
+    logging.error(f"Failed to fetch data from {msg_url} after {retries} attempts.")
+    return None
 
 
 def write_line(text: str, file_name: str) -> None:
