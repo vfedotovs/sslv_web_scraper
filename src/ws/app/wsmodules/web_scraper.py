@@ -7,21 +7,22 @@ from Ogre city apartments for sale advertisements and save
 to file Ogre-raw-data-report.txt
 """
 import re
-import requests
-from bs4 import BeautifulSoup
-import sys
 import os
+import sys
+import time
 from datetime import datetime
 import logging
 from logging import handlers
 from logging.handlers import RotatingFileHandler
-import time
+import requests
+from bs4 import BeautifulSoup
+from requests.exceptions import ConnectionError, Timeout
 
 
 logger = logging.getLogger('web_scraper')
 logger.setLevel(logging.INFO)
 ws_log_format = logging.Formatter(
-    "%(asctime)s [%(threadName)-12.12s] [%(levelname)-5.5s] %(name)s : %(funcName)s: %(lineno)d: %(message)s")
+    "%(asctime)s [%(levelname)-5.5s] %(name)s : %(funcName)s: %(lineno)d: %(message)s")
 
 ch = logging.StreamHandler(sys.stdout)
 ch.setFormatter(ws_log_format)
@@ -34,56 +35,85 @@ logger.addHandler(fh)
 
 
 FLATS_OGRE = "https://www.ss.lv/lv/real-estate/flats/ogre-and-reg/ogre/sell/"
-city_name = 'Ogre'
+# Deplay between scraping each URL 5 sec
+# (for Ogre 5 sec x 70 URLs = 350 sec or < 6 min should last )
+SCRAPE_DELAY_SEC = 5
 
 
 def scrape_website():
     """Main function of module calls all sub-functions"""
     logger.info("--- Starting web_scraper module ---")
     logger.info("Extracting BS4 objects")
+    remove_old_file()
     # ogre_object = get_bs_object(FLATS_OGRE)
     # logger.info("Building non-duplicate URL list from BS4 objects")
     # valid_msg_urls = find_single_page_urls(ogre_object)
-    
     # Original code with bug
     # page = requests.get("https://www.ss.lv/lv/real-estate/flats/ogre-and-reg/ogre/sell/")
     # bs_ogre_object = BeautifulSoup(page.content, "html.parser")
     # valid_msg_urls = find_single_page_urls(bs_ogre_object)
-    
     # New static way of extracting data from first three pages
     # TODO: make page count extraction dynamic
-    page_one = requests.get("https://www.ss.lv/lv/real-estate/flats/ogre-and-reg/ogre/sell/")
-    page_two = requests.get("https://www.ss.lv/lv/real-estate/flats/ogre-and-reg/ogre/sell/page2.html")
-    page_three = requests.get("https://www.ss.lv/lv/real-estate/flats/ogre-and-reg/ogre/sell/page3.html")
-    
+    page_one = requests.get(
+        "https://www.ss.lv/lv/real-estate/flats/ogre-and-reg/ogre/sell/", timeout=10)
+    page_two = requests.get(
+        "https://www.ss.lv/lv/real-estate/flats/ogre-and-reg/ogre/sell/page2.html", timeout=10)
+    page_three = requests.get(
+        "https://www.ss.lv/lv/real-estate/flats/ogre-and-reg/ogre/sell/page3.html", timeout=10)
     # Error handling behavior by ss.lv
-    # If non existing page requested for example https://www.ss.lv/lv/real-estate/flats/ogre-and-reg/ogre/sell/page4.html
-    # it rederacts to first page https://www.ss.lv/lv/real-estate/flats/ogre-and-reg/ogre/sell/page.html
+    # If non existing page requested for example
+    # https://www.ss.lv/lv/real-estate/flats/ogre-and-reg/ogre/sell/page4.html
+    # it rederacts to first page
+    # https://www.ss.lv/lv/real-estate/flats/ogre-and-reg/ogre/sell/page.html
 
     page_one_bs_obj = BeautifulSoup(page_one.content, "html.parser")
     page_two_bs_obj = BeautifulSoup(page_two.content, "html.parser")
     page_three_bs_obj = BeautifulSoup(page_three.content, "html.parser")
-    
+
     page_one_msg_urls = find_single_page_urls(page_one_bs_obj)
     page_two_msg_urls = find_single_page_urls(page_two_bs_obj)
     page_three_msg_urls = find_single_page_urls(page_three_bs_obj)
     combined_urls = page_one_msg_urls + page_two_msg_urls + page_three_msg_urls
-    # Since currently there is no dynamic page cound extraction avilable 
+    # Since currently there is no dynamic page cound extraction avilable
     # curent behavior of ss.lv if you request none existing page it redirects to
-    # first page current quick fix is to remove duplicate entries because of scenario 
-    # if page 3 is missing an you have requested it will gra  urls from first page and 
+    # first page current quick fix is to remove duplicate entries because of scenario
+    # if page 3 is missing an you have requested it will gra  urls from first page and
     # it will end up with duplicate entries
     valid_msg_urls = list(set(combined_urls))
 
-
-
-    logger.info(f"Found {str(len(valid_msg_urls))} parsable message URLs")
+    logger.info("Found %s parsable message URLs", str(len(valid_msg_urls)))
     logger.info(
-        "Extracting data for Ogre city apartments for sell task and saving as Ogre-raw-data-report.txt")
+        "Extracting data for Ogre city apartments "
+        "for sell task and saving as Ogre-raw-data-report.txt")
     extract_data_from_url(valid_msg_urls, 'Ogre-raw-data-report.txt')
     logger.info("Creating file Ogre-raw-data-report.txt copy in data folder")
     create_file_copy()
     logger.info("--- Finished web_scraper module ---")
+
+
+def remove_old_file() -> None:
+    """
+    Remove the 'Ogre-raw-data-report.txt' file in the current 
+    directory if it is older than a certain number of days.
+    """
+    days_old = 1
+    filename = "Ogre-raw-data-report.txt"
+    file_path = os.path.join(os.getcwd(), filename)
+    logger.info("Removing file %s  as if oloder "
+                "than %s  day(s)", filename, days_old)
+    if os.path.isfile(file_path):
+        file_time = datetime.fromtimestamp(os.path.getmtime(file_path))
+        now = datetime.now()
+
+        if (now - file_time).days > days_old:
+            os.remove(file_path)
+            logger.info("Removed %s  with sucess", file_path)
+        else:
+            logger.info("The file %s is not older than %s "
+                        "day(s) and was not removed.", filename, str(days_old) )
+    else:
+        logger.info("The file %s does not exist in the "
+                    "current directory.", filename)
 
 
 def extract_data_from_url(nondup_urls: list, dest_file: str) -> None:
@@ -91,32 +121,63 @@ def extract_data_from_url(nondup_urls: list, dest_file: str) -> None:
     msg_url_count = len(nondup_urls)
     for i in range(msg_url_count):
         current_msg_url = nondup_urls[i] + "\n"
-        table_opt_names = get_msg_table_info(nondup_urls[i], "ads_opt_name")
-        table_opt_values = get_msg_table_info(nondup_urls[i], "ads_opt")
-        table_price = get_msg_table_info(nondup_urls[i], "ads_price")
+        logger.info("Started scraping data from message URL %s" , str(i + 1))
+        table_opt_names = get_msg_table_data(nondup_urls[i], "ads_opt_name")
+        if table_opt_names:
+            logger.info(f"Successfully retrieved data from {nondup_urls[i]} ads_opt_name table")
+        else:
+            logger.warning(f"Skipping {nondup_urls[i]} due to repeated connection failures.")
+        table_opt_values = get_msg_table_data(nondup_urls[i], "ads_opt")
+        if table_opt_values:
+            logger.info(f"Successfully retrieved data from {nondup_urls[i]} ads_opt table")
+        else:
+            logger.warning(f"Skipping {nondup_urls[i]} due to repeated connection failures.")
+        table_price = get_msg_table_data(nondup_urls[i], "ads_price")
+        if table_price:
+            logger.info(f"Successfully retrieved data from {nondup_urls[i]} ads_price table")
+        else:
+            logger.warning(f"Skipping {nondup_urls[i]} due to repeated connection failures.")
 
-        logger.info(f"Extracting data from message URL  {i + 1}")
-        write_line(current_msg_url, dest_file)
-        for idx in range(len(table_opt_names) - 1):
-            text_line = table_opt_names[idx] + \
-                ">" + table_opt_values[idx] + "\n"
-            write_line(text_line, dest_file)
+        try:
+            write_line(current_msg_url, dest_file)
+            for idx in range(len(table_opt_names) - 1):
+                text_line = table_opt_names[idx] + \
+                    ">" + table_opt_values[idx] + "\n"
+                write_line(text_line, dest_file)
+        except TypeError as e:
+            logger.error(f"Error writing data from {current_msg_url} to file : {e}")
 
-        # Extract message price field
+        if not table_price:
+            logging.error(f"Error writing data from {current_msg_url} to file: table_price is None or empty")
+            continue  # Skip further processing for this URL
+        try:
+            # Assuming table_price is a list and we want the first element
+            price_line = "Price:>" + table_price[0] + "\n"
+            write_line(price_line, dest_file)
+        except (TypeError, IndexError) as e:
+            logging.error(f"Error writing data from {current_msg_url} to file: {e}")
+
+
         price_line = "Price:>" + table_price[0] + "\n"
-        write_line(price_line, dest_file)
 
-        # Extract message publish date field
-        table_date = get_msg_table_info(nondup_urls[i], "msg_footer")
-        for date_idx in range(len(table_date)):
-            if date_idx == 2:
-                date_str = table_date[date_idx]
-                date_and_time = date_str.replace("Datums:", "")
-                date_clean = date_and_time.split()[0]
-                date_field = "Date:>" + str(date_clean) + "\n"
-        write_line(date_field, dest_file)
-        # adding deplay between scraping each URL 5 sec (for Ogre 5x30=150 sec or 2.5 min should last )
-        time.sleep(5)
+        table_date = get_msg_table_data(nondup_urls[i], "msg_footer")
+        if table_date:
+            logger.info(f"Successfully retrieved data from {nondup_urls[i]} msg_footer table")
+        else:
+            logger.warning(f"Skipping {nondup_urls[i]} due to repeated connection failures.")
+
+        try:
+            for date_idx in range(len(table_date)):
+                if date_idx == 2:
+                    date_str = table_date[date_idx]
+                    date_and_time = date_str.replace("Datums:", "")
+                    date_clean = date_and_time.split()[0]
+                    date_field = "Date:>" + str(date_clean) + "\n"
+            write_line(date_field, dest_file)
+        except TypeError as e:
+            logger.error(f"Error writing data from {current_msg_url} to file : {e}")
+
+        time.sleep(SCRAPE_DELAY_SEC)
 
         # TODO: Fix-me Extract message view count always returns view count = 1
         # views = get_msg_field_info(nondup_urls[i], "show_cnt_stat")
@@ -126,7 +187,7 @@ def extract_data_from_url(nondup_urls: list, dest_file: str) -> None:
 
 def get_bs_object(page_url: str):
     """ Function loads webpage from url and returns bs4 object"""
-    page = requests.get(page_url)
+    page = requests.get(page_url, timeout=10)
     bs_object = BeautifulSoup(page.content, "html.parser")
     return bs_object
 
@@ -152,8 +213,8 @@ def find_single_page_urls(bs_object) -> list:
 
 def get_msg_field_info(msg_url: str, span_id: str):
     """ Function finds span id in url and return value """
-    r = requests.get(msg_url)
-    data = r.text
+    response = requests.get(msg_url, timeout=10)
+    data = response.text
     soup = BeautifulSoup(data, "html.parser")
     span = soup.find("span", id=span_id)
     return span.text
@@ -166,7 +227,7 @@ def get_msg_table_info(msg_url: str, td_class: str) -> list:
     td_class: table field name
     returns: str list with table field data
     """
-    page = requests.get(msg_url)
+    page = requests.get(msg_url, timeout=10)
     soup = BeautifulSoup(page.content, "html.parser")
     table = soup.find('table', id="page_main")
 
@@ -179,6 +240,42 @@ def get_msg_table_info(msg_url: str, td_class: str) -> list:
         name = no_front.split("</", 1)[0]
         table_fields.append(name)
     return table_fields
+
+
+def get_msg_table_data(msg_url: str, td_class: str, retries=3, backoff_factor=0.3):
+    """
+    Fetch data from the given URL with a retry mechanism.
+    
+    :param msg_url: The URL to scrape.
+    :param table_name: The table name to retrieve information from.
+    :param retries: Number of retries in case of a connection error.
+    :param backoff_factor: The factor by which the delay increases after each retry.
+    :return: Response content or None if the request fails.
+    """
+    attempt = 0
+    while attempt < retries:
+        try:
+            logging.info(f"Attempting to fetch data from {msg_url}")
+            page = requests.get(msg_url)
+            soup = BeautifulSoup(page.content, "html.parser")
+            table = soup.find('table', id="page_main")
+
+            table_fields = []
+
+            table_data = table.findAll('td', {"class": td_class})
+            for data in table_data:
+                tostr = str(data)
+                no_front = tostr.split('">', 1)[1]
+                name = no_front.split("</", 1)[0]
+                table_fields.append(name)
+            return table_fields
+        except ConnectionError as e:
+            logging.error(f"ConnectionError: {e}, retrying in {backoff_factor * (2 ** attempt)} seconds...")
+            attempt += 1
+            time.sleep(backoff_factor * (2 ** attempt))
+
+    logging.error(f"Failed to fetch data from {msg_url} after {retries} attempts.")
+    return None
 
 
 def write_line(text: str, file_name: str) -> None:
