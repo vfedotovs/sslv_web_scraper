@@ -92,7 +92,7 @@ def sendgrid_mailer_main() -> None:
     try:
         with open('email_body_txt_m4.txt', 'r') as file_object:
             file_content = file_object.readlines()
-            log.info("Successfully read email body content.")
+            log.info("Successfully read file contents.")
             log.info("Creating email body content from email_body_txt_m4.txt file ")
             mail_body_text = ''.join([i for i in file_content[1:]])
             debug_subject = gen_debug_subject()
@@ -100,17 +100,40 @@ def sendgrid_mailer_main() -> None:
         log.error("FileNotFoundError: email_body_txt_m4.txt not found.")
     except Exception as e:
         log.error(f"An unexpected error occurred: {e}")
+    
+    try:
+        with open('basic_price_stats.txt', 'r') as file_object:
+            file_content = file_object.readlines()
+            log.info("Successfully read file contents.")
+            log.info("Adding email body content from basic_price_stats.txt ")
+            mail_body_text += ''.join(file_object.readlines())
+    except FileNotFoundError:
+        log.error("FileNotFoundError: file basic_price_stats.txt not found.")
+    except Exception as e:
+        log.error(f"An unexpected error occurred: {e}")
+    
+    try:
+        with open('email_body_add_dates_table.txt', 'r') as file_object:
+            file_content = file_object.readlines()
+            log.info("Successfully read file contents.")
+            log.info("Adding email body content from email_body_add_dates_table.txt")
+            mail_body_text += ''.join(file_object.readlines())
+    except FileNotFoundError:
+        log.error("FileNotFoundError: file email_body_add_dates_table.txt not found.")
+    except Exception as e:
+        log.error(f"An unexpected error occurred: {e}")
+    
+    try:
+        with open('scraped_and_removed.txt', 'r') as file_object:
+            file_content = file_object.readlines()
+            log.info("Successfully read file contents.")
+            log.info("Adding email body content from scraped_and_removed.txt") 
+            mail_body_text += ''.join(file_object.readlines())
+    except FileNotFoundError:
+        log.error("FileNotFoundError: file scraped_and_removed.txt not found.")
+    except Exception as e:
+        log.error(f"An unexpected error occurred: {e}")
 
-
-
-    with open('basic_price_stats.txt') as file_object:
-        mail_body_text += ''.join(file_object.readlines())
-
-    with open('email_body_add_dates_table.txt') as file_object:
-        mail_body_text += ''.join(file_object.readlines())
-
-    with open('scraped_and_removed.txt') as file_object:
-        mail_body_text += ''.join(file_object.readlines())
 
     # Creates Mail object instance
     message = Mail(
