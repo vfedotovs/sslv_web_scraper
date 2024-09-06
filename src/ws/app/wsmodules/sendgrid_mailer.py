@@ -28,7 +28,7 @@ from sendgrid import SendGridAPIClient
 log = logging.getLogger('sendgrid_mailer')
 log.setLevel(logging.INFO)
 fa_log_format = logging.Formatter(
-    "%(asctime)s [%(threadName)-12.12s] "
+    "%(asctime)s"
     " [%(levelname)-5.5s] : %(funcName)s: %(lineno)d: %(message)s")
 ch = logging.StreamHandler(sys.stdout)
 ch.setFormatter(fa_log_format)
@@ -80,19 +80,28 @@ def gen_debug_subject() -> str:
     now = datetime.now()
     email_created = now.strftime("%Y%m%d_%H%M")
     city_name = 'Ogre City Apartments for sale from ss.lv web_scraper_v'
-    return city_name + RELEASE_VERSION + "_" + email_created
+    return city_name + release + "_" + email_created
 
 
 def sendgrid_mailer_main() -> None:
     """Main module entry point"""
     log.info(" --- Started sendgrid_mailer module --- ")
     log.info(" Trying to open email_body_txt_m4.txt for email body content ")
-    with open('email_body_txt_m4.txt') as file_object:
-        file_content = file_object.readlines()
+    
+    # Try to open the file and handle the case where it's missing gracefully
+    try:
+        with open('email_body_txt_m4.txt', 'r') as file_object:
+            file_content = file_object.readlines()
+            log.info("Successfully read email body content.")
+            log.info("Creating email body content from email_body_txt_m4.txt file ")
+            mail_body_text = ''.join([i for i in file_content[1:]])
+            debug_subject = gen_debug_subject()
+    except FileNotFoundError:
+        log.error("FileNotFoundError: email_body_txt_m4.txt not found.")
+    except Exception as e:
+        log.error(f"An unexpected error occurred: {e}")
 
-    log.info("Creating email body content from email_body_txt_m4.txt file ")
-    mail_body_text = ''.join([i for i in file_content[1:]])
-    debug_subject = gen_debug_subject()
+
 
     with open('basic_price_stats.txt') as file_object:
         mail_body_text += ''.join(file_object.readlines())
