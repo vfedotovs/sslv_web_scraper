@@ -61,14 +61,14 @@ data_files = ['email_body_txt_m4.txt',
 def remove_tmp_files(files_to_remove: list) -> None:
     """FIXME: Refactor this function to better code"""
     directory = os.getcwd()
-    log.info(f" --- current working dir {directory} --- ")
+    log.info(f"Attempting clean temp files from {directory} folder")
     for file in files_to_remove:
         try:
-            log.info(f"Trying delete file: {file} ")
+            log.info(f"Trying to deleting file: {file} ")
             os.remove(file)
+            log.info(f"File: {file} deleted with success ")
         except OSError as e:
-            print(f'Error: {file} : {e.strerror}')
-            log.info(f"Error deleting {file} : {e.strerror} ")
+            log.error(f" {e.strerror} ")
 
 
 def gen_debug_subject() -> str:
@@ -158,7 +158,7 @@ def sendgrid_mailer_main() -> None:
         encoded_file = base64.b64encode(data).decode()
 
         # Creates instance of Attachment object
-        log.info("Attaching  encoded Ogre_city_report.pdf to email object")
+        log.info("Attaching encoded Ogre_city_report.pdf to email object")
         attached_file = Attachment(
             file_content=FileContent(encoded_file),
             file_type=FileType('application/pdf'),
@@ -168,21 +168,23 @@ def sendgrid_mailer_main() -> None:
 
         # Calls attachment method for message instance
         message.attachment = attached_file
+        try:
+            log.info("Attempting to send email via Sendgrid API")
+            sendgrid_client = SendGridAPIClient(os.environ.get('SENDGRID_API_KEY'))
+            response = sendgrid_client.send(message)
+            log.info(f"Email sent with response code: {response.status_code}")
+            log.info(" --- Email response body --- ")
+            # log.info(f" {response.body} ")
+            log.info(" --- Email response headers --- ")
+            # log.info(f" {response.headers}")
+        except Exception as e:
+            log.error(f"{e.message}")
+            log.error(" --- Ended sendgrid_mailer module with success --- ")
+    else:
+        log.error("FileNotFoundError: Ogre_city_report.pdf was not found ")
+        log.error(" --- Ended sendgrid_mailer module with failure email was not sent --- ")
 
-    try:
-        log.info("Attempting to send email via Sendgrid API")
-        sendgrid_client = SendGridAPIClient(os.environ.get('SENDGRID_API_KEY'))
-        response = sendgrid_client.send(message)
-        log.info(f"Email sent with response code: {response.status_code}")
-        log.info(" --- Email response body --- ")
-        # log.info(f" {response.body} ")
-        log.info(" --- Email response headers --- ")
-        # log.info(f" {response.headers}")
-    except Exception as e:
-        log.info(f"{e.message}")
-        print(e.message)
     remove_tmp_files(data_files)
-    log.info(" --- Ended sendgrid_mailer module --- ")
 
 
 if __name__ == "__main__":
