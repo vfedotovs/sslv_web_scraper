@@ -87,6 +87,9 @@ def sendgrid_mailer_main() -> None:
     """Main module entry point"""
     log.info(" --- Started sendgrid_mailer module --- ")
     log.info(" Trying to open email_body_txt_m4.txt for email body content ")
+    debug_subject = gen_debug_subject()
+
+    mail_body_text = "Default email body content"
     
     # Try to open the file and handle the case where it's missing gracefully
     try:
@@ -95,7 +98,6 @@ def sendgrid_mailer_main() -> None:
             log.info("Successfully read file contents.")
             log.info("Creating email body content from email_body_txt_m4.txt file ")
             mail_body_text = ''.join([i for i in file_content[1:]])
-            debug_subject = gen_debug_subject()
     except FileNotFoundError:
         log.error("FileNotFoundError: email_body_txt_m4.txt not found.")
     except Exception as e:
