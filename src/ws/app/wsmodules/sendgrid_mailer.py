@@ -28,8 +28,7 @@ from sendgrid import SendGridAPIClient
 log = logging.getLogger('sendgrid_mailer')
 log.setLevel(logging.INFO)
 fa_log_format = logging.Formatter(
-    "%(asctime)s"
-    " [%(levelname)-5.5s] : %(funcName)s: %(lineno)d: %(message)s")
+    "%(asctime)s [%(levelname)-5.5s] : %(funcName)s: %(lineno)d: %(message)s")
 ch = logging.StreamHandler(sys.stdout)
 ch.setFormatter(fa_log_format)
 log.addHandler(ch)
@@ -75,7 +74,7 @@ def gen_debug_subject() -> str:
     """Function generates uniq subject line to improve debugging
     Example of subject:
     Ogre City Apartments for sale from ss.lv webscraper v1.4.8 20221001_1019"""
-    release = "v1.5.4 "
+    release = "1.5.4 "
     RELEASE_VERSION = os.environ['RELEASE_VERSION']
     now = datetime.now()
     email_created = now.strftime("%Y%m%d_%H%M")
