@@ -127,11 +127,13 @@ def extract_data_from_url(nondup_urls: list, dest_file: str) -> None:
             logger.info(f"Successfully retrieved data from {nondup_urls[i]} ads_opt_name table")
         else:
             logger.warning(f"Skipping {nondup_urls[i]} due to repeated connection failures.")
+        time.sleep(1)
         table_opt_values = get_msg_table_data(nondup_urls[i], "ads_opt")
         if table_opt_values:
             logger.info(f"Successfully retrieved data from {nondup_urls[i]} ads_opt table")
         else:
             logger.warning(f"Skipping {nondup_urls[i]} due to repeated connection failures.")
+        time.sleep(1)
         table_price = get_msg_table_data(nondup_urls[i], "ads_price")
         if table_price:
             logger.info(f"Successfully retrieved data from {nondup_urls[i]} ads_price table")
@@ -160,6 +162,7 @@ def extract_data_from_url(nondup_urls: list, dest_file: str) -> None:
 
         price_line = "Price:>" + table_price[0] + "\n"
 
+        time.sleep(1)
         table_date = get_msg_table_data(nondup_urls[i], "msg_footer")
         if table_date:
             logger.info(f"Successfully retrieved data from {nondup_urls[i]} msg_footer table")
@@ -177,7 +180,7 @@ def extract_data_from_url(nondup_urls: list, dest_file: str) -> None:
         except TypeError as e:
             logger.error(f"Error writing data from {current_msg_url} to file : {e}")
 
-        time.sleep(SCRAPE_DELAY_SEC)
+        time.sleep(3)
 
         # TODO: Fix-me Extract message view count always returns view count = 1
         # views = get_msg_field_info(nondup_urls[i], "show_cnt_stat")
