@@ -40,8 +40,7 @@ from tabulate import tabulate
 log = logging.getLogger('analytics')
 log.setLevel(logging.INFO)
 fa_log_format = logging.Formatter(
-    "%(asctime)s [%(threadName)-12.12s] [%(levelname)-5.5s]"
-    " : %(funcName)s: %(lineno)d: %(message)s"
+    "%(asctime)s [%(levelname)-5.5s]: %(funcName)s: %(lineno)d: %(message)s"
 )
 ch = logging.StreamHandler(sys.stdout)
 ch.setFormatter(fa_log_format)

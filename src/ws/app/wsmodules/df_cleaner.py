@@ -50,8 +50,7 @@ file_handler.setFormatter(file_formatter)
 log.addHandler(file_handler)
 stdout_handler = logging.StreamHandler(sys.stdout)
 stdout_formatter = logging.Formatter(
-    "%(asctime)s [%(threadName)-12.12s] "
-    "[%(levelname)-5.5s] : %(funcName)s: %(lineno)d: %(message)s")
+    "%(asctime)s [%(levelname)-5.5s] : %(funcName)s: %(lineno)d: %(message)s")
 stdout_handler.setFormatter(stdout_formatter)
 log.addHandler(stdout_handler)
 
