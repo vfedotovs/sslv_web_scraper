@@ -45,8 +45,7 @@ file_handler = RotatingFileHandler(LOG_FILE,
                                    maxBytes=1024 * 1024,
                                    backupCount=9)
 file_formatter = logging.Formatter(
-    "%(asctime)s [%(threadName)-12.12s] "
-    "[%(levelname)-5.5s] : %(funcName)s: %(lineno)d: %(message)s")
+    "%(asctime)s [%(levelname)-5.5s] : %(funcName)s: %(lineno)d: %(message)s")
 file_handler.setFormatter(file_formatter)
 log.addHandler(file_handler)
 stdout_handler = logging.StreamHandler(sys.stdout)
