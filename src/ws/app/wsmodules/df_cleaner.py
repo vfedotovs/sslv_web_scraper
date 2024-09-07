@@ -394,7 +394,7 @@ def create_mb_file_copy() -> None:
     if not os.path.exists('data'):
         os.makedirs('data')
     os.system(copy_cmd)
-    log.info(f"Completed creating file copy of {dest_file}")
+    log.info("Completed creating file copy of %s ",  dest_file)
 
 
 if __name__ == "__main__":
