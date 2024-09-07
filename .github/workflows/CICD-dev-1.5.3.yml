@@ -1,12 +1,16 @@
 ---
 name: CICD-dev-1.5.*-branch
+
 on:
-  push:
-    branches:
-      - dev-1.5.3
-      - dev-1.5.4
-    paths:
-      - '**.py'
+  # Allow the workflow to run manually
+  workflow_dispatch:
+
+    push:
+      branches:
+        - dev-1.5.3
+        - dev-1.5.4
+      paths:
+        - '**.py'
 
 jobs:
   Test:
