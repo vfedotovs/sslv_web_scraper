@@ -1,0 +1,38 @@
+---
+name: CICD-arm-dev-1.5.x-branches
+on:
+  push:
+    branches:
+      - dev-1.5.3
+      - dev-1.5.4
+    paths:
+      - '**.py'
+
+jobs:
+  Test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out code
+        uses: actions/checkout@v4
+      - name: Set up Python 3.9
+        uses: actions/setup-python@v2
+        with:
+          python-version: '3.9'
+      - name: Install dependencies
+        run: |
+          python -m pip install pytest
+          python -m pip install coverage
+          pip install -r ./src/ws/requirements.txt
+          pip install -r ./src/ts/requirements.txt
+      - name: Run pytest cov report
+        run: |
+          coverage run -m pytest
+          coverage xml -o coverage.xml
+        continue-on-error: true  # Ignore the failure of this step
+      - name: Upload coverage reports to Codecov
+        uses: codecov/codecov-action@v3
+        with:
+          name: coverage-report
+          path: coverage.xml
+        env:
+          CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
