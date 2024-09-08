@@ -1,12 +1,7 @@
 ---
 name: CICD-arm-dev-1.5.x-branches
 on:
-  push:
-    branches:
-      - dev-1.5.3
-      - dev-1.5.4
-    paths:
-      - '**.py'
+  workflow_dispatch:
 
 jobs:
   Test:
