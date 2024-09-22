@@ -14,15 +14,14 @@ import sys
 log = logging.getLogger('file_downloader')
 log.setLevel(logging.INFO)
 ws_log_format = logging.Formatter(
-    "%(asctime)s [%(threadName)-12.12s] "
-    " [%(levelname)-5.5s] %(name)s : "
+    "%(asctime)s [%(levelname)-5.5s] %(name)s: "
     "%(funcName)s: %(lineno)d: %(message)s")
 
 ch = logging.StreamHandler(sys.stdout)
 ch.setFormatter(ws_log_format)
 log.addHandler(ch)
 
-fh = handlers.RotatingFileHandler('file_downloader.log',
+fh = handlers.RotatingFileHandler('s3_file_downloader.log',
                                   maxBytes=(1048576*5),
                                   backupCount=7)
 fh.setFormatter(ws_log_format)

@@ -32,8 +32,7 @@ from app.wsmodules.sendgrid_mailer import sendgrid_mailer_main
 log = logging.getLogger('fastapi')
 log.setLevel(logging.INFO)
 fastapi_log_format = logging.Formatter(
-    "%(asctime)s [%(threadName)-12.12s]"
-    " [%(levelname)-5.5s] : %(funcName)s:"
+    "%(asctime)s [%(levelname)-5.5s] : %(funcName)s:"
     " %(lineno)d: %(message)s")
 
 ch = logging.StreamHandler(sys.stdout)

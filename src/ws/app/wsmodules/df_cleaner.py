@@ -45,14 +45,12 @@ file_handler = RotatingFileHandler(LOG_FILE,
                                    maxBytes=1024 * 1024,
                                    backupCount=9)
 file_formatter = logging.Formatter(
-    "%(asctime)s [%(threadName)-12.12s] "
-    "[%(levelname)-5.5s] : %(funcName)s: %(lineno)d: %(message)s")
+    "%(asctime)s [%(levelname)-5.5s] : %(funcName)s: %(lineno)d: %(message)s")
 file_handler.setFormatter(file_formatter)
 log.addHandler(file_handler)
 stdout_handler = logging.StreamHandler(sys.stdout)
 stdout_formatter = logging.Formatter(
-    "%(asctime)s [%(threadName)-12.12s] "
-    "[%(levelname)-5.5s] : %(funcName)s: %(lineno)d: %(message)s")
+    "%(asctime)s [%(levelname)-5.5s] : %(funcName)s: %(lineno)d: %(message)s")
 stdout_handler.setFormatter(stdout_formatter)
 log.addHandler(stdout_handler)
 
@@ -396,7 +394,7 @@ def create_mb_file_copy() -> None:
     if not os.path.exists('data'):
         os.makedirs('data')
     os.system(copy_cmd)
-    log.info(f"Completed creating file copy of {dest_file}")
+    log.info("Completed creating file copy of %s ",  dest_file)
 
 
 if __name__ == "__main__":

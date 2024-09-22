@@ -13,11 +13,11 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Check out code
-        uses: actions/checkout@v3
-      - name: Set up Python
+        uses: actions/checkout@v4
+      - name: Set up Python 3.9
         uses: actions/setup-python@v2
         with:
-          python-version: 3.9
+          python-version: '3.9'
       - name: Install dependencies
         run: |
           python -m pip install pytest
@@ -45,8 +45,13 @@ jobs:
       S3_BUCKET: ${{ secrets.S3_BUCKET }}
       AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
       AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+      RELEASE_VERSION: ${{ secrets.RELEASE_VERSION }}
+      POSTGRES_PASSWORD: ${{ secrets.POSTGRES_PASSWORD }}
+      SRC_EMAIL: ${{ secrets.SRC_EMAIL }}
+      DEST_EMAIL: ${{ secrets.DEST_EMAIL }}
+      SENDGRID_API_KEY: ${{ secrets.SENDGRID_API_KEY }}
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
       - name: Setup creating database.ini env file
         run: |
           echo "[postgresql]" > src/ws/database.ini
@@ -69,7 +74,6 @@ jobs:
         run: |
           cat /etc/os-release
           docker -v
-          docker-compose -v
           docker compose version
           python3 -V
           pip install boto3
@@ -78,28 +82,30 @@ jobs:
           python3 ./src/db/get_last_db_backup.py
           cp *.sql ./src/db
           ls -lh ./src/db | grep sql
+          ls -l ./src/db | grep sql
       - name: Start DB container ONLY
         run: |
           pwd
-          docker-compose --env-file .env.prod up -d
+          docker compose --env-file .env.prod up -d
+          
       - name: List DB table sizes to confirm if DB import was correct
         run: >
           sleep 15
-
-          docker-compose ps
-
-          docker exec sslv_web_scraper_db_1  psql -U new_docker_user -d new_docker_db -c '\dt+'
-      - name: Run docker compose ps
+          
+          docker compose ps
+          
+          docker exec sslv_web_scraper-db-1  psql -U new_docker_user -d new_docker_db -c '\dt+'
+      - name: Wait for 15 seconds and run docker compose ps
         run: |
-          sleep 10
-          docker-compose ps
+          sleep 15
+          docker compose ps
       - name: Run compose down
-        run: docker-compose down
+        run: docker compose down
   Deploy_to_AWS_EC2:
     needs: Build_Docker_Containers
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
       - name: Deploy to Release EC2
         env:
           PRIVATE_KEY: ${{ secrets.DEV_EC2_PRIVATE_KEY  }}
