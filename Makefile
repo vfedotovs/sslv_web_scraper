@@ -2,20 +2,8 @@
 
 # Define the precheck function
 precheck:
-	@if [ -z "$(AWS_ACCESS_KEY_ID)" ]; then \
-		echo "Error: AWS_ACCESS_KEY_ID is not exported."; \
-		exit 1; \
-	fi
-	@if [ -z "$(AWS_SECRET_ACCESS_KEY)" ]; then \
-		echo "Error: AWS_SECRET_ACCESS_KEY is not exported."; \
-		exit 1; \
-	fi
 	@if [ -z "$(S3_BACKUP_BUCKET)" ]; then \
 		echo "Error: S3_BACKUP_BUCKET is not not exported."; \
-		exit 1; \
-	fi
-	@if [ -z "$(RELEASE_VERSION)" ]; then \
-		echo "Error: RELEASE_VERSION is not not exported."; \
 		exit 1; \
 	fi
 		@if [ -z "$(SENDGRID_API_KEY)" ]; then \
@@ -24,19 +12,15 @@ precheck:
 	fi
 
 
-
 PG_CONTAINER_NAME := `docker ps | grep db-1 | awk '{print $$NF }'`
 S3_BACKUP_BUCKET := `env | grep S3_BUCKET`
 
 .DEFAULT_GOAL := help
-
 .PHONY: precheck build
-
 
 
 help:  ## 💬 This help message
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "\033[36m%-20s\033[0m %s\n", $$1, $$2}'
-
 
 all: setup build up ## runs setup, build and up targets
 
@@ -45,7 +29,7 @@ setup: precheck ## gets database.ini and .env.prod and dowloads last DB bacukp f
 	cp ~/sslv_envs/.env.prod .
 	cp ~/sslv_envs/database.ini src/ws/
 	@echo "Downloading DB backup file from $(S3_BACKUP_BUCKET)..."
-	python3.11 src/db/get_last_db_backup.py
+	@bash ./get_last_s3_file.sh
 	cp *.sql src/db/
 	ls -lh src/db/ | grep sql
 
@@ -54,7 +38,6 @@ build: ## builds all containers
 	@docker-compose --env-file .env.prod build db
 	@docker-compose --env-file .env.prod build ts
 	@docker-compose --env-file .env.prod build ws
-	@docker-compose --env-file .env.prod build web
 
 up: ## starts all containers
 	docker-compose --env-file .env.prod up -d
