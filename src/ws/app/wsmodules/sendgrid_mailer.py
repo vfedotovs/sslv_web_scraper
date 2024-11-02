@@ -75,7 +75,7 @@ def gen_debug_subject() -> str:
     Example of subject:
     Ogre City Apartments for sale from ss.lv webscraper v1.4.8 20221001_1019"""
     log.info("Generating email subject with todays date")
-    release = "1.5.4 "
+    release = "1.5.8"
     # RELEASE_VERSION = os.environ['RELEASE_VERSION']
     now = datetime.now()
     email_created = now.strftime("%Y%m%d_%H%M")
