@@ -53,12 +53,12 @@ services:
       - postgresql
     depends_on:
       - ts
-  web:
-    image:  vfedotovsdocker/st-web:latest-amd64  # Use the specified Docker image
-    ports:
-      - "80:8501"
-    environment:
-      - STREAMLIT_SERVER_PORT=8501  # Set the port for the Streamlit server
+# web:
+#  image:  vfedotovsdocker/st-web:latest-amd64   #Use the specified Docker image
+#  ports:
+#   - "80:8501"
+#   environment:
+#   - STREAMLIT_SERVER_PORT=8501  # Set the port for the Streamlit server
 
 
 networks:
