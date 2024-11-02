@@ -6,10 +6,6 @@ precheck:
 		echo "Error: S3_BACKUP_BUCKET is not not exported."; \
 		exit 1; \
 	fi
-	@if [ -z "$(RELEASE_VERSION)" ]; then \
-		echo "Error: RELEASE_VERSION is not not exported."; \
-		exit 1; \
-	fi
 		@if [ -z "$(SENDGRID_API_KEY)" ]; then \
 		echo "Error: SENDGRID_API_KEY is not not exported."; \
 		exit 1; \
