@@ -5,12 +5,12 @@ ARCH := $(shell uname -m)
 
 ifeq ($(OS), Darwin)
     ifeq ($(ARCH), x86_64)
-        default: build_mac up_mac down_mac
+        default: setup build up down
     else
-        default: build_ec2 up_ec2 down_ec2
+        default: ec2_setup ec2_build ec2_up ec2_down
     endif
 else
-    default: build_ec2 up_ec2 down_ec2
+    default: ec2_setup ec2_build ec2_up ec2_down
 endif
 
 
@@ -47,30 +47,41 @@ setup: precheck ## gets database.ini and .env.prod and dowloads last DB bacukp f
 	cp *.sql src/db/
 	ls -lh src/db/ | grep sql
 
-build_mac: ## builds all containers 
+ec2_setup: precheck ## runs ec2 instance setup
+	@echo "Started EC2 setup..."
+	@echo "Loading secrets from AWS Secrets Manager..."
+	. ./scripts/load_secrets.sh
+	cp database.ini src/ws/
+	@echo "Downloading Postgres DB backup from $(S3_BACKUP_BUCKET)..."
+	bash scripts/get_last_s3_file.sh
+	@echo "Copying DB backup file to src/db/..."
+	cp *.sql src/db/
+	@echo "Setup will use following backup file..."
+	ls -lh src/db/ | grep sql
+	@echo "Completed EC2 setup..."
+
+
+build: ## builds all containers 
 	@docker compose --env-file .env.prod build db
 	@docker compose --env-file .env.prod build ts
 	@docker compose --env-file .env.prod build ws
 
-build_ec2: ## builds all containers 
+ec2_build: ## builds all containers on ec2
 	@docker-compose --env-file .env.prod build db
 	@docker-compose --env-file .env.prod build ts
 	@docker-compose --env-file .env.prod build ws
 
-up_mac: ## starts all containers
+up: ## starts all containers
 	docker compose --env-file .env.prod up -d
 
-up_ec2: ## starts all containers
+ec2_up: ## starts all containers on ec2
 	docker-compose --env-file .env.prod up -d
 
-down_mac: ## stops all containers
+down: ## stops all containers
 	docker compose --env-file .env.prod down
 
-down_ec2: ## stops all containers
+ec2_down: ## stops all containers on ec2
 	docker-compose --env-file .env.prod down
-
-
-
 
 clean: ## removes setup and DB files and folders
 	rm .env.prod
