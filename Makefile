@@ -1,5 +1,21 @@
 # Setup before start development or local deploy
 
+OS := $(shell uname -s)
+ARCH := $(shell uname -m)
+
+ifeq ($(OS), Darwin)
+    ifeq ($(ARCH), x86_64)
+        default: build_mac up_mac down_mac
+    else
+        default: build_ec2 up_ec2 down_ec2
+    endif
+else
+    default: build_ec2 up_ec2 down_ec2
+endif
+
+
+
+
 # Define the precheck function
 precheck:
 	@if [ -z "$(S3_BACKUP_BUCKET)" ]; then \
@@ -11,20 +27,14 @@ precheck:
 		exit 1; \
 	fi
 
-
-
 PG_CONTAINER_NAME := `docker ps | grep db-1 | awk '{print $$NF }'`
 S3_BACKUP_BUCKET := `env | grep S3_BUCKET`
 
 .DEFAULT_GOAL := help
-
 .PHONY: precheck build
-
-
 
 help:  ## 💬 This help message
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "\033[36m%-20s\033[0m %s\n", $$1, $$2}'
-
 
 all: setup build up ## runs setup, build and up targets
 
@@ -37,17 +47,30 @@ setup: precheck ## gets database.ini and .env.prod and dowloads last DB bacukp f
 	cp *.sql src/db/
 	ls -lh src/db/ | grep sql
 
+build_mac: ## builds all containers 
+	@docker compose --env-file .env.prod build db
+	@docker compose --env-file .env.prod build ts
+	@docker compose --env-file .env.prod build ws
 
-build: ## builds all containers 
+build_ec2: ## builds all containers 
 	@docker-compose --env-file .env.prod build db
 	@docker-compose --env-file .env.prod build ts
 	@docker-compose --env-file .env.prod build ws
 
-up: ## starts all containers
+up_mac: ## starts all containers
+	docker compose --env-file .env.prod up -d
+
+up_ec2: ## starts all containers
 	docker-compose --env-file .env.prod up -d
 
-down: ## stops all containers
+down_mac: ## stops all containers
+	docker compose --env-file .env.prod down
+
+down_ec2: ## stops all containers
 	docker-compose --env-file .env.prod down
+
+
+
 
 clean: ## removes setup and DB files and folders
 	rm .env.prod
@@ -85,5 +108,4 @@ build_db: # Building db container
 
 build_ws: # Building web_scraper container
 	@docker build src/ws -t sslv-dev-ws --file src/ws/Dockerfile
-
 
