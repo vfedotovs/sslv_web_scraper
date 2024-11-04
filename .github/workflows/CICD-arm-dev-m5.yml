@@ -117,6 +117,7 @@ jobs:
           HOSTNAME: ${{ secrets.M5_EC2_IP }}
           USER_NAME: ${{ secrets.M5_EC2_USER }}
           DEPLOY_TARGET_BRANCH: ${{ secrets.M5_DEPLOY_TARGET_BRANCH }}
+          S3_BUCKET: ${{ secrets.S3_BUCKET }}
         run: |
           ssh -o StrictHostKeyChecking=no -i private_key "${USER_NAME}@${HOSTNAME}" 'bash -s' <<'EOF'
             set -e
