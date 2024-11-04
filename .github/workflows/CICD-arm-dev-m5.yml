@@ -31,3 +31,35 @@ jobs:
           path: coverage.xml
         env:
           CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
+
+  Build:
+    needs: Test
+    runs-on: ubuntu-latest
+    env:
+      M5_SSLV_S3_BUCKET: ${{ secrets.M5_SSLV_S3_BUCKET }}
+      AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+
+    steps:
+      - uses: actions/checkout@v4
+      - name: Show environment
+        run: |
+          cat /etc/os-release
+          docker -v
+          docker compose version
+      - name: Setup step 1 - load secrets and env files database.ini .env.prod
+        run: make ec2_setup
+      - name: Start postgres DB container 
+        run: docker compose --env-file .env.prod up -d
+          
+      - name: Check DB table sizes (Validate DB backup import)
+        run: |
+          sleep 15
+          docker compose ps
+          docker exec sslv_web_scraper-db-1  psql -U new_docker_user -d new_docker_db -c '\dt+'
+      - name: Wait for 15 seconds and run docker compose ps
+        run: |
+          sleep 15
+          docker compose ps
+      - name: Run compose down
+        run: docker compose down
