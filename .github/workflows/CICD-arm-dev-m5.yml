@@ -99,11 +99,7 @@ jobs:
           docker compose ps
           
       - name: Run compose down
-        run: docker compose down
-
-
-
+        run: |
+          docker compose down
           sleep 15
           docker compose ps
-      - name: Run compose down
-        run: docker compose down
