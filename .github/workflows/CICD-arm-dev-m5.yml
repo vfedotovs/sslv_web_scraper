@@ -32,69 +32,77 @@ jobs:
         env:
           CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
 
-
-  Test_docker_compose:
+  Build:
+    needs: Test
     runs-on: ubuntu-latest
-
     env:
-      POSTGRES_PASSWORD: test_password
-      DEST_EMAIL: test@example.com
-      SRC_EMAIL: sender@example.com
-      RELEASE_VERSION: "1.0"
-      SENDGRID_API_KEY: dummy_key
-      AWS_ACCESS_KEY_ID: dummy_access_key
-      AWS_SECRET_ACCESS_KEY: dummy_secret_key
-
-    steps:
-      - name: Check out the repository
-        uses: actions/checkout@v4
-
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v2
-
-      - name: Build Docker Containers
-        run: docker-compose build
-
-      - name: Start Containers
-        run: docker-compose up -d
-
-      - name: Wait for Containers to Become Healthy
-        run: |
-          sleep 30  # Wait for health checks to pass
-          docker-compose ps
-          docker-compose ps | grep "healthy"
-
-      - name: Run Health Check for Application
-        run: |
-          curl -f http://localhost:8000/run-task/ogre || exit 1
-
-      - name: Stop and Clean up Containers
-        run: docker-compose down --volumes
-    env:
-      M5_SSLV_S3_BUCKET: ${{ secrets.M5_SSLV_S3_BUCKET }}
+      S3_BUCKET: ${{ secrets.S3_BUCKET }}
       AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
       AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+      RELEASE_VERSION: ${{ secrets.RELEASE_VERSION }}
+      POSTGRES_PASSWORD: ${{ secrets.POSTGRES_PASSWORD }}
+      SRC_EMAIL: ${{ secrets.SRC_EMAIL }}
+      DEST_EMAIL: ${{ secrets.DEST_EMAIL }}
       SENDGRID_API_KEY: ${{ secrets.SENDGRID_API_KEY }}
-
     steps:
       - uses: actions/checkout@v4
+      - name: Setup creating database.ini env file
+        run: |
+          echo "[postgresql]" > src/ws/database.ini
+          echo "host=db" >> src/ws/database.ini
+          echo "${{ secrets.PG_DB_NAME }}" >> src/ws/database.ini
+          echo "${{ secrets.PG_DB_USER }}" >> src/ws/database.ini
+          echo "${{ secrets.PG_DB_PASS }}" >> src/ws/database.ini
+          ls -la src/ws | grep ini
+          cat src/ws/database.ini
+      - name: Before build step 2 create .env.prod file
+        run: |
+          echo "# ws_worker container env variables" > .env.prod
+          echo "${{ secrets.DEST_EMAIL }}" >> .env.prod
+          echo "${{ secrets.SRC_EMAIL }}" >> .env.prod
+          echo "${{ secrets.SENDGRID_API_KEY }}" >> .env.prod
+          echo "${{ secrets.POSTGRES_PASSWORD }}" >> .env.prod
+          ls -la | grep env
+          cat .env.prod
       - name: Show environment
         run: |
           cat /etc/os-release
           docker -v
           docker compose version
-      - name: Setup step 1 - load secrets and env files database.ini .env.prod
-        run: make ec2_setup
-      - name: Start postgres DB container 
-        run: docker compose --env-file .env.prod up -d
+          python3 -V
+          pip install boto3
+      - name: Setup step 3 download last DB file from S3 bucket
+        run: |
+          python3 ./src/db/get_last_db_backup.py
+          cp *.sql ./src/db
+          ls -lh ./src/db | grep sql
+          ls -l ./src/db | grep sql
+      - name: Start DB container ONLY
+        run: docker compose --env-file .env.prod up -d db 
           
-      - name: Check DB table sizes (Validate DB backup import)
+      - name: List DB table sizes to confirm if DB import was correct
         run: |
           sleep 15
           docker compose ps
-          docker exec sslv_web_scraper-db-1  psql -U new_docker_user -d new_docker_db -c '\dt+'
+          docker exec sslv_web_scraper-db-1  \
+            psql -U new_docker_user -d new_docker_db -c '\dt+'
+
+      - name: Start WS container ONLY
+        run: docker compose --env-file .env.prod up -d ws 
+        
+      - name: Start TS container ONLY
+        run: docker compose --env-file .env.prod up -d ts 
+          
       - name: Wait for 15 seconds and run docker compose ps
         run: |
+          sleep 15
+          docker compose ps
+          
+      - name: Run compose down
+        run: docker compose down
+
+
+
           sleep 15
           docker compose ps
       - name: Run compose down
