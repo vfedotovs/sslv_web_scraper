@@ -39,6 +39,7 @@ jobs:
       M5_SSLV_S3_BUCKET: ${{ secrets.M5_SSLV_S3_BUCKET }}
       AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
       AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+      SENDGRID_API_KEY: ${{ secrets.SENDGRID_API_KEY }}
 
     steps:
       - uses: actions/checkout@v4
