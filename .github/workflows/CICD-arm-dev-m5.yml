@@ -103,48 +103,45 @@ jobs:
           docker compose down
           sleep 15
           docker compose ps
+  Deploy:
+    needs: Build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up SSH key
+        run: |
+          echo "${{ secrets.M5_EC2_PK }}" > private_key
+          chmod 600 private_key
+      - name: Deploy to Release EC2
+        env:
+          HOSTNAME: ${{ secrets.M5_EC2_IP }}
+          USER_NAME: ${{ secrets.M5_EC2_USER }}
+          DEPLOY_TARGET_BRANCH: ${{ secrets.M5_DEPLOY_TARGET_BRANCH }}
+        run: |
+          ssh -o StrictHostKeyChecking=no -i private_key "${USER_NAME}@${HOSTNAME}" 'bash -s' <<'EOF'
+            set -e
 
-Deploy:
-  needs: Build
-  runs-on: ubuntu-latest
-  steps:
-    - uses: actions/checkout@v4
+            echo "Navigating to release directory..."
+            curr_time=$(date +%Y%m%d-%H%M)
+            folder_name="${curr_time}-deploy"
+            mkdir -p $folder_name && cd $folder_name
 
-    - name: Set up SSH key
-      run: |
-        echo "${{ secrets.M5_EC2_PK }}" > private_key
-        chmod 600 private_key
+            echo "Cloning repository and checking out target branch..."
+            git clone https://github.com/vfedotovs/sslv_web_scraper.git .
+            git checkout ${DEPLOY_TARGET_BRANCH}
 
-    - name: Deploy to Release EC2
-      env:
-        HOSTNAME: ${{ secrets.M5_EC2_IP }}
-        USER_NAME: ${{ secrets.M5_EC2_USER }}
-        DEPLOY_TARGET_BRANCH: ${{ secrets.M5_DEPLOY_TARGET_BRANCH }}
-      run: |
-        ssh -o StrictHostKeyChecking=no -i private_key "${USER_NAME}@${HOSTNAME}" 'bash -s' <<'EOF'
-          set -e
+            echo "Cleaning up old Docker containers and images..."
+            docker-compose down --volumes --remove-orphans
+            docker-compose rm -f
 
-          echo "Navigating to release directory..."
-          curr_time=$(date +%Y%m%d-%H%M)
-          folder_name="${curr_time}-deploy"
-          mkdir -p $folder_name && cd $folder_name
-
-          echo "Cloning repository and checking out target branch..."
-          git clone https://github.com/vfedotovs/sslv_web_scraper.git .
-          git checkout ${DEPLOY_TARGET_BRANCH}
-
-          echo "Cleaning up old Docker containers and images..."
-          docker-compose down --volumes --remove-orphans
-          docker-compose rm -f
-
-          echo "Starting services..."
-          make ec2_setup
-          sleep 20
-          make ec2_build
-          sleep 10
-          make ec2_up
+            echo "Starting services..."
+            make ec2_setup
+            sleep 5
+            make ec2_build
+            sleep 5
+            make ec2_up
           
-          echo "Deployment completed. Current Docker status:"
-          sleep 20
-          docker ps
-       EOF
+            echo "Deployment completed. Current Docker status:"
+            sleep 20
+            docker ps
+          EOF
