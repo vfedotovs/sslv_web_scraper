@@ -136,6 +136,8 @@ jobs:
             docker-compose rm -f
 
             echo "Starting services..."
+            export S3_BACKUP_BUCKET=${{ secrets.S3_BUCKET  }}
+            export SENDGRID_API_KEY=${{ secrets.SENDGRID_API_KEY }}
             make ec2_setup
             sleep 5
             make ec2_build
