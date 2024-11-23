@@ -28,7 +28,7 @@ log_files=(
   "/dbworker.log"
   "/df_changer.log"
   "/dfcleaner.log"
-  "/file_downloader.log"
+  "/s3_file_downloader.log"
   "/sendgrid_mailer.log"
   "/ws_main.log"
   "/web_scraper.log"
