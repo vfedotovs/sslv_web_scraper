@@ -70,17 +70,17 @@ async def run_long_task(city: str):
                  "found will be used in "
                  " data_formater_module ", last_cloud_file_name)
         log.info("Running cloud_data_formater_main task: using cloud ws file")
-        cloud_data_formater_main()
-        log.info("Running df_cleaner_main task: using cloud ws file")
-        df_cleaner_main()
-        log.info("Running db_worker_main task: using cloud ws file")
-        db_worker_main()
-        log.info("Running analytics_main task: using cloud ws file")
-        analytics_main()
-        log.info("Running pdf_creator task: using cloud ws file ")
-        pdf_creator_main()
-        log.info("Running sendgrid_mailer task: using cloud ws file")
-        sendgrid_mailer_main()
+        try:
+            cloud_data_formater_main()
+            df_cleaner_main()
+            db_worker_main()
+            analytics_main()
+            pdf_creator_main()
+            sendgrid_mailer_main()
+            log.info("Completed running scrape Ogre city task using AWS lambda raw-data file")
+        except Exception as e:
+            log.error("An error occurred during /run-task/ogre", exc_info=True)
+        raise e  # Re-raise for FastAPI to handle
         return {
             "message": "FAST_API: scrape Ogre city apartments"
                        " task using cloud ws file run completed"
