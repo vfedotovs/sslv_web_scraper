@@ -75,7 +75,7 @@ done
 # Copy the task scheduler log if the TS container exists
 if [ -n "$ts_container" ]; then
   echo "Collecting task scheduler log..."
-  docker cp "$ts_container:/task_scheduler.log" .
+  docker cp "$ts_container:/app/task_scheduler.log" .
 fi
 
 # DB backup
