@@ -241,7 +241,8 @@ def get_msg_table_info(msg_url: str, td_class: str) -> list:
         tostr = str(data)
         no_front = tostr.split('">', 1)[1]
         name = no_front.split("</", 1)[0]
-        table_fields.append(name)
+        clean_name = name.replace('\t', '').replace('\r', '').replace('\n', '')
+        table_fields.append(clean_name)
     return table_fields
 
 
@@ -270,7 +271,8 @@ def get_msg_table_data(msg_url: str, td_class: str, retries=3, backoff_factor=0.
                 tostr = str(data)
                 no_front = tostr.split('">', 1)[1]
                 name = no_front.split("</", 1)[0]
-                table_fields.append(name)
+                clean_name = name.replace('\t', '').replace('\r', '').replace('\n', '')
+                table_fields.append(clean_name)
             return table_fields
         except ConnectionError as e:
             logging.error(f"ConnectionError: {e}, retrying in {backoff_factor * (2 ** attempt)} seconds...")
