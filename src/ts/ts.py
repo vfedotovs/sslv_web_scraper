@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 This module is sending HTTP GET requests to fast_api endpints
-every day at 0:30 AM.
+every day at 0:40 AM UTC
 
 It solves triggering task using cronjob on schedule problem with multiple
 container application
@@ -107,14 +107,14 @@ def run_task_scheduler():
 
     """
     log.info("--- Started task_scheduler module ---")
-    schedule.every().day.at("00:30").do(execute_ogre_task)
+    schedule.every().day.at("00:40").do(execute_ogre_task)
     while True:
-        log.info("Sleeping for 3600 seconds before checking if HTTP GET to "
-                 "'run-task/ogre' endpoint needs to trigger")
+        # log.info("Sleeping for 3600 seconds before checking if HTTP GET to "
+        #         "'run-task/ogre' endpoint needs to trigger")
         # Check for pending tasks in the scheduler and run them
         schedule.run_pending()
         # Sleep for 1 hour (3600 seconds) before the next check
-        time.sleep(3600)
+        time.sleep(600)
 
 
 if __name__ == "__main__":
