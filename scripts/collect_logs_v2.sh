@@ -27,7 +27,7 @@ log_files=(
   "/analytics.log"
   "/dbworker.log"
   "/raw_data_report_formatter.log"
-  "/dfcleaner.log"
+  "/dataframe_sanitizer.log"
   "/s3_file_downloader.log"
   "/sendgrid_mailer.log"
   "/ws_main.log"
