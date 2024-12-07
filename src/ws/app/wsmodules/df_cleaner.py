@@ -40,7 +40,7 @@ import pandas as pd
 
 log = logging.getLogger(__name__)
 log.setLevel(logging.INFO)
-LOG_FILE = "dfcleaner.log"
+LOG_FILE = "dataframe_sanitizer.log"
 file_handler = RotatingFileHandler(LOG_FILE,
                                    maxBytes=1024 * 1024,
                                    backupCount=9)
