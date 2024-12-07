@@ -26,7 +26,7 @@ echo "  DB Container: $db_container"
 log_files=(
   "/analytics.log"
   "/dbworker.log"
-  "/df_changer.log"
+  "/raw_data_report_formatter.log"
   "/dfcleaner.log"
   "/s3_file_downloader.log"
   "/sendgrid_mailer.log"

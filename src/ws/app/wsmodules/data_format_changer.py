@@ -51,7 +51,7 @@ ch = logging.StreamHandler(sys.stdout)
 ch.setFormatter(fastapi_log_format)
 log.addHandler(ch)
 
-fh = handlers.RotatingFileHandler('df_changer.log',
+fh = handlers.RotatingFileHandler('raw_data_report_formatter.log',
                                   maxBytes=(1048576*5),
                                   backupCount=5)
 fh.setFormatter(fastapi_log_format)
