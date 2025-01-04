@@ -47,6 +47,8 @@ log.addHandler(fh)
 
 app = FastAPI()
 CITY_NAME = 'Ogre'
+# Load the feature flag from the environment
+USE_AWS_LAMBDA_FILE = os.getenv("USE_AWS_LAMBDA_FILE", "False").lower() == "true"
 
 
 @app.get("/")
@@ -61,7 +63,10 @@ def home():
 async def run_long_task(city: str):
     """ Endpint to trigger scrape, format and insert data in DB"""
     log.info("Recieved GET request to start scraping job for %s city", city)
-    download_latest_lambda_file()
+    if USE_AWS_LAMBDA_FILE:
+        download_latest_lambda_file()
+    else:
+        log.warning("Skipping download as USE_AWS_LAMBDA_FILE is set to False")
     todays_cloud_data_file_exist = check_today_cloud_data_file_exist()
 
     if todays_cloud_data_file_exist is True:

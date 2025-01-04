@@ -30,6 +30,7 @@ services:
       DB_NAME: new_docker_db
       DB_USER: new_docker_user
       DB_PASSWORD: ${POSTGRES_PASSWORD}
+      USE_AWS_LAMBDA_FILE: False
     ports:
       - "8000:8000"
     depends_on:
