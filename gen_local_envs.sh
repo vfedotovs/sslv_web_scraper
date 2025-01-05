@@ -10,8 +10,8 @@ DB_PASSWORD=$(openssl rand -base64 36 | tr -d '\n')
 cat >"$DB_CFG_FILE" <<EOL
 [postgresql]
 host=db
-database=webscraper
-user=webscraper
+database=postgres
+user=postgres
 password=$DB_PASSWORD
 EOL
 
@@ -29,7 +29,12 @@ cat >"$FILE" <<EOL
 DEST_EMAIL=$DEST_EMAIL
 SENDGRID_API_KEY=$SENDGRID_API_KEY
 SRC_EMAIL=$SRC_EMAIL
-PG_PASS=$DB_PASSWORD
+POSTGRES_PASSWORD=$DB_PASSWORD
 EOL
+
+cp database.ini ./src/ws/
+
+echo "Moving init.sql to ./src/db/"
+cp ./scripts/init.sql ./src/db/
 
 echo "File $FILE created successfully."
