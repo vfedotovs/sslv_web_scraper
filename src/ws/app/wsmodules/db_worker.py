@@ -56,8 +56,17 @@ logger.addHandler(fh)
 def db_worker_main() -> None:
     """db_worker.py module main function"""
     logger.info(" --- Satrting db_worker module ---")
-    requred_files = ["cleaned-sorted-df.csv", "database.ini"]
-    check_files(requred_files)
+
+    required_config_files = ["database.ini"]
+    required_data_files = ["cleaned-sorted-df.csv"]
+    check_config_files(required_config_files)
+    check_data_files(required_data_files)
+    df = load_csv_to_df("cleaned-sorted-df.csv")
+
+    if df is None or df.empty:
+        logger.warning("DataFrame is empty. Skipping processing.")
+        return  # Exit gracefully instead of crashing
+
     df = load_csv_to_df("cleaned-sorted-df.csv")
     # Extract new and still listed message url hashes
     todays_url_hashes = extract_url_hashes_from_df(df)
@@ -153,21 +162,6 @@ def check_data_files(required_files: list) -> None:
                     "SQ_meter_price",
                 ],
             )
-
-
-def check_files(file_names: list) -> None:
-    """Testing if file exists and can be opened"""
-    cwd = os.getcwd()
-    for file_name in file_names:
-        try:
-            logger.info(f"Checking if required module file {file_name} exits in {cwd}")
-            file = open(file_name, "r")
-        except IOError:
-            logger.error(
-                f"There was an error opening the file "
-                f"{file_name} or file does not exist!"
-            )
-            sys.exit()
 
 
 def load_csv_to_df(csv_file_name: str):
