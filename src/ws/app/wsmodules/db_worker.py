@@ -110,6 +110,51 @@ def check_config_files(file_names: list) -> None:
                 pass  # Creates an empty file
 
 
+def ensure_csv_exists(csv_file_name: str, headers: list) -> None:
+    """
+    Ensure that a CSV file exists and contains the specified headers.
+
+    If the file does not exist or is empty, a new CSV file is created
+    with the provided column headers.
+
+    Args:
+       csv_file_name (str): The name of the CSV file to check or create.
+       headers (list of str): A list of column names to include in the CSV.
+
+    Returns:
+       None
+    """
+    if not os.path.exists(csv_file_name) or os.stat(csv_file_name).st_size == 0:
+        logger.warning(
+            f"File '{csv_file_name}' is missing or empty. Creating a new one."
+        )
+        pd.DataFrame(columns=headers).to_csv(csv_file_name, index=False)
+
+
+def check_data_files(required_files: list) -> None:
+    """
+    Checks if requires source data file exists
+    If file is not found creates file with empty columns
+    """
+
+    for file_name in required_files:
+        if not os.path.exists(file_name):
+            logger.warning(f"File '{file_name}' not found! Creating an empty file.")
+            ensure_csv_exists(
+                "cleaned-sorted-df.csv",
+                headers=[
+                    "URL",
+                    "Room_count",
+                    "Floor",
+                    "Street",
+                    "Pub_date",
+                    "Size_sqm",
+                    "Price_in_eur",
+                    "SQ_meter_price",
+                ],
+            )
+
+
 def check_files(file_names: list) -> None:
     """Testing if file exists and can be opened"""
     cwd = os.getcwd()
