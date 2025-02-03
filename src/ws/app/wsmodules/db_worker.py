@@ -28,6 +28,7 @@ TODO:
 12.[] Check if report day by last x days count and  generate report
 13.[] Write tests for db_worker module
 """
+
 import os
 import sys
 import logging
@@ -39,14 +40,14 @@ from app.wsmodules.config import config
 # from config import config  # for manual test runs FIXME
 
 
-logger = logging.getLogger('db_worker')
+logger = logging.getLogger("db_worker")
 logger.setLevel(logging.INFO)
 fh = logging.handlers.RotatingFileHandler(
-    'dbworker.log', maxBytes=1000000, backupCount=10)
+    "dbworker.log", maxBytes=1000000, backupCount=10
+)
 fh.setLevel(logging.INFO)
 formatter = logging.Formatter(
-    '%(asctime)s: %(name)s: %(levelname)s: '
-    '%(funcName)s: %(lineno)d: %(message)s'
+    "%(asctime)s: %(name)s: %(levelname)s: %(funcName)s: %(lineno)d: %(message)s"
 )
 fh.setFormatter(formatter)
 logger.addHandler(fh)
@@ -55,16 +56,17 @@ logger.addHandler(fh)
 def db_worker_main() -> None:
     """db_worker.py module main function"""
     logger.info(" --- Satrting db_worker module ---")
-    requred_files = ['cleaned-sorted-df.csv', 'database.ini']
+    requred_files = ["cleaned-sorted-df.csv", "database.ini"]
     check_files(requred_files)
-    df = load_csv_to_df('cleaned-sorted-df.csv')
+    df = load_csv_to_df("cleaned-sorted-df.csv")
     # Extract new and still listed message url hashes
     todays_url_hashes = extract_url_hashes_from_df(df)
     still_listed_table_url_hashes = extract_listed_url_hashes_from_db()
     save_table_row_counts()
     # Sorting all hashes to 3 categories (new, still_listed, to_remove)
     hashe_categories = compare_df_to_db_hashes(
-        todays_url_hashes, still_listed_table_url_hashes)
+        todays_url_hashes, still_listed_table_url_hashes
+    )
     new_msg_hashes = hashe_categories[0]
     still_listed_msg_hashes = hashe_categories[1]
     to_remove_msg_hashes = hashe_categories[2]
@@ -73,8 +75,7 @@ def db_worker_main() -> None:
     # Extract to_remove msg data dict from db listed_ads table
     to_removed_msg_data = extract_to_remove_msg_data(to_remove_msg_hashes)
     # Extract data for messages that need to increment listed days value in db
-    to_increment_msg_data = extract_to_increment_msg_data(
-        still_listed_msg_hashes)
+    to_increment_msg_data = extract_to_increment_msg_data(still_listed_msg_hashes)
     # Insert new msg data dict to listed_ads table
     insert_data_to_listed_table(new_msg_data)
     # Insert to_remove msg data dict to removed_ads table
@@ -89,14 +90,24 @@ def db_worker_main() -> None:
 
 
 def save_table_row_counts() -> None:
-    """ Connects to DB tables and gets each table row count
-        and saves to file for debug info """
+    """Connects to DB tables and gets each table row count
+    and saves to file for debug info"""
     listed_tbl_hashes = extract_listed_url_hashes_from_db()
     removed_tbl_row_cnt = list_rows_in_removed_table()
-    db_tbl_row_counts = (f'LA TBL rows: {len(listed_tbl_hashes)}'
-                         f' RA TBL rows: {removed_tbl_row_cnt}')
-    with open('scraped_and_removed.txt', 'a') as file:
-        file.write(db_tbl_row_counts + '\n')
+    db_tbl_row_counts = (
+        f"LA TBL rows: {len(listed_tbl_hashes)} RA TBL rows: {removed_tbl_row_cnt}"
+    )
+    with open("scraped_and_removed.txt", "a") as file:
+        file.write(db_tbl_row_counts + "\n")
+
+
+def check_config_files(file_names: list) -> None:
+    """If config file is not found creates empty file"""
+    for file_name in file_names:
+        if not os.path.exists(file_name):
+            logger.warning(f"File '{file_name}' not found! Creating an empty file.")
+            with open(file_name, "w") as f:
+                pass  # Creates an empty file
 
 
 def check_files(file_names: list) -> None:
@@ -104,13 +115,12 @@ def check_files(file_names: list) -> None:
     cwd = os.getcwd()
     for file_name in file_names:
         try:
-            logger.info(
-                f'Checking if required module file {file_name} exits in {cwd}')
-            file = open(file_name, 'r')
+            logger.info(f"Checking if required module file {file_name} exits in {cwd}")
+            file = open(file_name, "r")
         except IOError:
             logger.error(
-                f'There was an error opening the file '
-                f'{file_name} or file does not exist!'
+                f"There was an error opening the file "
+                f"{file_name} or file does not exist!"
             )
             sys.exit()
 
@@ -118,9 +128,9 @@ def check_files(file_names: list) -> None:
 def load_csv_to_df(csv_file_name: str):
     """reads csv file and returns pandas data frame"""
     cwd = os.getcwd()
-    logger.info(f'Loading {csv_file_name} from directory {cwd}')
+    logger.info(f"Loading {csv_file_name} from directory {cwd}")
     df = pd.read_csv(csv_file_name)
-    logger.info(f'Loaded {csv_file_name} file to pandas data frame in memory')
+    logger.info(f"Loaded {csv_file_name} file to pandas data frame in memory")
     return df
 
 
@@ -128,13 +138,12 @@ def extract_url_hashes_from_df(df_name) -> list:
     """exctracts from df url column links from all rows and
     from each link extracts uniq url hash"""
     url_hashes = []
-    urls = df_name['URL'].tolist()
+    urls = df_name["URL"].tolist()
     for full_url in urls:
         url_hash = extract_hash(full_url)
         url_hashes.append(url_hash)
-    logger.info(
-        f'Extracted {len(url_hashes)} url hashes from todays scraped data')
-    logger.info(f'Extracted {url_hashes} url hashes from todays scraped data')
+    logger.info(f"Extracted {len(url_hashes)} url hashes from todays scraped data")
+    logger.info(f"Extracted {url_hashes} url hashes from todays scraped data")
     return url_hashes
 
 
@@ -163,32 +172,31 @@ def extract_listed_url_hashes_from_db() -> list:
             row = cur.fetchone()
         cur.close()
     except (Exception, psycopg2.DatabaseError) as error:
-        logger.error(f'{error}')
+        logger.error(f"{error}")
     finally:
         if conn is not None:
             conn.close()
     clean_hashes = []
     for element in listed_db_hashes:
-        str_element = ''.join(element)
+        str_element = "".join(element)
         clean_element = str_element.replace("'", "").replace(")", "")
         clean_hash = clean_element.replace("(", "").replace(",", "")
         clean_hashes.append(clean_hash)
-    logger.info(
-        f'Extracted {len(clean_hashes)} hashes from database listed_ads table')
-    logger.info(f'Extracted clean hash count: {len(clean_hashes)}')
-    logger.info(f'Extracted clean hash list: {clean_hashes}')
+    logger.info(f"Extracted {len(clean_hashes)} hashes from database listed_ads table")
+    logger.info(f"Extracted clean hash count: {len(clean_hashes)}")
+    logger.info(f"Extracted clean hash list: {clean_hashes}")
     return clean_hashes
 
 
 def compare_df_to_db_hashes(df_hashes: list, db_hashes: list) -> list:
-    """ This should allow to conclude if hash is new, still seen, to_remove"""
+    """This should allow to conclude if hash is new, still seen, to_remove"""
     hash_categories = []
     new_ads = []
     existing_ads = []
     removed_ads = []
     logger.info(
-        f'Comparing {len(df_hashes)} todays scraped data hashes '
-        f'with {len(db_hashes)} DB listed_ads table hashes'
+        f"Comparing {len(df_hashes)} todays scraped data hashes "
+        f"with {len(db_hashes)} DB listed_ads table hashes"
     )
     for df_hash in df_hashes:
         if df_hash in db_hashes:
@@ -202,58 +210,55 @@ def compare_df_to_db_hashes(df_hashes: list, db_hashes: list) -> list:
     hash_categories.append(existing_ads)
     hash_categories.append(removed_ads)
     logger.info(
-        f'Result {len(new_ads)} new, {len(existing_ads)} still_listed, '
-        f'{len(removed_ads)} to_remove hashes '
+        f"Result {len(new_ads)} new, {len(existing_ads)} still_listed, "
+        f"{len(removed_ads)} to_remove hashes "
     )
     today = datetime.today()
-    formatted_date = today.strftime('%Y-%m-%d')
+    formatted_date = today.strftime("%Y-%m-%d")
     todays_result = (
-        f'{formatted_date} : TSA [A]: {len(df_hashes)} '
-        f'LA TBL [B]: {len(db_hashes)} AinB [C]: {len(existing_ads)} KLAT '
-        f'A notin B [D]: {len(new_ads)} NewAds, B notin A [E]: '
-        f'{len(removed_ads)} RM from LAT'
+        f"{formatted_date} : TSA [A]: {len(df_hashes)} "
+        f"LA TBL [B]: {len(db_hashes)} AinB [C]: {len(existing_ads)} KLAT "
+        f"A notin B [D]: {len(new_ads)} NewAds, B notin A [E]: "
+        f"{len(removed_ads)} RM from LAT"
     )
-    with open('scraped_and_removed.txt', 'a') as file:
-        file.write(todays_result + '\n')  # Add a newline for clarity
-    logger.info(f'New todays scraped hashes: {new_ads}')
-    logger.info(f'Hashes from DB listed_ads table: {existing_ads}')
-    logger.info(f'Hashes for DB removed_ads table: {removed_ads}')
+    with open("scraped_and_removed.txt", "a") as file:
+        file.write(todays_result + "\n")  # Add a newline for clarity
+    logger.info(f"New todays scraped hashes: {new_ads}")
+    logger.info(f"Hashes from DB listed_ads table: {existing_ads}")
+    logger.info(f"Hashes for DB removed_ads table: {removed_ads}")
     return hash_categories
 
 
 def extract_new_msg_data(df, new_msg_hashes: list) -> dict:
-    """ Extract data from df and return as dict hash:
-        (list column data for hash row)"""
+    """Extract data from df and return as dict hash:
+    (list column data for hash row)"""
     data_dict = {}
-    logger.info(
-        f'new_msg_hashes count {len(new_msg_hashes)}, hashes: {new_msg_hashes}')
-    logger.info(
-        'Starting extract new ads from todays scraped data farme in memory')
+    logger.info(f"new_msg_hashes count {len(new_msg_hashes)}, hashes: {new_msg_hashes}")
+    logger.info("Starting extract new ads from todays scraped data farme in memory")
     for hash_str in new_msg_hashes:
         for index, row in df.iterrows():
-            url = row['URL']
+            url = row["URL"]
             url_hash = extract_hash(url)
             row_data = []
-            row_data.append(row['Room_count'])
-            apt_and_house_floor = row['Floor']  # apt floor and housefloor: 3/4
+            row_data.append(row["Room_count"])
+            apt_and_house_floor = row["Floor"]  # apt floor and housefloor: 3/4
             floor_list = apt_and_house_floor.split("/", 1)
             row_data.append(floor_list[1])
             row_data.append(floor_list[0])
-            row_data.append(row['Price_in_eur'])
-            row_data.append(row['Size_sqm'])
-            row_data.append(row['SQ_meter_price'])
-            row_data.append(row['Street'])
-            pub_date = row['Pub_date']
+            row_data.append(row["Price_in_eur"])
+            row_data.append(row["Size_sqm"])
+            row_data.append(row["SQ_meter_price"])
+            row_data.append(row["Street"])
+            pub_date = row["Pub_date"]
             rotated_pub_date = rotate_date(pub_date)
             row_data.append(rotated_pub_date)
             days_count = get_days_listed_count(pub_date)
             row_data.append(days_count)
             if url_hash == hash_str:
                 data_dict[url_hash] = row_data
-    logger.info(
-        f'Extrcted new ad count from todays data frame {len(data_dict)} ')
+    logger.info(f"Extrcted new ad count from todays data frame {len(data_dict)} ")
     for k, v in data_dict.items():
-        logger.info(f'{k} {v}')
+        logger.info(f"{k} {v}")
     return data_dict
 
 
@@ -262,7 +267,7 @@ def get_days_listed_count(pub_date: str) -> int:
     today = datetime.now()
     listed = gen_listed_day_obj(pub_date)
     delta = str(today - listed)
-    days_num = delta.split('days')[0]
+    days_num = delta.split("days")[0]
     if len(days_num) > 5:  # should catch case when delta is less that 1 day
         return 0
     if len(days_num) < 5:  # assuming that listed day count will not exceed 999 days
@@ -293,10 +298,10 @@ def gen_removed_date() -> str:
 
 
 def insert_data_to_listed_table(data: dict) -> None:
-    """ insert data to database table """
+    """insert data to database table"""
     conn = None
     try:
-        logger.info(f'Inserting {len(data)} messages to listed_ads table')
+        logger.info(f"Inserting {len(data)} messages to listed_ads table")
         params = config()
         conn = psycopg2.connect(**params)
         cur = conn.cursor()
@@ -311,7 +316,8 @@ def insert_data_to_listed_table(data: dict) -> None:
             apt_address = v[6]
             list_date = v[7]
             days_listed = v[8]
-            cur.execute(""" INSERT INTO listed_ads
+            cur.execute(
+                """ INSERT INTO listed_ads
                   (url_hash,
                   room_count,
                   house_floors,
@@ -323,20 +329,23 @@ def insert_data_to_listed_table(data: dict) -> None:
                   list_date,
                   days_listed)
                   VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s) """,
-                        (url_hash,
-                         room_count,
-                         house_floors,
-                         apt_floor,
-                         price,
-                         sqm,
-                         sqm_price,
-                         apt_address,
-                         list_date,
-                         days_listed))
+                (
+                    url_hash,
+                    room_count,
+                    house_floors,
+                    apt_floor,
+                    price,
+                    sqm,
+                    sqm_price,
+                    apt_address,
+                    list_date,
+                    days_listed,
+                ),
+            )
         conn.commit()
         cur.close()
         for k, v in data.items():
-            logger.info(f'{k} {v}')
+            logger.info(f"{k} {v}")
     except (Exception, psycopg2.DatabaseError) as error:
         print(error)
     finally:
@@ -346,8 +355,8 @@ def insert_data_to_listed_table(data: dict) -> None:
 
 def extract_to_remove_msg_data(delisted_hashes: list) -> dict:
     """Filters data base table by delisted hashes column and
-        returns dict hash:[delisted message elements] for using
-        in to insert to removed_ads table"""
+    returns dict hash:[delisted message elements] for using
+    in to insert to removed_ads table"""
     delisted_mesages = {}
     conn = None
     try:
@@ -405,7 +414,7 @@ def extract_to_increment_msg_data(listed_url_hashes: list) -> list:
     conn = None
     to_increment_msg_data = {}
     try:
-        logger.info(f'Connecting to DB to fetch data from listed_ads table')
+        logger.info(f"Connecting to DB to fetch data from listed_ads table")
         params = config()
         conn = psycopg2.connect(**params)
         cur = conn.cursor()
@@ -430,9 +439,10 @@ def extract_to_increment_msg_data(listed_url_hashes: list) -> list:
                     to_increment_msg_data[curr_row_hash] = data_values
         cur.close()
         logger.info(
-            f'Extracted data from listed_ads table for {len(to_increment_msg_data)} messages')
+            f"Extracted data from listed_ads table for {len(to_increment_msg_data)} messages"
+        )
         for k, v in to_increment_msg_data.items():
-            logger.info(f'{k} {v}')
+            logger.info(f"{k} {v}")
     except (Exception, psycopg2.DatabaseError) as error:
         print(error)
     finally:
@@ -443,10 +453,10 @@ def extract_to_increment_msg_data(listed_url_hashes: list) -> list:
 
 def insert_data_to_removed_table(data: dict) -> None:
     """function takes as input to_remove_msg_data dict and inserts
-    to database removed_ads table """
+    to database removed_ads table"""
     conn = None
     try:
-        logger.info(f'Inserting {len(data)} messages to removed_ads table')
+        logger.info(f"Inserting {len(data)} messages to removed_ads table")
         params = config()
         conn = psycopg2.connect(**params)
         cur = conn.cursor()
@@ -462,7 +472,8 @@ def insert_data_to_removed_table(data: dict) -> None:
             listed_date = value[7]
             removed_date = value[8]
             days_listed = value[9]
-            cur.execute(""" INSERT INTO removed_ads
+            cur.execute(
+                """ INSERT INTO removed_ads
                   (url_hash,
                   room_count,
                   house_floors,
@@ -475,21 +486,24 @@ def insert_data_to_removed_table(data: dict) -> None:
                   removed_date,
                   days_listed)
                   VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s) """,
-                        (url_hash,
-                         room_count,
-                         house_floors,
-                         apt_floor,
-                         price,
-                         sqm,
-                         sqm_price,
-                         apt_address,
-                         listed_date,
-                         removed_date,
-                         days_listed))
+                (
+                    url_hash,
+                    room_count,
+                    house_floors,
+                    apt_floor,
+                    price,
+                    sqm,
+                    sqm_price,
+                    apt_address,
+                    listed_date,
+                    removed_date,
+                    days_listed,
+                ),
+            )
         conn.commit()
         cur.close()
         for k, v in data.items():
-            logger.info(f'{k} {v}')
+            logger.info(f"{k} {v}")
     except (Exception, psycopg2.DatabaseError) as error:
         logger.error(error)
         print(error)
@@ -503,7 +517,8 @@ def delete_db_listed_table_rows(delisted_hashes: list) -> None:
     conn = None
     try:
         logger.info(
-            f'Deleting {len(delisted_hashes)} removed messages from listed_ads table')
+            f"Deleting {len(delisted_hashes)} removed messages from listed_ads table"
+        )
         params = config()
         conn = psycopg2.connect(**params)
         cur = conn.cursor()
@@ -514,8 +529,7 @@ def delete_db_listed_table_rows(delisted_hashes: list) -> None:
             cur.execute(full_cmd)
         conn.commit()
         cur.close()
-        logger.info(
-            f'Deleted ads with hashes: {delisted_hashes} from listed_ads table')
+        logger.info(f"Deleted ads with hashes: {delisted_hashes} from listed_ads table")
     except (Exception, psycopg2.DatabaseError) as error:
         print(error)
     finally:
@@ -524,7 +538,7 @@ def delete_db_listed_table_rows(delisted_hashes: list) -> None:
 
 
 def update_dlv_in_db_table(data: dict, todays_date: datetime) -> None:
-    """ Validates if dlv(days_listed value) is not correct then updates
+    """Validates if dlv(days_listed value) is not correct then updates
 
     Iterate over list of dicts and calculate correct dlv
     and check if dlv is correct in context of todays_date.
@@ -541,16 +555,17 @@ def update_dlv_in_db_table(data: dict, todays_date: datetime) -> None:
             if correct_dlv > days_listed:
                 update_single_column_value("listed_ads", correct_dlv, ad_hash)
                 dlv_count += 1
-                logger.info(f'Updated dlv value for {ad_hash} {ad_data} item')
+                logger.info(f"Updated dlv value for {ad_hash} {ad_data} item")
             if correct_dlv == days_listed:
                 pass
-    logger.info(
-        f'Updated days_listed value for {dlv_count} ads in listed_ads table')
+    logger.info(f"Updated days_listed value for {dlv_count} ads in listed_ads table")
 
     if data is None:
-        logger.error("Failed to update dlv values:"
-                     " possibly listed_ads table is empty"
-                     " or DB was not imported")
+        logger.error(
+            "Failed to update dlv values:"
+            " possibly listed_ads table is empty"
+            " or DB was not imported"
+        )
 
 
 def calc_valid_dlv(pub_date: str, todays_date: datetime) -> int:
@@ -580,9 +595,11 @@ def update_single_column_value(table_name: str, dlv: int, url_hash: str) -> None
         params = config()
         conn = psycopg2.connect(**params)
         cur = conn.cursor()
-        sql = (f"UPDATE {table_name} "
-               f"SET days_listed = {dlv} "
-               f"WHERE url_hash = '{url_hash}' ;")
+        sql = (
+            f"UPDATE {table_name} "
+            f"SET days_listed = {dlv} "
+            f"WHERE url_hash = '{url_hash}' ;"
+        )
         cur.execute(sql)
         conn.commit()
         cur.close()
@@ -600,8 +617,7 @@ def list_rows_in_listed_table() -> None:
         params = config()
         conn = psycopg2.connect(**params)
         cur = conn.cursor()
-        cur.execute(
-            "SELECT * FROM listed_ads WHERE price < 500000 ORDER BY price")
+        cur.execute("SELECT * FROM listed_ads WHERE price < 500000 ORDER BY price")
         print("The number of ads in listed_ads table: ", cur.rowcount)
         row = cur.fetchone()
         while row is not None:
@@ -623,9 +639,8 @@ def list_rows_in_removed_table() -> int:
         params = config()
         conn = psycopg2.connect(**params)
         cur = conn.cursor()
-        cur.execute(
-            "SELECT * FROM removed_ads WHERE price < 500000 ORDER BY price")
-        logger.info(f'The number of ads in delisted_ads table: {cur.rowcount}')
+        cur.execute("SELECT * FROM removed_ads WHERE price < 500000 ORDER BY price")
+        logger.info(f"The number of ads in delisted_ads table: {cur.rowcount}")
         # add_count = int(cur.rowcount)
         # row = cur.fetchone()
         # while row is not None:
