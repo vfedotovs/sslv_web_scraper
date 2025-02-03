@@ -42,14 +42,14 @@ from app.wsmodules.config import config
 
 logger = logging.getLogger("db_worker")
 logger.setLevel(logging.INFO)
-fh = logging.handlers.RotatingFileHandler(
-    "dbworker.log", maxBytes=1000000, backupCount=10
+log_format = logging.Formatter(
+    "%(asctime)s [%(levelname)-5.5s]: %(funcName)s: %(lineno)d: %(message)s"
 )
-fh.setLevel(logging.INFO)
-formatter = logging.Formatter(
-    "%(asctime)s: %(name)s: %(levelname)s: %(funcName)s: %(lineno)d: %(message)s"
-)
-fh.setFormatter(formatter)
+ch = logging.StreamHandler(sys.stdout)
+ch.setFormatter(log_format)
+logger.addHandler(ch)
+fh = handlers.RotatingFileHandler("dbworker.log", maxBytes=(1048576 * 5), backupCount=7)
+fh.setFormatter(log_format)
 logger.addHandler(fh)
 
 
