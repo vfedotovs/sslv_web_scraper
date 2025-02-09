@@ -28,7 +28,7 @@ jobs:
                 mkdir $folder_name && cd $folder_name && \
                 git clone https://github.com/vfedotovs/sslv_web_scraper.git . && pwd && \
                 git switch dev-1.5.8 && ls -la && \
-                source ./scripts/load_secerts.sh && \
+                source ./scripts/load_secrets.sh && \
                 make ec2_setup && \
                 make ec2_build && \
                 make ec2_up && \
