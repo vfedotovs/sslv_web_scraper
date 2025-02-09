@@ -1,21 +1,25 @@
 # Setup before start development or local deploy
 
+OS := $(shell uname -s)
+ARCH := $(shell uname -m)
+
+ifeq ($(OS), Darwin)
+    ifeq ($(ARCH), x86_64)
+        default: setup build up down
+    else
+        default: ec2_setup ec2_build ec2_up ec2_down
+    endif
+else
+    default: ec2_setup ec2_build ec2_up ec2_down
+endif
+
+
+
+
 # Define the precheck function
 precheck:
-	@if [ -z "$(AWS_ACCESS_KEY_ID)" ]; then \
-		echo "Error: AWS_ACCESS_KEY_ID is not exported."; \
-		exit 1; \
-	fi
-	@if [ -z "$(AWS_SECRET_ACCESS_KEY)" ]; then \
-		echo "Error: AWS_SECRET_ACCESS_KEY is not exported."; \
-		exit 1; \
-	fi
 	@if [ -z "$(S3_BACKUP_BUCKET)" ]; then \
 		echo "Error: S3_BACKUP_BUCKET is not not exported."; \
-		exit 1; \
-	fi
-	@if [ -z "$(RELEASE_VERSION)" ]; then \
-		echo "Error: RELEASE_VERSION is not not exported."; \
 		exit 1; \
 	fi
 		@if [ -z "$(SENDGRID_API_KEY)" ]; then \
@@ -23,20 +27,14 @@ precheck:
 		exit 1; \
 	fi
 
-
-
 PG_CONTAINER_NAME := `docker ps | grep db-1 | awk '{print $$NF }'`
 S3_BACKUP_BUCKET := `env | grep S3_BUCKET`
 
 .DEFAULT_GOAL := help
-
 .PHONY: precheck build
-
-
 
 help:  ## 💬 This help message
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "\033[36m%-20s\033[0m %s\n", $$1, $$2}'
-
 
 all: setup build up ## runs setup, build and up targets
 
@@ -49,17 +47,40 @@ setup: precheck ## gets database.ini and .env.prod and dowloads last DB bacukp f
 	cp *.sql src/db/
 	ls -lh src/db/ | grep sql
 
+ec2_setup: precheck ## runs ec2 instance setup
+	@echo "Started EC2 setup..."
+	@echo "Loading secrets from AWS Secrets Manager..."
+	. ./scripts/load_secrets.sh
+	cp database.ini src/ws/
+	@echo "Downloading Postgres DB backup from $(S3_BACKUP_BUCKET)..."
+	bash scripts/get_last_s3_file.sh
+	@echo "Copying DB backup file to src/db/..."
+	cp *.sql src/db/
+	@echo "Setup will use following backup file..."
+	ls -lh src/db/ | grep sql
+	@echo "Completed EC2 setup..."
+
 
 build: ## builds all containers 
+	@docker compose --env-file .env.prod build db
+	@docker compose --env-file .env.prod build ts
+	@docker compose --env-file .env.prod build ws
+
+ec2_build: ## builds all containers on ec2
 	@docker-compose --env-file .env.prod build db
 	@docker-compose --env-file .env.prod build ts
 	@docker-compose --env-file .env.prod build ws
-	@docker-compose --env-file .env.prod build web
 
 up: ## starts all containers
+	docker compose --env-file .env.prod up -d
+
+ec2_up: ## starts all containers on ec2
 	docker-compose --env-file .env.prod up -d
 
 down: ## stops all containers
+	docker compose --env-file .env.prod down
+
+ec2_down: ## stops all containers on ec2
 	docker-compose --env-file .env.prod down
 
 clean: ## removes setup and DB files and folders
@@ -67,6 +88,7 @@ clean: ## removes setup and DB files and folders
 	rm ./src/ws/database.ini
 	rm *.sql
 	rm ./src/db/pg_backup_*.sql
+	bash ./rm_images.sh
 
 fetch_dump_example: # Example of fetch specific date DB dump file form S3 bucket
 	@echo "make fetch_dump DB_BACKUP_DATE=2022_11_05"
@@ -92,27 +114,9 @@ test_cov: precheck ## Runs pytest coverage report across project
 build_ts: # Building task_scheduler container
 	@docker build src/ts -t sslv-dev-ts --file src/ts/Dockerfile
 
-push_ts: # Tagging and pushing ts to AWS ECR
-	@aws ecr get-login-password --region eu-west-1 | docker login --username AWS --password-stdin $(TS_IMAGE_REPO)
-	@docker tag sslv-dev-ts:latest $(TS_IMAGE_REPO)/sslv-dev-ts:latest
-	@docker push $(TS_IMAGE_REPO)/sslv-dev-ts:latest
-
 build_db: # Building db container
 	@docker build src/db -t sslv-dev-db --file src/db/Dockerfile
-
-push_db: # Tagging and pushing db container to AWS ECR
-	@aws ecr get-login-password --region eu-west-1 | docker login --username AWS --password-stdin $(TS_IMAGE_REPO)
-	@docker tag sslv-dev-db:latest $(TS_IMAGE_REPO)/sslv-dev-db:latest
-	@docker push $(TS_IMAGE_REPO)/sslv-dev-db:latest
 
 build_ws: # Building web_scraper container
 	@docker build src/ws -t sslv-dev-ws --file src/ws/Dockerfile
 
-push_ws: # Tagging and pushing ws container to AWS ECR
-	@aws ecr get-login-password --region eu-west-1 | docker login --username AWS --password-stdin $(TS_IMAGE_REPO)
-	@docker tag sslv-dev-ws:latest $(TS_IMAGE_REPO)/sslv-dev-ws:latest
-	@docker push $(TS_IMAGE_REPO)/sslv-dev-ws:latest
-
-
-deploy: # Deploying app to AWS EC2 ...(not implemented)
-	echo "Deploying app to AWS EC2 ...(not implemented)"

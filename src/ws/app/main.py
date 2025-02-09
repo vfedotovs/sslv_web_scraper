@@ -81,6 +81,7 @@ async def run_long_task(city: str):
         pdf_creator_main()
         log.info("Running sendgrid_mailer task: using cloud ws file")
         sendgrid_mailer_main()
+        log.info("Completed /run-task/ogre using AWS lambda raw-data file")
         return {
             "message": "FAST_API: scrape Ogre city apartments"
                        " task using cloud ws file run completed"

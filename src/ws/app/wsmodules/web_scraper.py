@@ -124,22 +124,21 @@ def extract_data_from_url(nondup_urls: list, dest_file: str) -> None:
         logger.info("Started scraping data from message URL %s" , str(i + 1))
         table_opt_names = get_msg_table_data(nondup_urls[i], "ads_opt_name")
         if table_opt_names:
-            logger.info(f"Successfully retrieved data from {nondup_urls[i]} ads_opt_name table")
+            pass
         else:
             logger.warning(f"Skipping {nondup_urls[i]} due to repeated connection failures.")
         time.sleep(1)
         table_opt_values = get_msg_table_data(nondup_urls[i], "ads_opt")
         if table_opt_values:
-            logger.info(f"Successfully retrieved data from {nondup_urls[i]} ads_opt table")
+            pass
         else:
             logger.warning(f"Skipping {nondup_urls[i]} due to repeated connection failures.")
         time.sleep(1)
         table_price = get_msg_table_data(nondup_urls[i], "ads_price")
         if table_price:
-            logger.info(f"Successfully retrieved data from {nondup_urls[i]} ads_price table")
+            pass
         else:
             logger.warning(f"Skipping {nondup_urls[i]} due to repeated connection failures.")
-
         try:
             write_line(current_msg_url, dest_file)
             for idx in range(len(table_opt_names) - 1):
@@ -159,13 +158,12 @@ def extract_data_from_url(nondup_urls: list, dest_file: str) -> None:
         except (TypeError, IndexError) as e:
             logging.error(f"Error writing data from {current_msg_url} to file: {e}")
 
-
         price_line = "Price:>" + table_price[0] + "\n"
 
         time.sleep(1)
         table_date = get_msg_table_data(nondup_urls[i], "msg_footer")
         if table_date:
-            logger.info(f"Successfully retrieved data from {nondup_urls[i]} msg_footer table")
+            pass
         else:
             logger.warning(f"Skipping {nondup_urls[i]} due to repeated connection failures.")
 
@@ -179,13 +177,7 @@ def extract_data_from_url(nondup_urls: list, dest_file: str) -> None:
             write_line(date_field, dest_file)
         except TypeError as e:
             logger.error(f"Error writing data from {current_msg_url} to file : {e}")
-
         time.sleep(3)
-
-        # TODO: Fix-me Extract message view count always returns view count = 1
-        # views = get_msg_field_info(nondup_urls[i], "show_cnt_stat")
-        # view_count =  "views:>" + str(views) + "\n"
-        # write_line(view_count, dest_file)
 
 
 def get_bs_object(page_url: str):
@@ -241,7 +233,8 @@ def get_msg_table_info(msg_url: str, td_class: str) -> list:
         tostr = str(data)
         no_front = tostr.split('">', 1)[1]
         name = no_front.split("</", 1)[0]
-        table_fields.append(name)
+        clean_name = name.replace('\t', '').replace('\r', '').replace('\n', '')
+        table_fields.append(clean_name)
     return table_fields
 
 
@@ -270,7 +263,8 @@ def get_msg_table_data(msg_url: str, td_class: str, retries=3, backoff_factor=0.
                 tostr = str(data)
                 no_front = tostr.split('">', 1)[1]
                 name = no_front.split("</", 1)[0]
-                table_fields.append(name)
+                clean_name = name.replace('\t', '').replace('\r', '').replace('\n', '')
+                table_fields.append(clean_name)
             return table_fields
         except ConnectionError as e:
             logging.error(f"ConnectionError: {e}, retrying in {backoff_factor * (2 ** attempt)} seconds...")
