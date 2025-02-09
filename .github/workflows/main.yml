@@ -1,4 +1,4 @@
-name: CI-main
+name: webscraper-cd-main
 
 on:
   workflow_dispatch:  # Allows manual trigger from GitHub UI or API
