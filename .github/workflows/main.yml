@@ -2,6 +2,11 @@ name: webscraper-cd-main
 
 on:
   workflow_dispatch:  # Allows manual trigger from GitHub UI or API
+  push:
+    branches:
+      - main  # Runs only when changes are pushed to the main branch
+    paths:
+      - '**.py'  # Triggers only if any Python file changes
 
 jobs:
   Deploy:
