@@ -27,6 +27,24 @@ precheck:
 		exit 1; \
 	fi
 
+ec2_precheck:
+	@echo "To run ec2_setup S3_BUCKET and SENDGRID_API_KEY must be exported"
+	@echo "Checking if S3_BACKUP_BUCKET env is exported..."
+	@if [ -z "$$S3_BUCKET" ]; then \
+		echo "[Fail]: S3_BUCKET is not exported."; \
+		exit 1; \
+	else \
+		echo "[Pass]: S3_BUCKET is exported."; \
+	fi
+	@echo "Checking if SENDGRID_API_KEY env is exported..."
+	@if [ -z "$$SENDGRID_API_KEY" ]; then \
+		echo "[Fail]: SENDGRID_API_KEY is not exported."; \
+		exit 1; \
+	else \
+		echo "[Pass]: SENDGRID_API_KEY is exported."; \
+	fi
+
+
 PG_CONTAINER_NAME := `docker ps | grep db-1 | awk '{print $$NF }'`
 S3_BACKUP_BUCKET := `env | grep S3_BUCKET`
 
