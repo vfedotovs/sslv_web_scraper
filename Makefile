@@ -28,20 +28,21 @@ precheck:
 	fi
 
 ec2_precheck:
-	@echo "To run ec2_setup S3_BUCKET and SENDGRID_API_KEY must be exported"
-	@echo "Checking if S3_BACKUP_BUCKET env is exported..."
+	@echo "Loading envs from AWS Secrets Manager..."
+	. ./scripts/set_s3_env_from_aws_sm.sh 
 	@if [ -z "$$S3_BUCKET" ]; then \
-		echo "[Fail]: S3_BUCKET is not exported."; \
+		echo "[Fail] S3_BUCKET is not exported."; \
+		echo "To set env run source scripts/set_s3_env_from_aws_sm.sh"; \
 		exit 1; \
 	else \
-		echo "[Pass]: S3_BUCKET is exported."; \
+		echo "[Pass] S3_BUCKET is exported."; \
 	fi
-	@echo "Checking if SENDGRID_API_KEY env is exported..."
 	@if [ -z "$$SENDGRID_API_KEY" ]; then \
-		echo "[Fail]: SENDGRID_API_KEY is not exported."; \
+		echo "[Fail] SENDGRID_API_KEY is not exported."; \
+		echo "To set env run source scripts/set_s3_env_from_aws_sm.sh"; \
 		exit 1; \
 	else \
-		echo "[Pass]: SENDGRID_API_KEY is exported."; \
+		echo "[Pass] SENDGRID_API_KEY is exported."; \
 	fi
 
 
@@ -65,7 +66,7 @@ setup: precheck ## gets database.ini and .env.prod and dowloads last DB bacukp f
 	cp *.sql src/db/
 	ls -lh src/db/ | grep sql
 
-ec2_setup: precheck ## runs ec2 instance setup
+ec2_setup: ec2_precheck ## runs ec2 instance setup
 	@echo "Started EC2 setup..."
 	@echo "Loading secrets from AWS Secrets Manager..."
 	. ./scripts/load_secrets.sh
