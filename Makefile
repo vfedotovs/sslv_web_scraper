@@ -14,26 +14,6 @@ else
 endif
 
 
-# Define the precheck function
-precheck:
-	@echo "Checking if env S3_BUCKET is exported...";
-	@if [ -z "$(S3_BACKUP_BUCKET)" ]; then \
-		echo "Error: S3_BUCKET is not not exported."; \
-		echo "Load envs from AWS Secrets manager with:"; \
-		echo "source scripts/load_secrets.sh"; \
-		echo "Alternatively export manually:"; \
-		exit 1; \
-	fi
-		@echo "[OK] env S3_BUCKET is exported...";
-		@echo "Checking if env SENDGRID_API_KEY is exported...";
-		@if [ -z "$(SENDGRID_API_KEY)" ]; then \
-		echo "Error: SENDGRID_API_KEY is not not exported."; \
-		echo "Load envs from AWS Secrets manager with:"; \
-		echo "source scripts/load_secrets.sh"; \
-		echo "Alternatively export manually:"; \
-		exit 1; \
-	fi
-	@echo "[OK] env SENDGRID_API_KEY is exported...";
 
 ec2_precheck:
 	@echo "Loading envs from AWS Secrets Manager..."
@@ -63,18 +43,29 @@ S3_BACKUP_BUCKET := `env | grep S3_BUCKET`
 help:  ## 💬 This help message
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "\033[36m%-20s\033[0m %s\n", $$1, $$2}'
 
-all: setup build up ## runs setup, build and up targets
+# Define the precheck function
+precheck:  ## checks if required exports are present 
+	@echo "Checking if env S3_BUCKET is exported...";
+	@if [ -z "$(S3_BACKUP_BUCKET)" ]; then \
+		echo "Error: S3_BUCKET is not not exported."; \
+		echo "Load envs from AWS Secrets manager with:"; \
+		echo "source scripts/load_secrets.sh"; \
+		echo "Alternatively export manually:"; \
+		exit 1; \
+	fi
+		@echo "[OK] env S3_BUCKET is exported...";
+		@echo "Checking if env SENDGRID_API_KEY is exported...";
+		@if [ -z "$(SENDGRID_API_KEY)" ]; then \
+		echo "Error: SENDGRID_API_KEY is not not exported."; \
+		echo "Load envs from AWS Secrets manager with:"; \
+		echo "source scripts/load_secrets.sh"; \
+		echo "Alternatively export manually:"; \
+		exit 1; \
+	fi
+	@echo "[OK] env SENDGRID_API_KEY is exported...";
 
-setup: precheck ## gets database.ini and .env.prod and dowloads last DB bacukp file
-	@echo "Copying env files from home folder..."
-	cp ~/sslv_envs/.env.prod .
-	cp ~/sslv_envs/database.ini src/ws/
-	@echo "Downloading DB backup file from $(S3_BACKUP_BUCKET)..."
-	python3.11 src/db/get_last_db_backup.py
-	cp *.sql src/db/
-	ls -lh src/db/ | grep sql
-
-ec2_setup: ec2_precheck ## runs ec2 instance setup
+setup: ec2_precheck  ## loads secrets and pulls DB backup file
+	## loads secrets, downloads DB backup from AWS S3
 	@echo "Started EC2 setup..."
 	@echo "Loading secrets from AWS Secrets Manager..."
 	. ./scripts/load_secrets.sh
@@ -85,32 +76,23 @@ ec2_setup: ec2_precheck ## runs ec2 instance setup
 	cp *.sql src/db/
 	@echo "Setup will use following backup file..."
 	ls -lh src/db/ | grep sql
-	@echo "Completed EC2 setup..."
+	@echo "[OK] Seetup is completed..."
 
 
-build: ## builds all containers 
-	@docker compose --env-file .env.prod build db
-	@docker compose --env-file .env.prod build ts
-	@docker compose --env-file .env.prod build ws
-
-ec2_build: ## builds all containers on ec2
+build:  ## builds all containers (ts, ws, db)
 	@docker-compose --env-file .env.prod build db
 	@docker-compose --env-file .env.prod build ts
 	@docker-compose --env-file .env.prod build ws
 
-up: ## starts all containers
-	docker compose --env-file .env.prod up -d
 
-ec2_up: ## starts all containers on ec2
+up:  ## starts all containers
 	docker-compose --env-file .env.prod up -d
 
-down: ## stops all containers
-	docker compose --env-file .env.prod down
 
-ec2_down: ## stops all containers on ec2
+down:  ## stops all containers
 	docker-compose --env-file .env.prod down
 
-clean: ## removes setup and DB files and folders
+clean:  ## removes setup and DB files and folders
 	rm .env.prod
 	rm ./src/ws/database.ini
 	rm *.sql
@@ -132,18 +114,10 @@ fetch_last_db_dump: # Fetches last Postgres DB dump from AWS S3 bucket
 lt: ## Lists tables sizes to test if DB dump was restored correctly 
 	@docker exec $(PG_CONTAINER_NAME) psql -U new_docker_user -d new_docker_db -c '\dt+'
 
-test: precheck ## Runs pytests locally
+test: precheck ## Runs pytests locally (Not implemented)
 	pytest -v
 
-test_cov: precheck ## Runs pytest coverage report across project
+test_cov: precheck ## Runs pytest coverage (Not implemented)
 	pytest --cov=.
 
-build_ts: # Building task_scheduler container
-	@docker build src/ts -t sslv-dev-ts --file src/ts/Dockerfile
-
-build_db: # Building db container
-	@docker build src/db -t sslv-dev-db --file src/db/Dockerfile
-
-build_ws: # Building web_scraper container
-	@docker build src/ws -t sslv-dev-ws --file src/ws/Dockerfile
 
