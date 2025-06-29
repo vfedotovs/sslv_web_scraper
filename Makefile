@@ -14,18 +14,26 @@ else
 endif
 
 
-
-
 # Define the precheck function
 precheck:
+	@echo "Checking if env S3_BUCKET is exported...";
 	@if [ -z "$(S3_BACKUP_BUCKET)" ]; then \
-		echo "Error: S3_BACKUP_BUCKET is not not exported."; \
+		echo "Error: S3_BUCKET is not not exported."; \
+		echo "Load envs from AWS Secrets manager with:"; \
+		echo "source scripts/load_secrets.sh"; \
+		echo "Alternatively export manually:"; \
 		exit 1; \
 	fi
+		@echo "[OK] env S3_BUCKET is exported...";
+		@echo "Checking if env SENDGRID_API_KEY is exported...";
 		@if [ -z "$(SENDGRID_API_KEY)" ]; then \
 		echo "Error: SENDGRID_API_KEY is not not exported."; \
+		echo "Load envs from AWS Secrets manager with:"; \
+		echo "source scripts/load_secrets.sh"; \
+		echo "Alternatively export manually:"; \
 		exit 1; \
 	fi
+	@echo "[OK] env SENDGRID_API_KEY is exported...";
 
 ec2_precheck:
 	@echo "Loading envs from AWS Secrets Manager..."
