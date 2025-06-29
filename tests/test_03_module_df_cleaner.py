@@ -21,3 +21,5 @@
 #     expected_output = pd.DataFrame({"SQ_M_EUR": ["", "", ""],
 #                                     "Price_in_eur": ["", "", ""]})
 #     assert split_price_column(df).equals(expected_output)
+
+#     REMOVE THIS: line added to trigger CICD
