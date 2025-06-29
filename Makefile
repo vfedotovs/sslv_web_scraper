@@ -90,7 +90,7 @@ up:  ## starts all containers
 
 
 down:  ## stops all containers
-	docker-compose --env-file .env.prod down
+	docker-compose --env-file .env.prod down -v   # removes volumes (clears old PGDATA)
 
 clean:  ## removes setup and DB files and folders
 	rm .env.prod
