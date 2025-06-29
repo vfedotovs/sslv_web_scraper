@@ -1,4 +1,4 @@
-name: webscraper-cd-main
+name: Deploy on main
 
 on:
   workflow_dispatch:  # Allows manual trigger from GitHub UI or API
@@ -34,9 +34,9 @@ jobs:
                 git clone https://github.com/vfedotovs/sslv_web_scraper.git . && pwd && \
                 ls -la && \
                 source ./scripts/load_secrets.sh && \
-                make ec2_setup && \
-                make ec2_build && \
-                make ec2_up && \
+                make setup && \
+                make build && \
+                make up && \
                 sleep 15 && \
                 docker ps
                 '
