@@ -6,7 +6,6 @@ pandas
 sendgrid
 psycopg2-binary
 matplotlib 
-fpdf 
 plotly
 boto3
 tabulate
