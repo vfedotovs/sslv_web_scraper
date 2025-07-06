@@ -75,7 +75,7 @@ def gen_debug_subject() -> str:
     Example of subject:
     Ogre City Apartments for sale from ss.lv webscraper v1.4.8 20221001_1019"""
     log.info("Generating email subject with todays date")
-    release = "1.5.8"
+    release = "1.5.10"
     # RELEASE_VERSION = os.environ['RELEASE_VERSION']
     now = datetime.now()
     email_created = now.strftime("%Y%m%d_%H%M")
@@ -156,48 +156,20 @@ def sendgrid_mailer_main() -> None:
         subject=debug_subject,
         plain_text_content=final_mail_body)
 
-    log.info("Checking if file Ogre_city_report.pdf exists")
-    report_file_exists = os.path.exists('Ogre_city_report.pdf')
-    if report_file_exists:
-        log.info("Found Ogre_city_report.pdf file")
-        file_path = 'Ogre_city_report.pdf'
-        with open(file_path, 'rb') as file_object:
-            log.info("Reading Ogre_city_report.pdf file as binary")
-            data = file_object.read()
-            file_object.close()
-
-        # Encodes data with base64 for email attachment
-        log.info("Encoding binary data with base64 ")
-        encoded_file = base64.b64encode(data).decode()
-
-        # Creates instance of Attachment object
-        attached_file = Attachment(
-            file_content=FileContent(encoded_file),
-            file_type=FileType('application/pdf'),
-            file_name=FileName('Ogre_city_report.pdf'),
-            disposition=Disposition('attachment'),
-            content_id=ContentId('Example Content ID'))
-
-        # Calls attachment method for message instance
-        log.info("Attaching encoded data to email object")
-        message.attachment = attached_file
-        try:
-            sendgrid_client = SendGridAPIClient(os.environ.get('SENDGRID_API_KEY'))
-            log.info("Trying to send email via Sendgrid API...")
-            response = sendgrid_client.send(message)
-            log.info(f"Email was sent with with response code: {response.status_code}")
-            # Uncoment lines below for debugging
-            # log.info(" --- Email response body --- ")
-            # log.info(f" {response.body} ")
-            # log.info(" --- Email response headers --- ")
-            # log.info(f" {response.headers}")
-            log.info(" --- End sendgrid_mailer module with success --- ")
-        except Exception as e:
-            log.error(f"{e.message}")
-            log.error(" --- End sendgrid_mailer module with error email was not sent --- ")
-    else:
-        log.error("FileNotFoundError: Ogre_city_report.pdf was not found ")
-        log.error(" --- End sendgrid_mailer module with failure email was not sent --- ")
+    try:
+        sendgrid_client = SendGridAPIClient(os.environ.get('SENDGRID_API_KEY'))
+        log.info("Trying to send email via Sendgrid API...")
+        response = sendgrid_client.send(message)
+        log.info(f"Email was sent with with response code: {response.status_code}")
+        # Uncomment lines below for debugging
+        # log.info(" --- Email response body --- ")
+        # log.info(f" {response.body} ")
+        # log.info(" --- Email response headers --- ")
+        # log.info(f" {response.headers}")
+        log.info(" --- End sendgrid_mailer module with success --- ")
+    except Exception as e:
+        log.error(f"{e}")
+        log.error(" --- End sendgrid_mailer module with error email was not sent --- ")
 
     remove_tmp_files(data_files)
 
