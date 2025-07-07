@@ -1,0 +1,13 @@
+all:
+  hosts:
+    ec2:
+      ansible_host: <EC2_IP>
+      ansible_user: ec2-user      # Default user for Amazon Linux
+      ansible_ssh_private_key_file: ~/.ssh/aws-keys/<YOUR_KEY_PAIR_NAME>.pem
+
+      ansible_python_interpreter: /usr/bin/python3
+  vars:
+    s3_bucket_name: <S3_BUCKET_NAME>
+    aws_access_key_id: <YOUR_KEY>
+    aws_secret_access_key: <YOUR_KEY>
+
