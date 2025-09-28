@@ -50,14 +50,7 @@ data_files = [
     "basic_price_stats.txt",
     "email_body_add_dates_table.txt",
     "1_rooms_tmp.txt",
-    "1-4_rooms.png",
-    "1_rooms.png",
-    "2_rooms.png",
-    "3_rooms.png",
-    "4_rooms.png",
-    "test.png",
     "mrv2.txt",
-    "Ogre_city_report.pdf",
 ]
 
 
@@ -140,16 +133,29 @@ def aws_mailer_main():
     RECIPIENT = "info@propertydata.lv"
     AWS_REGION = "eu-west-1"  # e.g., Ireland
     SUBJECT = gen_subject_title()
-    BODY_TEXT = "Report email:"
-    BODY_HTML = extract_file_contents("email_body_txt_m4.txt")
+    # TEXT_SECTION_URLS = extract_file_contents("email_body_txt_m4.txt")
 
-    # BODY_HTML = """<html>
-    # <head></head>
-    # <body>
-    #   <p>This report email was automatically sent using <b>Amazon SES</b> with Python and Boto3.</p>
-    # </body>
-    # </html>
-    # """
+    with open("email_body_txt_m4.txt_orig", "r", encoding="utf-8") as f:
+        BODY_TEXT = f.read()
+
+    # List the files you want to append in order
+    extra_files = [
+        "basic_price_stats.txt",
+        "email_body_add_dates_table.txt",
+        "scraped_and_removed.txt",
+    ]
+
+    # Append contents of each file
+    for filename in extra_files:
+        try:
+            with open(filename, "r", encoding="utf-8") as ef:
+                BODY_TEXT += "\n\n" + ef.read()
+            log.info(f"Appended contents of {filename} to BODY_TXT")
+        except FileNotFoundError:
+            log.warning(f"Missing file: {filename} — continuing without it.")
+
+    log.info(f"--- Final email body length: {len(BODY_TEXT)} ")
+
     CHARSET = "UTF-8"
 
     log.info("Creating AWS SES clinet using boto3 ")
@@ -165,10 +171,6 @@ def aws_mailer_main():
             },
             Message={
                 "Body": {
-                    "Html": {
-                        "Charset": CHARSET,
-                        "Data": BODY_HTML,
-                    },
                     "Text": {
                         "Charset": CHARSET,
                         "Data": BODY_TEXT,
