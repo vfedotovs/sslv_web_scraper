@@ -1,10 +1,28 @@
 #!/usr/bin/env python3
 
+"""aws_mailer.py module
+
+Main usage case for this module:
+    1. Send email using AWS SES service
+    3. Add ad oneline information about each apartment in email body
+    4. Use environemt varibales for source/destination email and API key
+
+Tasks:
+[x] task 01 - test email is getting sent with success
+[x] task 02 - tmp files are deleted after email sent functionality
+[x] task 03 - dynamic email title functionality (city name, version, deploy date)
+[ ] task 04 - email body contains adverts data for 1-6 room categories
+[ ] task 05 - email body contains medatada/debug info
+
+"""
+
 import boto3
 from botocore.exceptions import ClientError
+from datetime import datetime
 import logging
 from logging import handlers
 import sys
+import os
 from logging.handlers import RotatingFileHandler
 
 
@@ -23,6 +41,55 @@ fh.setFormatter(fa_log_format)
 log.addHandler(fh)
 
 
+data_files = [
+    "email_body_txt_m4.txt",
+    "Mailer_report.txt",
+    "Ogre-raw-data-report.txt",
+    "cleaned-sorted-df.csv",
+    "pandas_df.csv",
+    "basic_price_stats.txt",
+    "email_body_add_dates_table.txt",
+    "1_rooms_tmp.txt",
+    "1-4_rooms.png",
+    "1_rooms.png",
+    "2_rooms.png",
+    "3_rooms.png",
+    "4_rooms.png",
+    "test.png",
+    "mrv2.txt",
+    "Ogre_city_report.pdf",
+]
+
+
+def remove_tmp_files(files_to_remove: list) -> None:
+    """FIXME: Refactor this function to better code"""
+    directory = os.getcwd()
+    log.info(f"Attempting clean temp files from {directory} folder")
+    for file in files_to_remove:
+        try:
+            log.info(f"Trying to deleting file: {file} ")
+            os.remove(file)
+            log.info(f"File: {file} deleted with success ")
+        except OSError as e:
+            log.error(f" {e.strerror} ")
+
+
+def gen_subject_title() -> str:
+    """Function generates uniq subject line to improve debugging
+    Example of subject:
+    Ogre City Apartments for sale from ss.lv webscraper v1.4.8 20221001_1019"""
+    log.info("Generating email subject with todays date")
+    release = "1.5.10"
+    # RELEASE_VERSION = os.environ['RELEASE_VERSION']
+    now = datetime.now()
+    email_created = now.strftime("%Y%m%d_%H%M")
+    city_name = "Ogre City Apartments for sale from ss.lv web_scraper_v"
+    email_subject = city_name + release + "_" + email_created
+    subject_ver = email_subject.split("ss.lv")[1]
+    log.info(f"Email subject: {subject_ver}")
+    return email_subject
+
+
 def aws_mailer_main():
     log.info("--- AWS SES mailer module started ---")
 
@@ -30,6 +97,8 @@ def aws_mailer_main():
     RECIPIENT = "info@propertydata.lv"
     AWS_REGION = "eu-west-1"  # e.g., Ireland
     SUBJECT = "Test email from Amazon SES (via Python)"
+    SUBJECT = gen_subject_title()
+    # "Test email from Amazon SES (via Python)"
     BODY_TEXT = (
         "Hello!\nThis is a test email sent using Amazon SES with Python and Boto3."
     )
@@ -79,6 +148,7 @@ def aws_mailer_main():
         print(f"Email sent! Message ID: {response['MessageId']}")
         log.info(f"Email sent! Message ID: {response['MessageId']}")
     log.info("--- AWS SES mailer module completed with succeess ---")
+    remove_tmp_files(data_files)
 
 
 if __name__ == "__main__":
