@@ -135,7 +135,7 @@ def aws_mailer_main():
     SUBJECT = gen_subject_title()
     # TEXT_SECTION_URLS = extract_file_contents("email_body_txt_m4.txt")
 
-    with open("email_body_txt_m4.txt_orig", "r", encoding="utf-8") as f:
+    with open("email_body_txt_m4.txt", "r", encoding="utf-8") as f:
         BODY_TEXT = f.read()
 
     # List the files you want to append in order
