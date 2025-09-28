@@ -43,39 +43,6 @@ fh.setFormatter(fa_log_format)
 log.addHandler(fh)
 
 
-data_files = [
-    "email_body_txt_m4.txt",
-    "Mailer_report.txt",
-    "Ogre-raw-data-report.txt",
-    "cleaned-sorted-df.csv",
-    "pandas_df.csv",
-    "basic_price_stats.txt",
-    "email_body_add_dates_table.txt",
-    "1_rooms_tmp.txt",
-    "1-4_rooms.png",
-    "1_rooms.png",
-    "2_rooms.png",
-    "3_rooms.png",
-    "4_rooms.png",
-    "test.png",
-    "mrv2.txt",
-    "Ogre_city_report.pdf",
-]
-
-
-def remove_tmp_files(files_to_remove: list) -> None:
-    """FIXME: Refactor this function to better code"""
-    directory = os.getcwd()
-    log.info(f"Attempting clean temp files from {directory} folder")
-    for file in files_to_remove:
-        try:
-            log.info(f"Trying to deleting file: {file} ")
-            os.remove(file)
-            log.info(f"File: {file} deleted with success ")
-        except OSError as e:
-            log.error(f" {e.strerror} ")
-
-
 def gen_debug_subject() -> str:
     """Function generates uniq subject line to improve debugging
     Example of subject:
@@ -195,8 +162,6 @@ def sendgrid_mailer_main() -> None:
         log.error(
             " --- End sendgrid_mailer module with failure email was not sent --- "
         )
-
-    remove_tmp_files(data_files)
 
 
 if __name__ == "__main__":
