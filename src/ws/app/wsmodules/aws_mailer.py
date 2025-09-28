@@ -90,6 +90,49 @@ def gen_subject_title() -> str:
     return email_subject
 
 
+def extract_file_contents(file_name: str) -> str:
+    """
+    Extracts the contents of a file and returns them as a string with two appended new lines.
+
+    This function attempts to read the contents of a specified file. It reads the entire
+    file into a list of lines, concatenates them into a single string, and appends two
+    new lines (`\n\n`) to the end of the string. If the file is not found, or if any
+    other error occurs, an appropriate error message is logged and a fallback string
+    indicating that the file was not found is returned.
+
+    Args:
+        file_name (str): The path to the file to be read.
+
+    Returns:
+        str: The contents of the file as a string, or a fallback message if an error occurs.
+    """
+    try:
+        with open(file_name, "r", encoding="utf-8") as file_object:
+            # Read file in to list
+            log.info(f"Trying to read file {file_name} contents.")
+            file_content = file_object.readlines()
+            # Convert list to string with no space as separator
+            extracted_file_contents = "".join(file_content)
+            extracted_file_contents += "\n\n"
+            return extracted_file_contents
+    except FileNotFoundError:
+        log.error(f"FileNotFoundError: file {file_name} not found.")
+        extracted_file_contents = (
+            "\n\nFileNotFoundError: "
+            + file_name
+            + " Please contact the developer team to provide feedback."
+        )
+        # Return an empty string or a default value to avoid further errors
+        return extracted_file_contents
+    except Exception as e:
+        log.error(f"An unexpected error occurred: {e}")
+        extracted_file_contents = (
+            "\n\nUnexpected error: file " + file_name + " was not found. "
+            "Please contact the developer team to provide feedback."
+        )
+        return extracted_file_contents
+
+
 def aws_mailer_main():
     log.info("--- AWS SES mailer module started ---")
 
