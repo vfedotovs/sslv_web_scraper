@@ -139,17 +139,15 @@ def aws_mailer_main():
     SENDER = "info@propertydata.lv"
     RECIPIENT = "info@propertydata.lv"
     AWS_REGION = "eu-west-1"  # e.g., Ireland
-    SUBJECT = "Test email from Amazon SES (via Python)"
     SUBJECT = gen_subject_title()
-    # "Test email from Amazon SES (via Python)"
-    BODY_TEXT = (
-        "Hello!\nThis is a test email sent using Amazon SES with Python and Boto3."
-    )
+    BODY_TEXT = extract_file_contents(
+        "email_body_txt_m4.txt"
+    )  # "Test email from Amazon SES (via Python)"
+
     BODY_HTML = """<html>
     <head></head>
     <body>
-      <h1>Hello!</h1>
-      <p>This is a test email sent using <b>Amazon SES</b> with Python and Boto3.</p>
+      <p>This report email was automatically sent using <b>Amazon SES</b> with Python and Boto3.</p>
     </body>
     </html>
     """
