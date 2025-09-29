@@ -1,5 +1,4 @@
-from src.ws.app.wsmodules.sendgrid_mailer import gen_debug_subject
-from src.ws.app.wsmodules.sendgrid_mailer import remove_tmp_files
+from src.ws.app.wsmodules.aws_mailer import remove_tmp_files
 import os
 from datetime import datetime
 
@@ -24,6 +23,7 @@ def test_remove_tmp_files():
     assert not os.path.exists("test_file1.txt")
     assert not os.path.exists("test_file2.txt")
     assert not os.path.exists("test_file3.txt")
+
 
 """
 TODO: FIXME missing env variable in github actions 
