@@ -11,19 +11,19 @@ Tasks:
 [x] task 01 - test email is getting sent with success
 [x] task 02 - tmp files are deleted after email sent functionality
 [x] task 03 - dynamic email title functionality (city name, version, deploy date)
-[ ] task 04 - email body contains adverts data for 1-6 room categories
-[ ] task 05 - email body contains medatada/debug info
+[x] task 04 - email body contains adverts data for 1-6 room categories
+[x] task 05 - email body contains medatada/debug info
 
 """
 
-import boto3
-from botocore.exceptions import ClientError
 from datetime import datetime
 import logging
 from logging import handlers
+from logging.handlers import RotatingFileHandler
 import sys
 import os
-from logging.handlers import RotatingFileHandler
+import boto3
+from botocore.exceptions import ClientError
 
 
 log = logging.getLogger("aws_mailer")
@@ -126,7 +126,33 @@ def extract_file_contents(file_name: str) -> str:
         return extracted_file_contents
 
 
-def aws_mailer_main():
+def aws_mailer_main() -> None:
+    """
+    Send an email using AWS Simple Email Service (SES) with content assembled from multiple text files.
+
+    This function:
+      - Logs the start and end of the mailer execution.
+      - Reads the main email body text from `email_body_txt_m4.txt`.
+      - Attempts to append additional content from optional files:
+          * basic_price_stats.txt
+          * email_body_add_dates_table.txt
+          * scraped_and_removed.txt
+        If any of these files are missing, it logs a warning and continues without them.
+      - Generates the email subject dynamically using `gen_subject_title()`.
+      - Sends the email via AWS SES with the specified sender and recipient addresses.
+      - Logs the success or failure of the send operation.
+      - Cleans up temporary data files after sending.
+
+    Prerequisites:
+      - AWS credentials configured for boto3 to access SES.
+      - All required text files present in the current working directory.
+
+    Raises:
+      botocore.exceptions.ClientError: If sending the email via AWS SES fails.
+
+    Returns:
+      None
+    """
     log.info("--- AWS SES mailer module started ---")
 
     SENDER = "info@propertydata.lv"
