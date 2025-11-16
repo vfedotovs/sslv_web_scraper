@@ -68,10 +68,10 @@ PG_CONTAINER_NAME := `docker ps | grep db-1 | awk '{print $$NF }'`
 S3_BACKUP_BUCKET := `env | grep S3_BUCKET`
 
 .DEFAULT_GOAL := help
-.PHONY: precheck build setup clean verify-setup check-backup-age
+.PHONY: precheck build setup clean verify-setup check-backup-age create_s3_bucket
 
 help:  ## 💬 This help message
-	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "\033[36m%-20s\033[0m %s\n", $$1, $$2}'
+	@grep -E '^[a-zA-Z0-9_-]+:.*## ' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*## "}; {printf "\033[36m%-20s\033[0m %s\n", $$1, $$2}'
 
 # Define the precheck function
 precheck:  ## checks if required exports are present
@@ -250,13 +250,93 @@ clean:  ## removes setup and DB files and folders
 	fi
 	@printf "$(call log_success,Cleanup completed)\n"
 
+BUCKET_NAME ?= sslv-ogre-city-dev-v1-6-db-backups-2025-11
+AWS_REGION ?= us-east-1
+
+create_s3_bucket:  ## creates new S3 bucket for DB backups (use BUCKET_NAME= and AWS_REGION= to override)
+	@printf "$(call log_step,Creating S3 bucket: $(BUCKET_NAME) in region $(AWS_REGION)...)\n"
+	@if aws s3 ls s3://$(BUCKET_NAME) 2>/dev/null; then \
+		printf "$(call log_warning,Bucket $(BUCKET_NAME) already exists)\n"; \
+		exit 1; \
+	fi
+	@if [ "$(AWS_REGION)" = "us-east-1" ]; then \
+		aws s3api create-bucket \
+			--bucket $(BUCKET_NAME) \
+			--region $(AWS_REGION) || { \
+			printf "$(call log_error,Failed to create bucket)\n"; \
+			exit 1; \
+		}; \
+	else \
+		aws s3api create-bucket \
+			--bucket $(BUCKET_NAME) \
+			--region $(AWS_REGION) \
+			--create-bucket-configuration LocationConstraint=$(AWS_REGION) || { \
+			printf "$(call log_error,Failed to create bucket)\n"; \
+			exit 1; \
+		}; \
+	fi
+	@printf "$(call log_success,Bucket created successfully)\n"
+	@printf "$(call log_step,Blocking public access...)\n"
+	@aws s3api put-public-access-block \
+		--bucket $(BUCKET_NAME) \
+		--public-access-block-configuration \
+		"BlockPublicAcls=true,IgnorePublicAcls=true,BlockPublicPolicy=true,RestrictPublicBuckets=true" || { \
+		printf "$(call log_error,Failed to block public access)\n"; \
+		exit 1; \
+	}
+	@printf "$(call log_success,Public access blocked)\n"
+	@printf "$(call log_step,Enabling versioning...)\n"
+	@aws s3api put-bucket-versioning \
+		--bucket $(BUCKET_NAME) \
+		--versioning-configuration Status=Enabled || { \
+		printf "$(call log_error,Failed to enable versioning)\n"; \
+		exit 1; \
+	}
+	@printf "$(call log_success,Versioning enabled)\n"
+	@printf "$(call log_step,Adding lifecycle policy (delete after 90 days)...)\n"
+	@aws s3api put-bucket-lifecycle-configuration \
+		--bucket $(BUCKET_NAME) \
+		--lifecycle-configuration '{ \
+			"Rules": [{ \
+				"Id": "DeleteOldBackups", \
+				"Status": "Enabled", \
+				"Filter": {"Prefix": ""}, \
+				"Expiration": {"Days": 90} \
+			}] \
+		}' || { \
+		printf "$(call log_error,Failed to set lifecycle policy)\n"; \
+		exit 1; \
+	}
+	@printf "$(call log_success,Lifecycle policy set)\n"
+	@printf "$(call log_step,Adding tags...)\n"
+	@aws s3api put-bucket-tagging \
+		--bucket $(BUCKET_NAME) \
+		--tagging 'TagSet=[ \
+			{Key=Project,Value=ogre-city}, \
+			{Key=Environment,Value=dev}, \
+			{Key=Version,Value=1.6}, \
+			{Key=Purpose,Value=db-backups}, \
+			{Key=CreatedDate,Value=$(shell date +%Y-%m-%d)} \
+		]' || { \
+		printf "$(call log_error,Failed to add tags)\n"; \
+		exit 1; \
+	}
+	@printf "$(call log_success,Tags added)\n"
+	@printf "$(call log_success,S3 bucket $(BUCKET_NAME) created and configured successfully!)\n"
+	@printf "$(call log_info,Bucket details:)\n"
+	@printf "  - Name: $(BUCKET_NAME)\n"
+	@printf "  - Region: $(AWS_REGION)\n"
+	@printf "  - Public Access: Blocked\n"
+	@printf "  - Versioning: Enabled\n"
+	@printf "  - Lifecycle: Delete after 90 days\n"
+
 fetch_dump_example: # Example of fetch specific date DB dump file form S3 bucket
 	@echo "make fetch_dump DB_BACKUP_DATE=2022_11_05"
 
 fetch_dump: DB_BACKUP_DATE ?= 2022_11_01
 fetch_dump: # Fetches DB dump file from S3 bucket
 	@aws s3 cp s3://$(S3_BUCKET)/pg_backup_$(DB_BACKUP_DATE).sql .
-	@cp pg_backup_$(DB_BACKUP_DATE).sql src/db/pg_backup.sql 
+	@cp pg_backup_$(DB_BACKUP_DATE).sql src/db/pg_backup.sql
 
 fetch_last_db_dump: # Fetches last Postgres DB dump from AWS S3 bucket
 	@python3 src/db/get_last_db_backup.py
