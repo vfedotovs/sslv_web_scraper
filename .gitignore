@@ -28,6 +28,9 @@ database.ini
 # Exclude docker compose env file
 .env.prod
 
+# Exclude setup state file
+.setup_state
+
 
 # Exclude these folders
 __pycache__/
