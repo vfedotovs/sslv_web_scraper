@@ -6,7 +6,7 @@
 *.png
 *.html
 *.log
-*.sql
+pg_*.sql
 __init__.pyc
 .coverage
 

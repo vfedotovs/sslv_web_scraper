@@ -30,8 +30,8 @@ services:
       DB_NAME: new_docker_db
       DB_USER: new_docker_user
       DB_PASSWORD: ${POSTGRES_PASSWORD}
-    ports:
-      - "8000:8000"
+    # ports:
+    #   - "8000:8000"
     depends_on:
       db:
         condition: service_healthy
@@ -48,8 +48,9 @@ services:
     restart: always
     environment:
       WS_HOST: ws
-    ports:
-      - "8080:8080"  # Expose health check port (optional, for external monitoring)
+    # Health check port is only accessible within Docker network (no external exposure needed)
+    # ports:
+    #   - "8080:8080"  # Uncomment only if you need external monitoring
     depends_on:
       ws:
         condition: service_healthy

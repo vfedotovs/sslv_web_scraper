@@ -6,6 +6,7 @@ using requests and bs4 libraries to extract data (price, URL, sqm, street)
 from Ogre city apartments for sale advertisements and save
 to file Ogre-raw-data-report.txt
 """
+
 import re
 import os
 import sys
@@ -19,25 +20,31 @@ from bs4 import BeautifulSoup
 from requests.exceptions import ConnectionError, Timeout
 
 
-logger = logging.getLogger('web_scraper')
+logger = logging.getLogger("web_scraper")
 logger.setLevel(logging.INFO)
 ws_log_format = logging.Formatter(
-    "%(asctime)s [%(levelname)-5.5s] %(name)s : %(funcName)s: %(lineno)d: %(message)s")
+    "%(asctime)s [%(levelname)-5.5s] %(name)s : %(funcName)s: %(lineno)d: %(message)s"
+)
 
 ch = logging.StreamHandler(sys.stdout)
 ch.setFormatter(ws_log_format)
 logger.addHandler(ch)
 
 fh = handlers.RotatingFileHandler(
-    'web_scraper.log', maxBytes=(1048576*5), backupCount=7)
+    "web_scraper.log", maxBytes=(1048576 * 5), backupCount=7
+)
 fh.setFormatter(ws_log_format)
 logger.addHandler(fh)
 
 
-FLATS_OGRE = "https://www.ss.lv/lv/real-estate/flats/ogre-and-reg/ogre/sell/"
+CITY_MAIN_URL = "https://www.ss.lv/lv/real-estate/flats/ogre-and-reg/ogre/sell/"
 # Deplay between scraping each URL 5 sec
 # (for Ogre 5 sec x 70 URLs = 350 sec or < 6 min should last )
 SCRAPE_DELAY_SEC = 5
+URL_LIMIT = 10
+
+# true
+SKIP_LAMBDA_FILE = True
 
 
 def scrape_website():
@@ -54,12 +61,11 @@ def scrape_website():
     # valid_msg_urls = find_single_page_urls(bs_ogre_object)
     # New static way of extracting data from first three pages
     # TODO: make page count extraction dynamic
-    page_one = requests.get(
-        "https://www.ss.lv/lv/real-estate/flats/ogre-and-reg/ogre/sell/", timeout=10)
-    page_two = requests.get(
-        "https://www.ss.lv/lv/real-estate/flats/ogre-and-reg/ogre/sell/page2.html", timeout=10)
-    page_three = requests.get(
-        "https://www.ss.lv/lv/real-estate/flats/ogre-and-reg/ogre/sell/page3.html", timeout=10)
+    page_one = requests.get(CITY_MAIN_URL, timeout=10)
+    # page_two = requests.get(
+    #     "https://www.ss.lv/lv/real-estate/flats/ogre-and-reg/ogre/sell/page2.html", timeout=10)
+    # page_three = requests.get(
+    #     "https://www.ss.lv/lv/real-estate/flats/ogre-and-reg/ogre/sell/page3.html", timeout=10)
     # Error handling behavior by ss.lv
     # If non existing page requested for example
     # https://www.ss.lv/lv/real-estate/flats/ogre-and-reg/ogre/sell/page4.html
@@ -67,13 +73,14 @@ def scrape_website():
     # https://www.ss.lv/lv/real-estate/flats/ogre-and-reg/ogre/sell/page.html
 
     page_one_bs_obj = BeautifulSoup(page_one.content, "html.parser")
-    page_two_bs_obj = BeautifulSoup(page_two.content, "html.parser")
-    page_three_bs_obj = BeautifulSoup(page_three.content, "html.parser")
+    # page_two_bs_obj = BeautifulSoup(page_two.content, "html.parser")
+    # page_three_bs_obj = BeautifulSoup(page_three.content, "html.parser")
 
     page_one_msg_urls = find_single_page_urls(page_one_bs_obj)
-    page_two_msg_urls = find_single_page_urls(page_two_bs_obj)
-    page_three_msg_urls = find_single_page_urls(page_three_bs_obj)
-    combined_urls = page_one_msg_urls + page_two_msg_urls + page_three_msg_urls
+    # page_two_msg_urls = find_single_page_urls(page_two_bs_obj)
+    # page_three_msg_urls = find_single_page_urls(page_three_bs_obj)
+    combined_urls = page_one_msg_urls
+    # + page_two_msg_urls + page_three_msg_urls
     # Since currently there is no dynamic page cound extraction avilable
     # curent behavior of ss.lv if you request none existing page it redirects to
     # first page current quick fix is to remove duplicate entries because of scenario
@@ -84,8 +91,9 @@ def scrape_website():
     logger.info("Found %s parsable message URLs", str(len(valid_msg_urls)))
     logger.info(
         "Extracting data for Ogre city apartments "
-        "for sell task and saving as Ogre-raw-data-report.txt")
-    extract_data_from_url(valid_msg_urls, 'Ogre-raw-data-report.txt')
+        "for sell task and saving as Ogre-raw-data-report.txt"
+    )
+    extract_data_from_url(valid_msg_urls, "Ogre-raw-data-report.txt")
     logger.info("Creating file Ogre-raw-data-report.txt copy in data folder")
     create_file_copy()
     logger.info("--- Finished web_scraper module ---")
@@ -93,14 +101,13 @@ def scrape_website():
 
 def remove_old_file() -> None:
     """
-    Remove the 'Ogre-raw-data-report.txt' file in the current 
+    Remove the 'Ogre-raw-data-report.txt' file in the current
     directory if it is older than a certain number of days.
     """
     days_old = 1
     filename = "Ogre-raw-data-report.txt"
     file_path = os.path.join(os.getcwd(), filename)
-    logger.info("Removing file %s  as if oloder "
-                "than %s  day(s)", filename, days_old)
+    logger.info("Removing file %s  as if oloder than %s  day(s)", filename, days_old)
     if os.path.isfile(file_path):
         file_time = datetime.fromtimestamp(os.path.getmtime(file_path))
         now = datetime.now()
@@ -109,47 +116,56 @@ def remove_old_file() -> None:
             os.remove(file_path)
             logger.info("Removed %s  with sucess", file_path)
         else:
-            logger.info("The file %s is not older than %s "
-                        "day(s) and was not removed.", filename, str(days_old) )
+            logger.info(
+                "The file %s is not older than %s day(s) and was not removed.",
+                filename,
+                str(days_old),
+            )
     else:
-        logger.info("The file %s does not exist in the "
-                    "current directory.", filename)
+        logger.info("The file %s does not exist in the current directory.", filename)
 
 
 def extract_data_from_url(nondup_urls: list, dest_file: str) -> None:
-    """Iterate over all first page msg urls extract info from each url and write to file """
+    """Iterate over all first page msg urls extract info from each url and write to file"""
     msg_url_count = len(nondup_urls)
     for i in range(msg_url_count):
         current_msg_url = nondup_urls[i] + "\n"
-        logger.info("Started scraping data from message URL %s" , str(i + 1))
+        logger.info("Started scraping data from message URL %s", str(i + 1))
         table_opt_names = get_msg_table_data(nondup_urls[i], "ads_opt_name")
         if table_opt_names:
             pass
         else:
-            logger.warning(f"Skipping {nondup_urls[i]} due to repeated connection failures.")
+            logger.warning(
+                f"Skipping {nondup_urls[i]} due to repeated connection failures."
+            )
         time.sleep(1)
         table_opt_values = get_msg_table_data(nondup_urls[i], "ads_opt")
         if table_opt_values:
             pass
         else:
-            logger.warning(f"Skipping {nondup_urls[i]} due to repeated connection failures.")
+            logger.warning(
+                f"Skipping {nondup_urls[i]} due to repeated connection failures."
+            )
         time.sleep(1)
         table_price = get_msg_table_data(nondup_urls[i], "ads_price")
         if table_price:
             pass
         else:
-            logger.warning(f"Skipping {nondup_urls[i]} due to repeated connection failures.")
+            logger.warning(
+                f"Skipping {nondup_urls[i]} due to repeated connection failures."
+            )
         try:
             write_line(current_msg_url, dest_file)
             for idx in range(len(table_opt_names) - 1):
-                text_line = table_opt_names[idx] + \
-                    ">" + table_opt_values[idx] + "\n"
+                text_line = table_opt_names[idx] + ">" + table_opt_values[idx] + "\n"
                 write_line(text_line, dest_file)
         except TypeError as e:
             logger.error(f"Error writing data from {current_msg_url} to file : {e}")
 
         if not table_price:
-            logging.error(f"Error writing data from {current_msg_url} to file: table_price is None or empty")
+            logging.error(
+                f"Error writing data from {current_msg_url} to file: table_price is None or empty"
+            )
             continue  # Skip further processing for this URL
         try:
             # Assuming table_price is a list and we want the first element
@@ -165,7 +181,9 @@ def extract_data_from_url(nondup_urls: list, dest_file: str) -> None:
         if table_date:
             pass
         else:
-            logger.warning(f"Skipping {nondup_urls[i]} due to repeated connection failures.")
+            logger.warning(
+                f"Skipping {nondup_urls[i]} due to repeated connection failures."
+            )
 
         try:
             for date_idx in range(len(table_date)):
@@ -181,20 +199,20 @@ def extract_data_from_url(nondup_urls: list, dest_file: str) -> None:
 
 
 def get_bs_object(page_url: str):
-    """ Function loads webpage from url and returns bs4 object"""
+    """Function loads webpage from url and returns bs4 object"""
     page = requests.get(page_url, timeout=10)
     bs_object = BeautifulSoup(page.content, "html.parser")
     return bs_object
 
 
 def find_single_page_urls(bs_object) -> list:
-    """ Function iterates over all a sections and gets all href lines
+    """Function iterates over all a sections and gets all href lines
     object: bs4 object
     returns:  list of strings with all message URLs
     """
     urls = []
-    for a in bs_object.find_all('a', href=True):
-        one_link = "https://ss.lv" + a['href']
+    for a in bs_object.find_all("a", href=True):
+        one_link = "https://ss.lv" + a["href"]
         re_match = re.search("msg", one_link)
         if re_match:
             urls.append(one_link)
@@ -207,7 +225,7 @@ def find_single_page_urls(bs_object) -> list:
 
 
 def get_msg_field_info(msg_url: str, span_id: str):
-    """ Function finds span id in url and return value """
+    """Function finds span id in url and return value"""
     response = requests.get(msg_url, timeout=10)
     data = response.text
     soup = BeautifulSoup(data, "html.parser")
@@ -216,7 +234,7 @@ def get_msg_field_info(msg_url: str, span_id: str):
 
 
 def get_msg_table_info(msg_url: str, td_class: str) -> list:
-    """ Function parses message page and extracts td_class table fields
+    """Function parses message page and extracts td_class table fields
     Paramters:
     msg_url: message web page link
     td_class: table field name
@@ -224,16 +242,16 @@ def get_msg_table_info(msg_url: str, td_class: str) -> list:
     """
     page = requests.get(msg_url, timeout=10)
     soup = BeautifulSoup(page.content, "html.parser")
-    table = soup.find('table', id="page_main")
+    table = soup.find("table", id="page_main")
 
     table_fields = []
 
-    table_data = table.findAll('td', {"class": td_class})
+    table_data = table.findAll("td", {"class": td_class})
     for data in table_data:
         tostr = str(data)
         no_front = tostr.split('">', 1)[1]
         name = no_front.split("</", 1)[0]
-        clean_name = name.replace('\t', '').replace('\r', '').replace('\n', '')
+        clean_name = name.replace("\t", "").replace("\r", "").replace("\n", "")
         table_fields.append(clean_name)
     return table_fields
 
@@ -241,7 +259,7 @@ def get_msg_table_info(msg_url: str, td_class: str) -> list:
 def get_msg_table_data(msg_url: str, td_class: str, retries=3, backoff_factor=0.3):
     """
     Fetch data from the given URL with a retry mechanism.
-    
+
     :param msg_url: The URL to scrape.
     :param table_name: The table name to retrieve information from.
     :param retries: Number of retries in case of a connection error.
@@ -254,22 +272,24 @@ def get_msg_table_data(msg_url: str, td_class: str, retries=3, backoff_factor=0.
             logging.info(f"Attempting to fetch data from {msg_url}")
             page = requests.get(msg_url)
             soup = BeautifulSoup(page.content, "html.parser")
-            table = soup.find('table', id="page_main")
+            table = soup.find("table", id="page_main")
 
             table_fields = []
 
-            table_data = table.findAll('td', {"class": td_class})
+            table_data = table.findAll("td", {"class": td_class})
             for data in table_data:
                 tostr = str(data)
                 no_front = tostr.split('">', 1)[1]
                 name = no_front.split("</", 1)[0]
-                clean_name = name.replace('\t', '').replace('\r', '').replace('\n', '')
+                clean_name = name.replace("\t", "").replace("\r", "").replace("\n", "")
                 table_fields.append(clean_name)
             return table_fields
         except ConnectionError as e:
-            logging.error(f"ConnectionError: {e}, retrying in {backoff_factor * (2 ** attempt)} seconds...")
+            logging.error(
+                f"ConnectionError: {e}, retrying in {backoff_factor * (2**attempt)} seconds..."
+            )
             attempt += 1
-            time.sleep(backoff_factor * (2 ** attempt))
+            time.sleep(backoff_factor * (2**attempt))
 
     logging.error(f"Failed to fetch data from {msg_url} after {retries} attempts.")
     return None
@@ -277,17 +297,17 @@ def get_msg_table_data(msg_url: str, td_class: str, retries=3, backoff_factor=0.
 
 def write_line(text: str, file_name: str) -> None:
     """Append text to end of the file"""
-    with open(file_name, 'a') as the_file:
+    with open(file_name, "a") as the_file:
         the_file.write(text)
 
 
 def create_file_copy() -> None:
     """Creates report file copy in data folder"""
-    todays_date = datetime.today().strftime('%Y-%m-%d')
-    dest_file = 'Ogre-raw-data-report-' + todays_date + '.txt'
-    copy_cmd = 'cp Ogre-raw-data-report.txt local_lambda_raw_scraped_data/' + dest_file
-    if not os.path.exists('local_lambda_raw_scraped_data'):
-        os.makedirs('local_lambda_raw_scraped_data')
+    todays_date = datetime.today().strftime("%Y-%m-%d")
+    dest_file = "Ogre-raw-data-report-" + todays_date + ".txt"
+    copy_cmd = "cp Ogre-raw-data-report.txt local_lambda_raw_scraped_data/" + dest_file
+    if not os.path.exists("local_lambda_raw_scraped_data"):
+        os.makedirs("local_lambda_raw_scraped_data")
     os.system(copy_cmd)
 
 
