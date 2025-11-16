@@ -37,11 +37,14 @@ fh.setFormatter(ws_log_format)
 logger.addHandler(fh)
 
 
-CITY_MAIN_URL = "https://www.ss.lv/lv/real-estate/flats/ogre-and-reg/ogre/sell/"
+# Get CITY_MAIN_URL from environment variable
+CITY_MAIN_URL = os.getenv("CITY_MAIN_URL")
+logger.info("Using CITY_MAIN_URL: %s", CITY_MAIN_URL)
+
 # Deplay between scraping each URL 5 sec
 # (for Ogre 5 sec x 70 URLs = 350 sec or < 6 min should last )
 SCRAPE_DELAY_SEC = 5
-URL_LIMIT = 10
+URL_LIMIT = 5
 
 # true
 SKIP_LAMBDA_FILE = True
@@ -127,8 +130,9 @@ def remove_old_file() -> None:
 
 def extract_data_from_url(nondup_urls: list, dest_file: str) -> None:
     """Iterate over all first page msg urls extract info from each url and write to file"""
-    msg_url_count = len(nondup_urls)
-    for i in range(msg_url_count):
+    # msg_url_count = len(nondup_urls)
+    # for i in range(msg_url_count):
+    for i in range(URL_LIMIT):
         current_msg_url = nondup_urls[i] + "\n"
         logger.info("Started scraping data from message URL %s", str(i + 1))
         table_opt_names = get_msg_table_data(nondup_urls[i], "ads_opt_name")

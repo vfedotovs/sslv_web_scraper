@@ -61,8 +61,10 @@ def home():
 async def run_long_task(city: str):
     """Endpint to trigger scrape, format and insert data in DB"""
     log.info("Recieved GET request to start scraping job for %s city", city)
-    download_latest_lambda_file()
-    todays_cloud_data_file_exist = check_today_cloud_data_file_exist()
+    # download_latest_lambda_file()
+    # todays_cloud_data_file_exist = check_today_cloud_data_file_exist()
+    # TODO implement flag skip LAMBDA_FILE
+    todays_cloud_data_file_exist = False
 
     if todays_cloud_data_file_exist is True:
         last_cloud_file_name = get_todays_cloud_data_file_name()

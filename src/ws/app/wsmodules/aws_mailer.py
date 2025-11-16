@@ -40,6 +40,7 @@ fh = handlers.RotatingFileHandler(
 fh.setFormatter(fa_log_format)
 log.addHandler(fh)
 
+EMAIL_CITY_TITLE = os.getenv("EMAIL_CITY_TITLE")
 
 data_files = [
     "email_body_txt_m4.txt",
@@ -74,10 +75,11 @@ def gen_subject_title() -> str:
     log.info("Generating email subject with todays date")
     release = "1.6.0"
     # RELEASE_VERSION = os.environ['RELEASE_VERSION']
+    title_city_name = EMAIL_CITY_TITLE
     now = datetime.now()
     email_created = now.strftime("%Y%m%d_%H%M")
-    city_name = "Ogre City Apartments for sale from ss.lv web_scraper_v"
-    email_subject = city_name + release + "_" + email_created
+    city_name = " city Apartments for sale from ss.lv web_scraper_v"
+    email_subject = title_city_name + city_name + release + "_" + email_created
     subject_ver = email_subject.split("ss.lv")[1]
     log.info(f"Email subject: {subject_ver}")
     return email_subject
