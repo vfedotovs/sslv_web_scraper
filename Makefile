@@ -25,13 +25,6 @@ ec2_precheck:
 	else \
 		echo "[Pass] S3_BUCKET is exported."; \
 	fi
-	@if [ -z "$$SENDGRID_API_KEY" ]; then \
-		echo "[Fail] SENDGRID_API_KEY is not exported."; \
-		echo "To set env run source scripts/set_s3_env_from_aws_sm.sh"; \
-		exit 1; \
-	else \
-		echo "[Pass] SENDGRID_API_KEY is exported."; \
-	fi
 
 
 PG_CONTAINER_NAME := `docker ps | grep db-1 | awk '{print $$NF }'`
@@ -47,22 +40,19 @@ help:  ## 💬 This help message
 precheck:  ## checks if required exports are present 
 	@echo "Checking if env S3_BUCKET is exported...";
 	@if [ -z "$(S3_BACKUP_BUCKET)" ]; then \
-		echo "Error: S3_BUCKET is not not exported."; \
-		echo "Load envs from AWS Secrets manager with:"; \
-		echo "source scripts/load_secrets.sh"; \
-		echo "Alternatively export manually:"; \
+		echo ""; \
+		echo "Error: S3_BUCKET is not exported."; \
+		echo ""; \
+		echo "Option 1: Load environment secrests from AWS Secrets manager with:"; \
+		echo "  source scripts/load_secrets.sh"; \
+		echo ""; \
+		echo "Option 2: Export manually:"; \
+		echo "  export S3_BUCKET='your-bucket-name'"; \
+		echo ""; \
 		exit 1; \
 	fi
-		@echo "[OK] env S3_BUCKET is exported...";
-		@echo "Checking if env SENDGRID_API_KEY is exported...";
-		@if [ -z "$(SENDGRID_API_KEY)" ]; then \
-		echo "Error: SENDGRID_API_KEY is not not exported."; \
-		echo "Load envs from AWS Secrets manager with:"; \
-		echo "source scripts/load_secrets.sh"; \
-		echo "Alternatively export manually:"; \
-		exit 1; \
-	fi
-	@echo "[OK] env SENDGRID_API_KEY is exported...";
+	@echo "[OK] env S3_BUCKET is exported...";
+
 
 setup: ec2_precheck  ## loads secrets and pulls DB backup file
 	## loads secrets, downloads DB backup from AWS S3
