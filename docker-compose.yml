@@ -33,7 +33,14 @@ services:
     ports:
       - "8000:8000"
     depends_on:
-      - db
+      db:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8000/docs').read()\" || exit 1"]
+      interval: 30s
+      timeout: 10s
+      start_period: 15s
+      retries: 3
     networks:
       - postgresql
   ts:
@@ -41,8 +48,17 @@ services:
     restart: always
     environment:
       WS_HOST: ws
+    ports:
+      - "8080:8080"  # Expose health check port (optional, for external monitoring)
     depends_on:
-      - ws
+      ws:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8080/health').read()\" || exit 1"]
+      interval: 30s
+      timeout: 10s
+      start_period: 10s
+      retries: 3
     networks:
       - postgresql
   curl:

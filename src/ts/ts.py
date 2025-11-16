@@ -13,6 +13,8 @@ import sys
 import time
 import requests
 import schedule
+from http.server import HTTPServer, BaseHTTPRequestHandler
+from threading import Thread
 
 
 log = logging.getLogger(__name__)
@@ -40,6 +42,31 @@ stdout_handler.setFormatter(stdout_formatter)
 log.addHandler(stdout_handler)
 
 URL = 'http://ws:8000/run-task/ogre'
+
+
+class HealthCheckHandler(BaseHTTPRequestHandler):
+    """Simple HTTP handler for health checks"""
+
+    def do_GET(self):
+        if self.path == '/health':
+            self.send_response(200)
+            self.send_header('Content-type', 'application/json')
+            self.end_headers()
+            self.wfile.write(b'{"status":"healthy"}')
+        else:
+            self.send_response(404)
+            self.end_headers()
+
+    def log_message(self, format, *args):
+        """Suppress default logging to avoid cluttering logs"""
+        pass
+
+
+def run_health_server():
+    """Run health check server in background thread"""
+    server = HTTPServer(('0.0.0.0', 8080), HealthCheckHandler)
+    log.info("Health check server started on port 8080")
+    server.serve_forever()
 
 
 def execute_ogre_task():
@@ -107,6 +134,11 @@ def run_task_scheduler():
 
     """
     log.info("--- Started task_scheduler module ---")
+
+    # Start health check server in background thread
+    health_thread = Thread(target=run_health_server, daemon=True)
+    health_thread.start()
+
     schedule.every().day.at("00:40").do(execute_ogre_task)
     while True:
         # log.info("Sleeping for 3600 seconds before checking if HTTP GET to "
