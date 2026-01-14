@@ -14,19 +14,20 @@ Uvicorn process memory consumption rises from 245 MB to 1.7 GB over 3 months, ca
 
 ## Proposed Fixes
 
-### 1. Update Dockerfile - Add Worker Restart Configuration
+### 1. Update Dockerfile - Add Worker Restart Configuration ✅ COMPLETED
 **File**: `src/ws/Dockerfile`
 
 **Change CMD line to:**
 ```dockerfile
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "2", "--max-requests", "100", "--max-requests-jitter", "20", "--timeout-keep-alive", "5"]
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "2", "--limit-max-requests", "100", "--timeout-keep-alive", "5"]
 ```
 
 **Parameters explained:**
 - `--workers 2`: Run 2 worker processes (provides redundancy)
-- `--max-requests 100`: Restart worker after 100 requests (prevents memory accumulation)
-- `--max-requests-jitter 20`: Add randomness (80-120 requests) to prevent all workers restarting simultaneously
+- `--limit-max-requests 100`: Restart worker after 100 requests (prevents memory accumulation)
 - `--timeout-keep-alive 5`: Close keep-alive connections after 5 seconds
+
+**Note:** The original proposal included `--max-requests-jitter`, but uvicorn doesn't support this parameter. Workers will restart after exactly 100 requests.
 
 ### 2. Add Explicit Garbage Collection
 **File**: `src/ws/app/main.py`
