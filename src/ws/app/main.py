@@ -12,6 +12,7 @@ This module contains functions:
 """
 
 from datetime import datetime
+import gc
 import logging
 import logging.handlers as handlers
 from logging.handlers import RotatingFileHandler
@@ -71,6 +72,7 @@ async def run_long_task(city: str):
     log.info("Recieved GET request to start scraping job for %s city", city)
     log_memory_usage()
     download_latest_lambda_file()
+    gc.collect()
     log_memory_usage()
     todays_cloud_data_file_exist = check_today_cloud_data_file_exist()
 
@@ -84,19 +86,24 @@ async def run_long_task(city: str):
         )
         log.info("Running cloud_data_formater_main task: using cloud ws file")
         cloud_data_formater_main()
+        gc.collect()
         log_memory_usage()
         log.info("Running df_cleaner_main task: using cloud ws file")
         df_cleaner_main()
+        gc.collect()
         log_memory_usage()
         log.info("Running db_worker_main task: using cloud ws file")
         db_worker_main()
+        gc.collect()
         log_memory_usage()
         log.info("Running analytics_main task: using cloud ws file")
         analytics_main()
+        gc.collect()
         log_memory_usage()
         log.info("Running aws_mailer task: using cloud ws file")
         # sendgrid_mailer_main()
         aws_mailer_main()
+        gc.collect()
         log_memory_usage()
         log.info("Completed /run-task/ogre using AWS lambda raw-data file")
         return {
@@ -115,22 +122,28 @@ async def run_long_task(city: str):
     if todays_cloud_data_file_exist is False:
         log.info("Running scrape_website task will create local ws file")
         scrape_website()
+        gc.collect()
         log_memory_usage()
         log.info("Running data_formater_main task: using locally scraped file")
         cloud_data_formater_main()
+        gc.collect()
         log_memory_usage()
         log.info("Running df_cleaner_main task: using locally scraped file")
         df_cleaner_main()
+        gc.collect()
         log_memory_usage()
         log.info("Running db_worker_main task: using locally scraped file")
         db_worker_main()
+        gc.collect()
         log_memory_usage()
         log.info("Running analytics_main task: using locally scraped file")
         analytics_main()
+        gc.collect()
         log_memory_usage()
         log.info("Running aws_mailer task: using locally scraped file")
         # sendgrid_mailer_main()
         aws_mailer_main()
+        gc.collect()
         log_memory_usage()
 
         log.info("sendgrid_mailer_main task completed")
