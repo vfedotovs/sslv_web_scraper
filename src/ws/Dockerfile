@@ -14,6 +14,8 @@ COPY ./app /app
 # --host 0.0.0.0: Bind to all network interfaces (allows external connections)
 # --port 8000: Listen on port 8000
 # --workers 2: Run 2 worker processes (provides redundancy and load distribution)
-# --limit-max-requests 100: Restart worker after handling 100 requests (prevents memory accumulation)
+# --limit-max-requests 30: Restart worker after handling 30 requests (prevents OOM on 2GB RAM instance)
+#                          With ~24MB leak per request: 101MB + (24MB × 30) = 821MB per worker
+#                          Total with 2 workers: ~1.64GB + 300MB OS = 1.94GB (safe for 2GB instance)
 # --timeout-keep-alive 5: Close keep-alive connections after 5 seconds (frees up resources)
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "2", "--limit-max-requests", "100", "--timeout-keep-alive", "5"]
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "2", "--limit-max-requests", "30", "--timeout-keep-alive", "5"]
