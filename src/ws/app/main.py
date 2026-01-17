@@ -26,7 +26,6 @@ from app.wsmodules.data_format_changer import cloud_data_formater_main
 from app.wsmodules.df_cleaner import df_cleaner_main
 from app.wsmodules.db_worker import db_worker_main
 from app.wsmodules.analytics import analytics_main
-from app.wsmodules.pdf_creator import pdf_creator_main
 
 # from app.wsmodules.sendgrid_mailer import sendgrid_mailer_main
 from app.wsmodules.aws_mailer import aws_mailer_main
@@ -95,9 +94,6 @@ async def run_long_task(city: str):
         log.info("Running analytics_main task: using cloud ws file")
         analytics_main()
         log_memory_usage()
-        log.info("Running pdf_creator task: using cloud ws file ")
-        pdf_creator_main()
-        log_memory_usage()
         log.info("Running aws_mailer task: using cloud ws file")
         # sendgrid_mailer_main()
         aws_mailer_main()
@@ -131,9 +127,6 @@ async def run_long_task(city: str):
         log_memory_usage()
         log.info("Running analytics_main task: using locally scraped file")
         analytics_main()
-        log_memory_usage()
-        log.info("Running pdf_creator task: using locally scraped")
-        pdf_creator_main()
         log_memory_usage()
         log.info("Running aws_mailer task: using locally scraped file")
         # sendgrid_mailer_main()
