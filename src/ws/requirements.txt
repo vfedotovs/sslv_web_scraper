@@ -10,4 +10,5 @@ fpdf
 plotly
 boto3
 tabulate
+psutil
 
