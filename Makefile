@@ -167,17 +167,20 @@ setup: ec2_precheck  ## loads secrets and pulls DB backup file
 
 
 build:  ## builds all containers (ts, ws, db)
-	@docker-compose --env-file .env.prod build db
-	@docker-compose --env-file .env.prod build ts
-	@docker-compose --env-file .env.prod build ws
+	@docker compose --env-file .env.prod build db
+	@docker compose --env-file .env.prod build ts
+	@docker compose --env-file .env.prod build ws
 
 
 up:  ## starts all containers
-	docker-compose --env-file .env.prod up -d
+	docker compose --env-file .env.prod up -d
+
+logs:  ## tails logs
+	docker compose logs -f 
 
 
 down:  ## stops all containers
-	docker-compose --env-file .env.prod down -v   # removes volumes (clears old PGDATA)
+	docker compose --env-file .env.prod down -v   # removes volumes (clears old PGDATA)
 
 clean:  ## removes setup and DB files and folders
 	rm .env.prod
