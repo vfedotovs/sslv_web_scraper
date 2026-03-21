@@ -38,10 +38,97 @@ PG_CONTAINER_NAME := `docker ps | grep db-1 | awk '{print $$NF }'`
 S3_BACKUP_BUCKET := `env | grep S3_BUCKET`
 
 .DEFAULT_GOAL := help
-.PHONY: precheck build
+.PHONY: precheck build setup-venv clean-venv test-venv
+
+# Virtual environment settings
+VENV_DIR := .venv
+PYTHON := $(VENV_DIR)/bin/python
+PIP := $(VENV_DIR)/bin/pip
+PYTEST := $(VENV_DIR)/bin/pytest
 
 help:  ## 💬 This help message
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "\033[36m%-20s\033[0m %s\n", $$1, $$2}'
+
+setup-venv:  ## 🐍 Setup Python virtual environment using uv with pytest and pytest-cov
+	@echo "Setting up Python virtual environment with uv..."
+	@if ! command -v uv &> /dev/null; then \
+		echo "❌ Error: uv is not installed"; \
+		echo "Install uv with: curl -LsSf https://astral.sh/uv/install.sh | sh"; \
+		echo "Or with pip: pip install uv"; \
+		exit 1; \
+	fi
+	@echo "✅ uv found: $$(uv --version)"
+	@if [ -d "$(VENV_DIR)" ]; then \
+		echo "⚠️  Virtual environment already exists at $(VENV_DIR)"; \
+		echo "Run 'make clean-venv' to remove it first"; \
+	else \
+		echo "Creating virtual environment at $(VENV_DIR)..."; \
+		uv venv $(VENV_DIR); \
+		echo "✅ Virtual environment created"; \
+		echo "Installing pytest and pytest-cov..."; \
+		uv pip install --python $(PYTHON) pytest pytest-cov; \
+		echo "✅ pytest and pytest-cov installed"; \
+		echo ""; \
+		echo "Virtual environment setup complete!"; \
+		echo ""; \
+		echo "To activate the virtual environment:"; \
+		echo "  source $(VENV_DIR)/bin/activate"; \
+		echo ""; \
+		echo "Installed packages:"; \
+		$(PIP) list; \
+	fi
+
+clean-venv:  ## 🧹 Remove Python virtual environment
+	@echo "Removing virtual environment..."
+	@if [ -d "$(VENV_DIR)" ]; then \
+		rm -rf $(VENV_DIR); \
+		echo "✅ Virtual environment removed"; \
+	else \
+		echo "⚠️  No virtual environment found at $(VENV_DIR)"; \
+	fi
+
+test-venv:  ## 🧪 Run tests using the virtual environment
+	@if [ ! -d "$(VENV_DIR)" ]; then \
+		echo "❌ Virtual environment not found. Run 'make setup-venv' first"; \
+		exit 1; \
+	fi
+	@echo "Running tests with pytest..."
+	$(PYTEST) -v
+
+test-cov-venv:  ## 📊 Run tests with coverage using the virtual environment
+	@if [ ! -d "$(VENV_DIR)" ]; then \
+		echo "❌ Virtual environment not found. Run 'make setup-venv' first"; \
+		exit 1; \
+	fi
+	@echo "Running tests with coverage..."
+	$(PYTEST) --cov=. --cov-report=term-missing --cov-report=html
+
+install-dev:  ## 📦 Install development dependencies in virtual environment
+	@if [ ! -d "$(VENV_DIR)" ]; then \
+		echo "❌ Virtual environment not found. Run 'make setup-venv' first"; \
+		exit 1; \
+	fi
+	@echo "Installing development dependencies..."
+	@if [ -f "requirements-dev.txt" ]; then \
+		uv pip install --python $(PYTHON) -r requirements-dev.txt; \
+		echo "✅ Development dependencies installed"; \
+	else \
+		echo "⚠️  requirements-dev.txt not found, installing common dev tools..."; \
+		uv pip install --python $(PYTHON) black flake8 mypy isort pylint; \
+		echo "✅ Common development tools installed"; \
+	fi
+
+venv-info:  ## ℹ️  Show virtual environment information
+	@if [ -d "$(VENV_DIR)" ]; then \
+		echo "Virtual environment: $(VENV_DIR)"; \
+		echo "Python: $$($(PYTHON) --version)"; \
+		echo ""; \
+		echo "Installed packages:"; \
+		$(PIP) list; \
+	else \
+		echo "❌ No virtual environment found at $(VENV_DIR)"; \
+		echo "Run 'make setup-venv' to create one"; \
+	fi
 
 # Define the precheck function
 precheck:  ## checks if required exports are present 
@@ -80,17 +167,20 @@ setup: ec2_precheck  ## loads secrets and pulls DB backup file
 
 
 build:  ## builds all containers (ts, ws, db)
-	@docker-compose --env-file .env.prod build db
-	@docker-compose --env-file .env.prod build ts
-	@docker-compose --env-file .env.prod build ws
+	@docker compose --env-file .env.prod build db
+	@docker compose --env-file .env.prod build ts
+	@docker compose --env-file .env.prod build ws
 
 
 up:  ## starts all containers
-	docker-compose --env-file .env.prod up -d
+	docker compose --env-file .env.prod up -d
+
+logs:  ## tails logs
+	docker compose logs -f 
 
 
 down:  ## stops all containers
-	docker-compose --env-file .env.prod down -v   # removes volumes (clears old PGDATA)
+	docker compose --env-file .env.prod down -v   # removes volumes (clears old PGDATA)
 
 clean:  ## removes setup and DB files and folders
 	rm .env.prod
