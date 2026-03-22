@@ -102,18 +102,51 @@ precheck:  ## checks OS, architecture and if required exports are present
 	@echo "=========================================="
 
 setup: ec2_precheck  ## loads secrets and pulls DB backup file
-	## loads secrets, downloads DB backup from AWS S3
-	@echo "Started EC2 setup..."
-	@echo "Loading secrets from AWS Secrets Manager..."
-	. ./scripts/load_secrets.sh
-	cp database.ini src/ws/
-	@echo "Downloading Postgres DB backup from $(S3_BACKUP_BUCKET)..."
-	bash scripts/get_last_s3_file.sh
-	@echo "Copying DB backup file to src/db/..."
-	cp *.sql src/db/
-	@echo "Setup will use following backup file..."
-	ls -lh src/db/ | grep sql
-	@echo "[OK] Seetup is completed..."
+	@echo "=========================================="
+	@echo " SSLV Setup"
+	@echo "=========================================="
+	@echo ""
+	@echo "--- Loading Secrets ---"
+	@echo "  Fetching .env.prod and database.ini from S3..."
+	@. ./scripts/load_secrets.sh
+	@if [ -f .env.prod ]; then \
+		echo "[OK] .env.prod downloaded"; \
+	else \
+		echo "[FAIL] .env.prod not found after download"; \
+		exit 1; \
+	fi
+	@if [ -f database.ini ]; then \
+		echo "[OK] database.ini downloaded"; \
+	else \
+		echo "[FAIL] database.ini not found after download"; \
+		exit 1; \
+	fi
+	@echo ""
+	@echo "--- Copying Config Files ---"
+	@echo "  Copying database.ini to src/ws/..."
+	@cp database.ini src/ws/
+	@echo "[OK] database.ini copied to src/ws/"
+	@echo ""
+	@echo "--- Downloading DB Backup ---"
+	@echo "  Fetching latest Postgres backup from $(S3_BACKUP_BUCKET)..."
+	@bash scripts/get_last_s3_file.sh
+	@if ls *.sql 1> /dev/null 2>&1; then \
+		echo "[OK] DB backup downloaded"; \
+	else \
+		echo "[FAIL] No .sql file found after download"; \
+		exit 1; \
+	fi
+	@echo ""
+	@echo "--- Preparing DB Restore ---"
+	@echo "  Copying SQL backup to src/db/..."
+	@cp *.sql src/db/
+	@echo "[OK] SQL backup copied to src/db/"
+	@echo "  Backup file:"
+	@ls -lh src/db/ | grep sql
+	@echo ""
+	@echo "=========================================="
+	@echo " Setup PASSED"
+	@echo "=========================================="
 
 
 build:  ## builds all containers (ts, ws, db)
