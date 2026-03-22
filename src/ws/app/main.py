@@ -12,10 +12,12 @@ This module contains functions:
 """
 
 from datetime import datetime
+import gc
 import logging
 import logging.handlers as handlers
 from logging.handlers import RotatingFileHandler
 import os
+import psutil
 import sys
 import uvicorn
 from fastapi import FastAPI
@@ -25,7 +27,6 @@ from app.wsmodules.data_format_changer import cloud_data_formater_main
 from app.wsmodules.df_cleaner import df_cleaner_main
 from app.wsmodules.db_worker import db_worker_main
 from app.wsmodules.analytics import analytics_main
-from app.wsmodules.pdf_creator import pdf_creator_main
 
 # from app.wsmodules.sendgrid_mailer import sendgrid_mailer_main
 from app.wsmodules.aws_mailer import aws_mailer_main
@@ -45,6 +46,14 @@ fh = handlers.RotatingFileHandler("ws_main.log", maxBytes=(1048576 * 5), backupC
 fh.setFormatter(fastapi_log_format)
 log.addHandler(fh)
 
+
+def log_memory_usage():
+    """Log current memory usage"""
+    process = psutil.Process(os.getpid())
+    mem_info = process.memory_info()
+    log.info(f"Memory usage: RSS={mem_info.rss / 1024 / 1024:.2f} MB, VMS={mem_info.vms / 1024 / 1024:.2f} MB")
+
+
 app = FastAPI()
 CITY_NAME = "Ogre"
 
@@ -61,7 +70,10 @@ def home():
 async def run_long_task(city: str):
     """Endpint to trigger scrape, format and insert data in DB"""
     log.info("Recieved GET request to start scraping job for %s city", city)
+    log_memory_usage()
     download_latest_lambda_file()
+    gc.collect()
+    log_memory_usage()
     todays_cloud_data_file_exist = check_today_cloud_data_file_exist()
 
     if todays_cloud_data_file_exist is True:
@@ -74,17 +86,25 @@ async def run_long_task(city: str):
         )
         log.info("Running cloud_data_formater_main task: using cloud ws file")
         cloud_data_formater_main()
+        gc.collect()
+        log_memory_usage()
         log.info("Running df_cleaner_main task: using cloud ws file")
         df_cleaner_main()
+        gc.collect()
+        log_memory_usage()
         log.info("Running db_worker_main task: using cloud ws file")
         db_worker_main()
+        gc.collect()
+        log_memory_usage()
         log.info("Running analytics_main task: using cloud ws file")
         analytics_main()
-        log.info("Running pdf_creator task: using cloud ws file ")
-        pdf_creator_main()
+        gc.collect()
+        log_memory_usage()
         log.info("Running aws_mailer task: using cloud ws file")
         # sendgrid_mailer_main()
         aws_mailer_main()
+        gc.collect()
+        log_memory_usage()
         log.info("Completed /run-task/ogre using AWS lambda raw-data file")
         return {
             "message": "FAST_API: scrape Ogre city apartments"
@@ -102,19 +122,29 @@ async def run_long_task(city: str):
     if todays_cloud_data_file_exist is False:
         log.info("Running scrape_website task will create local ws file")
         scrape_website()
+        gc.collect()
+        log_memory_usage()
         log.info("Running data_formater_main task: using locally scraped file")
         cloud_data_formater_main()
+        gc.collect()
+        log_memory_usage()
         log.info("Running df_cleaner_main task: using locally scraped file")
         df_cleaner_main()
+        gc.collect()
+        log_memory_usage()
         log.info("Running db_worker_main task: using locally scraped file")
         db_worker_main()
+        gc.collect()
+        log_memory_usage()
         log.info("Running analytics_main task: using locally scraped file")
         analytics_main()
-        log.info("Running pdf_creator task: using locally scraped")
-        pdf_creator_main()
+        gc.collect()
+        log_memory_usage()
         log.info("Running aws_mailer task: using locally scraped file")
         # sendgrid_mailer_main()
         aws_mailer_main()
+        gc.collect()
+        log_memory_usage()
 
         log.info("sendgrid_mailer_main task completed")
         return {
