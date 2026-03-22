@@ -1,0 +1,149 @@
+---
+name: Deploy to Staging
+
+on:
+  workflow_dispatch:
+    inputs:
+      branch:
+        description: 'Branch to deploy to staging'
+        required: true
+        default: 'main'
+
+jobs:
+  Test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out code
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.branch }}
+      - name: Set up Python 3.9
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.9'
+      - name: Install dependencies
+        run: |
+          python -m pip install pytest
+          python -m pip install coverage
+          pip install -r ./src/ws/requirements.txt
+          pip install -r ./src/ts/requirements.txt
+      - name: Run pytest with coverage
+        run: |
+          coverage run -m pytest
+          coverage xml -o coverage.xml
+        continue-on-error: true
+      - name: Upload coverage reports to Codecov
+        uses: codecov/codecov-action@v4
+        with:
+          name: coverage-report
+          files: coverage.xml
+        env:
+          CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
+
+  Build:
+    needs: Test
+    runs-on: ubuntu-latest
+    env:
+      S3_BUCKET: ${{ secrets.S3_BUCKET }}
+      AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+    steps:
+      - name: Check out code
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.branch }}
+      - name: Create database.ini
+        run: |
+          echo "[postgresql]" > src/ws/database.ini
+          echo "host=db" >> src/ws/database.ini
+          echo "${{ secrets.PG_DB_NAME }}" >> src/ws/database.ini
+          echo "${{ secrets.PG_DB_USER }}" >> src/ws/database.ini
+          echo "${{ secrets.PG_DB_PASS }}" >> src/ws/database.ini
+      - name: Create .env.prod
+        run: |
+          echo "# ws_worker container env variables" > .env.prod
+          echo "${{ secrets.DEST_EMAIL }}" >> .env.prod
+          echo "${{ secrets.SRC_EMAIL }}" >> .env.prod
+          echo "${{ secrets.POSTGRES_PASSWORD }}" >> .env.prod
+      - name: Show environment
+        run: |
+          cat /etc/os-release
+          docker -v
+          docker compose version
+          python3 -V
+          pip install boto3
+      - name: Download DB backup from S3
+        run: |
+          python3 ./src/db/get_last_db_backup.py
+          cp *.sql ./src/db
+          ls -lh ./src/db | grep sql
+      - name: Start DB container
+        run: docker compose --env-file .env.prod up -d db
+      - name: Verify DB import
+        run: |
+          sleep 20
+          docker compose ps
+          docker exec sslv_web_scraper-db-1 \
+            psql -U new_docker_user -d new_docker_db -c '\dt+'
+      - name: Start WS container
+        run: docker compose --env-file .env.prod up -d ws
+      - name: Start TS container
+        run: docker compose --env-file .env.prod up -d ts
+      - name: Verify all containers
+        run: |
+          sleep 10
+          docker compose ps
+      - name: Tear down
+        run: docker compose down
+
+  Deploy:
+    needs: Build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.branch }}
+      - name: Set up SSH key
+        run: |
+          echo "${{ secrets.DEV_EC2_PRIVATE_KEY }}" > private_key
+          chmod 600 private_key
+      - name: Deploy to Staging EC2
+        env:
+          HOSTNAME: ${{ secrets.DEV_EC2_IP }}
+          USER_NAME: ${{ secrets.DEV_EC2_USER }}
+          DEPLOY_BRANCH: ${{ github.event.inputs.branch }}
+        run: |
+          ssh -o StrictHostKeyChecking=no -i private_key "${USER_NAME}@${HOSTNAME}" 'bash -s' <<EOF
+            set -e
+            echo "=== Stopping old containers ==="
+            docker ps
+            docker ps -aq | xargs docker rm -f || true
+            docker images -q | xargs docker rmi -f || true
+            echo "=== Old containers stopped ==="
+
+            echo "=== Cloning repository ==="
+            curr_time=\$(date +%Y%m%d-%H%M)
+            folder_name="\${curr_time}-deploy"
+            mkdir -p "\$folder_name" && cd "\$folder_name"
+            git clone https://github.com/vfedotovs/sslv_web_scraper.git .
+
+            echo "=== Checking out branch: ${DEPLOY_BRANCH} ==="
+            git switch ${DEPLOY_BRANCH}
+
+            echo "=== Loading secrets ==="
+            source ./scripts/load_secrets.sh
+
+            echo "=== Running setup ==="
+            make setup
+
+            echo "=== Building containers ==="
+            make build
+
+            echo "=== Starting containers ==="
+            make up
+
+            echo "=== Verifying deployment ==="
+            sleep 15
+            docker ps
+            echo "=== Staging deployment complete ==="
+          EOF
