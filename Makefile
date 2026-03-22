@@ -89,10 +89,20 @@ precheck:  ## checks OS, architecture and if required exports are present
 	@echo ""
 	@echo "--- Environment Variables ---"
 	@if [ -z "$(S3_BACKUP_BUCKET)" ]; then \
-		echo "[FAIL] S3_BUCKET is not exported"; \
-		echo "       Load envs from AWS Secrets Manager with:"; \
-		echo "         source scripts/load_secrets.sh"; \
-		exit 1; \
+		echo "[WARN] S3_BUCKET is not exported, attempting to load from AWS Secrets Manager..."; \
+		if [ -f scripts/load_secrets.sh ]; then \
+			. ./scripts/load_secrets.sh; \
+			if [ -n "$$S3_BUCKET" ]; then \
+				echo "[OK] S3_BUCKET loaded from AWS Secrets Manager"; \
+			else \
+				echo "[FAIL] S3_BUCKET still not set after loading secrets"; \
+				echo "       Try running manually: source scripts/load_secrets.sh"; \
+				exit 1; \
+			fi; \
+		else \
+			echo "[FAIL] scripts/load_secrets.sh not found"; \
+			exit 1; \
+		fi; \
 	else \
 		echo "[OK] S3_BUCKET is exported"; \
 	fi
