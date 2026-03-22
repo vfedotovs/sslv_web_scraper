@@ -2,6 +2,7 @@
 
 OS := $(shell uname -s)
 ARCH := $(shell uname -m)
+COMPOSE := $(shell if command -v docker compose >/dev/null 2>&1; then echo "docker compose"; elif command -v docker-compose >/dev/null 2>&1; then echo "docker-compose"; else echo "docker compose"; fi)
 
 ifeq ($(OS), Darwin)
     ifeq ($(ARCH), x86_64)
@@ -247,20 +248,20 @@ setup: ec2_precheck  ## loads secrets and pulls DB backup file
 
 
 build:  ## builds all containers (ts, ws, db)
-	@docker compose --env-file .env.prod build db
-	@docker compose --env-file .env.prod build ts
-	@docker compose --env-file .env.prod build ws
+	@$(COMPOSE) --env-file .env.prod build db
+	@$(COMPOSE) --env-file .env.prod build ts
+	@$(COMPOSE) --env-file .env.prod build ws
 
 
 up:  ## starts all containers
-	docker compose --env-file .env.prod up -d
+	$(COMPOSE) --env-file .env.prod up -d
 
 logs:  ## tails logs
-	docker compose logs -f 
+	$(COMPOSE) logs -f
 
 
 down:  ## stops all containers
-	docker compose --env-file .env.prod down -v   # removes volumes (clears old PGDATA)
+	$(COMPOSE) --env-file .env.prod down -v   # removes volumes (clears old PGDATA)
 
 clean:  ## removes setup and DB files and folders
 	rm .env.prod
