@@ -25,13 +25,6 @@ ec2_precheck:
 	else \
 		echo "[Pass] S3_BUCKET is exported."; \
 	fi
-	@if [ -z "$$SENDGRID_API_KEY" ]; then \
-		echo "[Fail] SENDGRID_API_KEY is not exported."; \
-		echo "To set env run source scripts/set_s3_env_from_aws_sm.sh"; \
-		exit 1; \
-	else \
-		echo "[Pass] SENDGRID_API_KEY is exported."; \
-	fi
 
 
 PG_CONTAINER_NAME := `docker ps | grep db-1 | awk '{print $$NF }'`
@@ -44,25 +37,69 @@ help:  ## 💬 This help message
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "\033[36m%-20s\033[0m %s\n", $$1, $$2}'
 
 # Define the precheck function
-precheck:  ## checks if required exports are present 
-	@echo "Checking if env S3_BUCKET is exported...";
+precheck:  ## checks OS, architecture and if required exports are present
+	@echo "=========================================="
+	@echo " SSLV Precheck"
+	@echo "=========================================="
+	@echo ""
+	@echo "--- System Detection ---"
+	@echo "  OS:           $$(uname -s)"
+	@echo "  Architecture: $$(uname -m)"
+	@echo "  Kernel:       $$(uname -r)"
+	@echo "  Hostname:     $$(hostname)"
+	@echo ""
+	@if [ "$$(uname -s)" != "Linux" ]; then \
+		echo "[WARN] OS is $$(uname -s), expected Linux (EC2 instance)"; \
+	else \
+		echo "[OK] OS is Linux"; \
+	fi
+	@if [ "$$(uname -m)" != "aarch64" ]; then \
+		echo "[WARN] Architecture is $$(uname -m), expected aarch64 (EC2 ARM)"; \
+	else \
+		echo "[OK] Architecture is aarch64 (ARM)"; \
+	fi
+	@if [ -f /sys/devices/virtual/dmi/id/board_asset_tag ]; then \
+		EC2_TAG=$$(cat /sys/devices/virtual/dmi/id/board_asset_tag 2>/dev/null); \
+		if echo "$$EC2_TAG" | grep -qi "amazon\|ec2\|aws"; then \
+			echo "[OK] Running on AWS EC2 instance"; \
+		else \
+			echo "[WARN] DMI tag found but does not match AWS EC2"; \
+		fi; \
+	elif curl -s --max-time 2 http://169.254.169.254/latest/meta-data/instance-id > /dev/null 2>&1; then \
+		echo "[OK] Running on AWS EC2 instance (metadata reachable)"; \
+	else \
+		echo "[WARN] Not running on AWS EC2 instance (or metadata not reachable)"; \
+	fi
+	@echo ""
+	@echo "--- Docker Detection ---"
+	@if command -v docker > /dev/null 2>&1; then \
+		echo "[OK] Docker is installed: $$(docker --version)"; \
+	else \
+		echo "[FAIL] Docker is not installed"; \
+		exit 1; \
+	fi
+	@if command -v docker compose > /dev/null 2>&1; then \
+		echo "[OK] Docker Compose is available: $$(docker compose version)"; \
+	elif command -v docker-compose > /dev/null 2>&1; then \
+		echo "[WARN] Using legacy docker-compose: $$(docker-compose --version)"; \
+	else \
+		echo "[FAIL] Docker Compose is not installed"; \
+		exit 1; \
+	fi
+	@echo ""
+	@echo "--- Environment Variables ---"
 	@if [ -z "$(S3_BACKUP_BUCKET)" ]; then \
-		echo "Error: S3_BUCKET is not not exported."; \
-		echo "Load envs from AWS Secrets manager with:"; \
-		echo "source scripts/load_secrets.sh"; \
-		echo "Alternatively export manually:"; \
+		echo "[FAIL] S3_BUCKET is not exported"; \
+		echo "       Load envs from AWS Secrets Manager with:"; \
+		echo "         source scripts/load_secrets.sh"; \
 		exit 1; \
+	else \
+		echo "[OK] S3_BUCKET is exported"; \
 	fi
-		@echo "[OK] env S3_BUCKET is exported...";
-		@echo "Checking if env SENDGRID_API_KEY is exported...";
-		@if [ -z "$(SENDGRID_API_KEY)" ]; then \
-		echo "Error: SENDGRID_API_KEY is not not exported."; \
-		echo "Load envs from AWS Secrets manager with:"; \
-		echo "source scripts/load_secrets.sh"; \
-		echo "Alternatively export manually:"; \
-		exit 1; \
-	fi
-	@echo "[OK] env SENDGRID_API_KEY is exported...";
+	@echo ""
+	@echo "=========================================="
+	@echo " Precheck PASSED"
+	@echo "=========================================="
 
 setup: ec2_precheck  ## loads secrets and pulls DB backup file
 	## loads secrets, downloads DB backup from AWS S3
