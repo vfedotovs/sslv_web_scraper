@@ -3,7 +3,6 @@
 | | |
 | --- | --- |
 | Production Deploy | [![Deploy to Production](https://github.com/vfedotovs/sslv_web_scraper/actions/workflows/main.yml/badge.svg)](https://github.com/vfedotovs/sslv_web_scraper/actions/workflows/main.yml) |
-| Staging Deploy | [![Deploy to Staging](https://github.com/vfedotovs/sslv_web_scraper/actions/workflows/staging.yml/badge.svg)](https://github.com/vfedotovs/sslv_web_scraper/actions/workflows/staging.yml) |
 | Coverage | [![codecov](https://codecov.io/gh/vfedotovs/sslv_web_scraper/graph/badge.svg?token=Y9AQW4YEYH)](https://codecov.io/gh/vfedotovs/sslv_web_scraper) |
 | Explore Ogre City apartments for sale historical data | https://propertydata.lv/data/apartments-for-sale-data/ |
 
