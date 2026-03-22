@@ -23,7 +23,6 @@ services:
       DEST_EMAIL: ${DEST_EMAIL}
       SRC_EMAIL: ${SRC_EMAIL}
       RELEASE_VERSION: ${RELEASE_VERSION}
-      SENDGRID_API_KEY: ${SENDGRID_API_KEY}
       AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID}
       AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY}
       DB_HOST: db
@@ -33,7 +32,14 @@ services:
     ports:
       - "8000:8000"
     depends_on:
-      - db
+      db:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:8000/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      start_period: 15s
+      retries: 3
     networks:
       - postgresql
   ts:
@@ -41,8 +47,17 @@ services:
     restart: always
     environment:
       WS_HOST: ws
+    ports:
+      - "8080:8080"
     depends_on:
-      - ws
+      ws:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8080/health').read()\" || exit 1"]
+      interval: 30s
+      timeout: 10s
+      start_period: 10s
+      retries: 3
     networks:
       - postgresql
   curl:
@@ -59,6 +74,7 @@ services:
       TZ: UTC  # Set timezone (change to your timezone, e.g., Europe/Riga)
       AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID}
       AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY}
+      S3_BUCKET: ${S3_BUCKET}
     volumes:
       # Mount Docker socket to allow cron container to control other containers
       - /var/run/docker.sock:/var/run/docker.sock

@@ -60,10 +60,15 @@ CITY_NAME = "Ogre"
 
 @app.get("/")
 def home():
-    """Test enpoint to verify if fast-api is live"""
-    log.info("Recieved GET request on / FastAPI server is ready ...")
+    """Root endpoint"""
+    return {"message": "Welcome to the SS.LV Web Scraper application!"}
 
-    return {"FastAPI server is ready !!!"}
+
+@app.get("/health")
+def health_check():
+    """Health check endpoint for Docker HEALTHCHECK"""
+    log.info("Received GET request on /health")
+    return {"status": "ok", "message": "FastAPI server is ready and healthy."}
 
 
 @app.get("/run-task/{city}")
