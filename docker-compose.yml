@@ -59,6 +59,7 @@ services:
       TZ: UTC  # Set timezone (change to your timezone, e.g., Europe/Riga)
       AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID}
       AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY}
+      S3_BUCKET: ${S3_BUCKET}
     volumes:
       # Mount Docker socket to allow cron container to control other containers
       - /var/run/docker.sock:/var/run/docker.sock
