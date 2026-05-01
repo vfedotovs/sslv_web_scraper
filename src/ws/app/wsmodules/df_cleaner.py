@@ -295,8 +295,8 @@ def split_pub_dates_by_month(data: dict, months: list) -> list:
             if curr_month == month:
                 curr_dict[key_date] = add_count
         list_of_dicts.append(curr_dict)
-    for month_dict in list_of_dicts:
-        month_line = "\n--- Month: ---"
+    for month, month_dict in zip(months, list_of_dicts):
+        month_line = f"\n--- Month: {month} ---"
         pub_date_report_lines.append(month_line)
         sorted_month_dict = dict(sorted(month_dict.items()))
         for k, v in sorted_month_dict.items():
