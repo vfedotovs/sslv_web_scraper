@@ -68,11 +68,9 @@ def db_worker_main() -> None:
         logger.warning("DataFrame is empty. Skipping processing.")
         return  # Exit gracefully instead of crashing
 
-    df = load_csv_to_df("cleaned-sorted-df.csv")
     # Extract new and still listed message url hashes
     todays_url_hashes = extract_url_hashes_from_df(df)
     still_listed_table_url_hashes = extract_listed_url_hashes_from_db()
-    save_table_row_counts()
     # Sorting all hashes to 3 categories (new, still_listed, to_remove)
     hashe_categories = compare_df_to_db_hashes(
         todays_url_hashes, still_listed_table_url_hashes
@@ -105,7 +103,7 @@ def save_table_row_counts() -> None:
     listed_tbl_hashes = extract_listed_url_hashes_from_db()
     removed_tbl_row_cnt = list_rows_in_removed_table()
     db_tbl_row_counts = (
-        f"LA TBL rows: {len(listed_tbl_hashes)} RA TBL rows: {removed_tbl_row_cnt}"
+        f"Active listings in DB: {len(listed_tbl_hashes)} | Removed ads in DB: {removed_tbl_row_cnt}"
     )
     with open("scraped_and_removed.txt", "a") as file:
         file.write(db_tbl_row_counts + "\n")
@@ -256,10 +254,9 @@ def compare_df_to_db_hashes(df_hashes: list, db_hashes: list) -> list:
     today = datetime.today()
     formatted_date = today.strftime("%Y-%m-%d")
     todays_result = (
-        f"{formatted_date} : TSA [A]: {len(df_hashes)} "
-        f"LA TBL [B]: {len(db_hashes)} AinB [C]: {len(existing_ads)} KLAT "
-        f"A notin B [D]: {len(new_ads)} NewAds, B notin A [E]: "
-        f"{len(removed_ads)} RM from LAT"
+        f"{formatted_date}: Scraped today: {len(df_hashes)} | "
+        f"In DB: {len(db_hashes)} | Unchanged: {len(existing_ads)} | "
+        f"New ads: {len(new_ads)} | Removed: {len(removed_ads)}"
     )
     with open("scraped_and_removed.txt", "a") as file:
         file.write(todays_result + "\n")  # Add a newline for clarity
