@@ -11,6 +11,7 @@ This module contains functions:
 
 """
 
+import atexit
 from datetime import datetime
 import gc
 import logging
@@ -45,6 +46,23 @@ log.addHandler(ch)
 fh = handlers.RotatingFileHandler("ws_main.log", maxBytes=(1048576 * 5), backupCount=5)
 fh.setFormatter(fastapi_log_format)
 log.addHandler(fh)
+
+
+def cleanup_logging_handlers() -> None:
+    """Close and remove handlers for all loggers to release file descriptors on shutdown."""
+    all_loggers = [logging.root] + [
+        logging.getLogger(name) for name in logging.root.manager.loggerDict
+    ]
+    for logger in all_loggers:
+        for handler in logger.handlers[:]:
+            try:
+                handler.close()
+            except Exception:
+                pass
+            logger.removeHandler(handler)
+
+
+atexit.register(cleanup_logging_handlers)
 
 
 def log_memory_usage():
