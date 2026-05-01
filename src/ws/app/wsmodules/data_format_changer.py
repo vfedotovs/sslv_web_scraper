@@ -31,6 +31,7 @@ Module requires:
 Mudule creates:
 [x] File pandas_df.csv and makes copy data/pandas_df.csv_2022-12-03.csv
 """
+import gc
 import os
 import re
 from datetime import datetime
@@ -120,6 +121,8 @@ def cloud_data_formater_main() -> None:
         detailed_cws_fp = get_detailed_file_path()
         ogre_city_data_frame = create_oneline_report(detailed_cws_fp)
         ogre_city_data_frame.to_csv("pandas_df.csv")   #286 BUG gets triggered here
+        del ogre_city_data_frame
+        gc.collect()
         create_file_copy()
     elif todays_cloud_ws_file_exist is False:
         log.warning("Lambda scraped raw-data file does not exist, "
@@ -132,8 +135,10 @@ def cloud_data_formater_main() -> None:
             ogre_city_data_frame.to_csv("pandas_df.csv")
             log.info("Saving csv format data file "
                      "pandas_df.csv completed with success")
+            del ogre_city_data_frame
+            gc.collect()
             create_file_copy()
-        if ogre_city_data_frame is None:
+        else:
             log.error('ogre_city_data_frame is None')
             log.error("Saving csv format data file pandas_df.csv has failed")
     log.info(' --- Finished data_format_changer module --- ')

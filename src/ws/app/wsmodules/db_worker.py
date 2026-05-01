@@ -29,6 +29,7 @@ TODO:
 13.[] Write tests for db_worker module
 """
 
+import gc
 import os
 import sys
 import logging
@@ -80,6 +81,8 @@ def db_worker_main() -> None:
     to_remove_msg_hashes = hashe_categories[2]
     # Extract new msg data dict from df
     new_msg_data = extract_new_msg_data(df, new_msg_hashes)
+    del df
+    gc.collect()
     # Extract to_remove msg data dict from db listed_ads table
     to_removed_msg_data = extract_to_remove_msg_data(to_remove_msg_hashes)
     # Extract data for messages that need to increment listed days value in db
