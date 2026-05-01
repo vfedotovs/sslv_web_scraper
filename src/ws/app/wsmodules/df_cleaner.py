@@ -210,7 +210,17 @@ def create_email_body(clean_data_frame, file_name: str) -> None:
     log.info(f"Started creation of {file_name} file")
     rc_column_dtype = clean_data_frame['Room_count'].dtype
     log.info(f"DataFrame Room_count column dtype: {rc_column_dtype}")
+
+    today_str = datetime.today().strftime('%d.%m.%Y')
+    total_ads = len(clean_data_frame)
+
     email_body_txt = []
+    # UX-1: report date header
+    email_body_txt.append(f"=== Ogre Apartment Report — {today_str} ===")
+    # UX-7: total active listing count summary
+    email_body_txt.append(f"Total active listings: {total_ads}")
+    email_body_txt.append("")
+
     for room_count in range(4):
         room_count_str = str(room_count + 1)
         section_line = str(room_count_str + " room apartment segment:")
@@ -232,6 +242,8 @@ def create_email_body(clean_data_frame, file_name: str) -> None:
             rooms_str = row['Room_count']
             street_str = row['Street']
             pub_date_str = row['Pub_date']
+            # UX-3: mark listings published today
+            new_marker = " [NEW]" if pub_date_str == today_str else ""
             report_line = "  " + str(rooms_str) + "     " + \
                           str(floor_str) + "    " + \
                           str(sqm_str) + "   " + \
@@ -239,7 +251,7 @@ def create_email_body(clean_data_frame, file_name: str) -> None:
                           str(sqm_price) + "   " + \
                           str(street_str) + "   " + \
                           str(pub_date_str) + " " + \
-                          str(url_str)
+                          str(url_str) + new_marker
             email_body_txt.append(report_line)
     log.info(f"Completed creation of {file_name} file")
     save_text_report_to_file(email_body_txt, file_name)
