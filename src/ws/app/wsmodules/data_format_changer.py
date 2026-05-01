@@ -282,7 +282,7 @@ def validate_list_lengths(lists) -> None:
     if len(set(list_lengths)) > 1:
         error_message = f"All lists must have the same length. Found lengths: {list_lengths}"
         log.error(error_message)
-        # raise ValueError(error_message)
+        raise ValueError(error_message)
     log.info("Validation for all provided data element lists completed successfully")
 
 
