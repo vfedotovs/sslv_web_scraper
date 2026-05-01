@@ -127,7 +127,7 @@ def calculate_price_stats(price_data: dict) -> dict:
         ad_count = str(len(prices))
         min_price = str(min(prices))
         max_price = str(max(prices))
-        avg_price = str((min(prices) + max(prices)) / 2)
+        avg_price = str(round(sum(prices) / len(prices), 2))
         price_range = str(max(prices) - min(prices))
         data_values.append(ad_count)
         data_values.append(min_price)

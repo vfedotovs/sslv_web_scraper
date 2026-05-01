@@ -221,9 +221,14 @@ def create_email_body(clean_data_frame, file_name: str) -> None:
     email_body_txt.append(f"Total active listings: {total_ads}")
     email_body_txt.append("")
 
-    for room_count in range(4):
-        room_count_str = str(room_count + 1)
-        section_line = str(room_count_str + " room apartment segment:")
+    if rc_column_dtype == 'int64':
+        unique_room_counts = sorted(clean_data_frame['Room_count'].unique())
+    else:
+        unique_room_counts = sorted(clean_data_frame['Room_count'].unique(), key=int)
+
+    for room_count_val in unique_room_counts:
+        room_count_str = str(room_count_val)
+        section_line = room_count_str + " room apartment segment:"
         email_body_txt.append(section_line)
         if rc_column_dtype == 'int64':
             filtered_by_room_count = clean_data_frame.loc[clean_data_frame['Room_count'] == int(
