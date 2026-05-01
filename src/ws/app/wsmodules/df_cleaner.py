@@ -30,6 +30,7 @@ Modulel TODO tasks:
     - [ ] refactor create file backup function
 """
 from datetime import datetime
+import gc
 import logging
 from logging.handlers import RotatingFileHandler
 import os
@@ -353,6 +354,8 @@ def df_cleaner_main():
             clean_df = clean_sqm_eur_col(clean_price_col)
             sorted_df = clean_df.sort_values(by='Price_in_eur', ascending=True)
             sorted_df.to_csv("cleaned-sorted-df.csv")
+            del raw_data_frame, clean_sqm_col, clean_price_col, clean_df, sorted_df
+            gc.collect()
             all_ads_df = pd.read_csv("cleaned-sorted-df.csv", index_col=False)
             create_file_copy()
             create_email_body(all_ads_df, EMAIL_BODY_OUTPUT_FILE)
@@ -368,6 +371,8 @@ def df_cleaner_main():
                 sorted_pub_dates, ordered_month_keys)
             save_pub_dates_report_to(
                 'email_body_add_dates_table.txt', splited_dates)
+            del all_ads_df
+            gc.collect()
 
     except FileNotFoundError:
         log.error(f'File {RAW_DATA_FILE} not found')
