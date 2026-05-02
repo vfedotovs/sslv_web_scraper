@@ -35,8 +35,9 @@ import logging
 import re
 from logging.handlers import RotatingFileHandler
 import os
+import shutil
 import sys
-# from tabulate import tabulate
+from tabulate import tabulate
 import pandas as pd
 
 
@@ -217,9 +218,7 @@ def create_email_body(clean_data_frame, file_name: str) -> None:
     total_ads = len(clean_data_frame)
 
     email_body_txt = []
-    # UX-1: report date header
     email_body_txt.append(f"=== Ogre Apartment Report — {today_str} ===")
-    # UX-7: total active listing count summary
     email_body_txt.append(f"Total active listings: {total_ads}")
     email_body_txt.append("")
 
@@ -228,10 +227,11 @@ def create_email_body(clean_data_frame, file_name: str) -> None:
     else:
         unique_room_counts = sorted(clean_data_frame['Room_count'].unique(), key=int)
 
+    headers = ['Rooms', 'Floor', 'Size', 'Price EUR', 'SQM EUR', 'Street', 'Date', 'URL']
+
     for room_count_val in unique_room_counts:
         room_count_str = str(room_count_val)
-        section_line = room_count_str + " room apartment segment:"
-        email_body_txt.append(section_line)
+        email_body_txt.append(room_count_str + " room apartment segment:")
         if rc_column_dtype == 'int64':
             filtered_by_room_count = clean_data_frame.loc[clean_data_frame['Room_count'] == int(
                 room_count_str)]
@@ -419,10 +419,10 @@ def create_file_copy() -> None:
         "Started copy of cleaned-sorted-df-YYYY-MM-DD.csv in data folder")
     todays_date = datetime.today().strftime('%Y-%m-%d')
     dest_file = 'cleaned-sorted-df-' + todays_date + '.csv'
-    copy_cmd = 'cp cleaned-sorted-df.csv data/' + dest_file
+    dest_path = os.path.join('data', dest_file)
     if not os.path.exists('data'):
         os.makedirs('data')
-    os.system(copy_cmd)
+    shutil.copy2('cleaned-sorted-df.csv', dest_path)
     log.info(f"Completed creating file copy of {dest_file}")
 
 
@@ -432,11 +432,11 @@ def create_mb_file_copy() -> None:
         "Started copy of email_body_txt_m4-YYYY-MM-DD.txt in data folder")
     todays_date = datetime.today().strftime('%Y-%m-%d')
     dest_file = 'email_body_txt_m4-' + todays_date + '.txt'
-    copy_cmd = 'cp email_body_txt_m4.txt data/' + dest_file
+    dest_path = os.path.join('data', dest_file)
     if not os.path.exists('data'):
         os.makedirs('data')
-    os.system(copy_cmd)
-    log.info("Completed creating file copy of %s ",  dest_file)
+    shutil.copy2('email_body_txt_m4.txt', dest_path)
+    log.info("Completed creating file copy of %s", dest_file)
 
 
 if __name__ == "__main__":

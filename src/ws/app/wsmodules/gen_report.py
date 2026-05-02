@@ -33,5 +33,6 @@ def gen_report(report_type: str, file_name: str, segments: list, images: list) -
     report.save_report('Ogre_daily.pdf')
 
 
-gen_report('Daily', 'Ogre_daily.pdf', segments, images)
+if __name__ == "__main__":
+    gen_report('Daily', 'Ogre_daily.pdf', segments, images)
 
