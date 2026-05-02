@@ -32,6 +32,7 @@ Modulel TODO tasks:
 from datetime import datetime
 import gc
 import logging
+import re
 from logging.handlers import RotatingFileHandler
 import os
 import shutil
@@ -232,35 +233,33 @@ def create_email_body(clean_data_frame, file_name: str) -> None:
         room_count_str = str(room_count_val)
         email_body_txt.append(room_count_str + " room apartment segment:")
         if rc_column_dtype == 'int64':
-            filtered_by_room_count = clean_data_frame.loc[
-                clean_data_frame['Room_count'] == int(room_count_str)]
-        else:
-            filtered_by_room_count = clean_data_frame.loc[
-                clean_data_frame['Room_count'] == str(room_count_str)]
-
-        # DQ-2: count listings per street within this segment
-        street_counts = filtered_by_room_count['Street'].value_counts()
-
-        table_rows = []
-        for _, row in filtered_by_room_count.iterrows():
-            street_str = str(row['Street'])
-            pub_date_str = str(row['Pub_date'])
+            filtered_by_room_count = clean_data_frame.loc[clean_data_frame['Room_count'] == int(
+                room_count_str)]
+        if rc_column_dtype == 'object':
+            filtered_by_room_count = clean_data_frame.loc[clean_data_frame['Room_count'] == str(
+                room_count_str)]
+        colum_line = "[Rooms, Floor, Size, Price EUR, SQM Price EUR, Apartment Street, Pub_date,  URL]"
+        email_body_txt.append(colum_line)
+        for index, row in filtered_by_room_count.iterrows():
+            url_str = row["URL"]
+            sqm_str = row["Size_sqm"]
+            floor_str = row["Floor"]
+            total_price = row["Price_in_eur"]
+            sqm_price = row['SQ_meter_price']
+            rooms_str = row['Room_count']
+            street_str = row['Street']
+            pub_date_str = row['Pub_date']
+            # UX-3: mark listings published today
             new_marker = " [NEW]" if pub_date_str == today_str else ""
-            count = street_counts.get(street_str, 1)
-            street_display = f"{street_str} ({count} listings)" if count > 1 else street_str
-            table_rows.append([
-                str(row['Room_count']),
-                str(row['Floor']),
-                str(row['Size_sqm']),
-                f"{row['Price_in_eur']} EUR",
-                f"{row['SQ_meter_price']} EUR",
-                street_display,
-                pub_date_str + new_marker,
-                str(row['URL']),
-            ])
-        email_body_txt.append(tabulate(table_rows, headers=headers, tablefmt="simple"))
-        email_body_txt.append("")
-
+            report_line = "  " + str(rooms_str) + "     " + \
+                          str(floor_str) + "    " + \
+                          str(sqm_str) + "   " + \
+                          str(total_price) + " EUR    " + \
+                          str(sqm_price) + " EUR   " + \
+                          str(street_str) + "   " + \
+                          str(pub_date_str) + " " + \
+                          str(url_str) + new_marker
+            email_body_txt.append(report_line)
     log.info(f"Completed creation of {file_name} file")
     save_text_report_to_file(email_body_txt, file_name)
 
@@ -338,6 +337,24 @@ def save_pub_dates_report_to(pubdates_out_file_name: str, month_data: list) -> N
         f"Completed writing {text_line_cnt} lines to {pubdates_out_file_name} file ")
 
 
+_STREET_ABBREVIATIONS = [
+    (r'\bpr\.\b', 'prospekts'),
+    (r'\biel\.\b', 'iela'),
+    (r'\bblv\.\b', 'bulvāris'),
+    (r'\bšos\.\b', 'šoseja'),
+]
+
+
+def normalise_street(street: str) -> str:
+    """Expand common Latvian street abbreviations to their full form."""
+    if not isinstance(street, str):
+        return street
+    result = street.strip()
+    for pattern, replacement in _STREET_ABBREVIATIONS:
+        result = re.sub(pattern, replacement, result, flags=re.IGNORECASE)
+    return result
+
+
 def df_cleaner_main():
     """ Cleans df, sorts df by price in EUR, save to csv file """
     log.info(" --- Started df_cleaner module ---")
@@ -354,6 +371,7 @@ def df_cleaner_main():
             clean_sqm_col = clean_sqm_column(clean_df)
             clean_price_col = split_price_column(clean_sqm_col)
             clean_df = clean_sqm_eur_col(clean_price_col)
+            clean_df['Street'] = clean_df['Street'].apply(normalise_street)
             sorted_df = clean_df.sort_values(by='Price_in_eur', ascending=True)
             sorted_df.to_csv("cleaned-sorted-df.csv")
             del raw_data_frame, clean_sqm_col, clean_price_col, clean_df, sorted_df

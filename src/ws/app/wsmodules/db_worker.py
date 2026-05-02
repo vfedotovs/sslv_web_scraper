@@ -255,7 +255,7 @@ def compare_df_to_db_hashes(df_hashes: list, db_hashes: list) -> list:
         f"{len(removed_ads)} to_remove hashes "
     )
     today = datetime.today()
-    formatted_date = today.strftime("%Y-%m-%d")
+    formatted_date = today.strftime("%d.%m.%Y")
     todays_result = (
         f"{formatted_date}: Scraped today: {len(df_hashes)} | "
         f"In DB: {len(db_hashes)} | Unchanged: {len(existing_ads)} | "
