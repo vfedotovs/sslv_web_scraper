@@ -217,8 +217,9 @@ def create_email_body(clean_data_frame, file_name: str) -> None:
     today_str = datetime.today().strftime('%d.%m.%Y')
     total_ads = len(clean_data_frame)
 
+    app_env = os.environ.get('APP_ENV', 'local')
     email_body_txt = []
-    email_body_txt.append(f"=== Ogre Apartment Report — {today_str} ===")
+    email_body_txt.append(f"=== Ogre Apartment Report — {today_str} [{app_env}] ===")
     email_body_txt.append(f"Total active listings: {total_ads}")
     email_body_txt.append("")
 
