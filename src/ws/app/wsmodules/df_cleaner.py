@@ -34,8 +34,9 @@ import gc
 import logging
 from logging.handlers import RotatingFileHandler
 import os
+import shutil
 import sys
-# from tabulate import tabulate
+from tabulate import tabulate
 import pandas as pd
 
 
@@ -216,9 +217,7 @@ def create_email_body(clean_data_frame, file_name: str) -> None:
     total_ads = len(clean_data_frame)
 
     email_body_txt = []
-    # UX-1: report date header
     email_body_txt.append(f"=== Ogre Apartment Report — {today_str} ===")
-    # UX-7: total active listing count summary
     email_body_txt.append(f"Total active listings: {total_ads}")
     email_body_txt.append("")
 
@@ -227,38 +226,41 @@ def create_email_body(clean_data_frame, file_name: str) -> None:
     else:
         unique_room_counts = sorted(clean_data_frame['Room_count'].unique(), key=int)
 
+    headers = ['Rooms', 'Floor', 'Size', 'Price EUR', 'SQM EUR', 'Street', 'Date', 'URL']
+
     for room_count_val in unique_room_counts:
         room_count_str = str(room_count_val)
-        section_line = room_count_str + " room apartment segment:"
-        email_body_txt.append(section_line)
+        email_body_txt.append(room_count_str + " room apartment segment:")
         if rc_column_dtype == 'int64':
-            filtered_by_room_count = clean_data_frame.loc[clean_data_frame['Room_count'] == int(
-                room_count_str)]
-        if rc_column_dtype == 'object':
-            filtered_by_room_count = clean_data_frame.loc[clean_data_frame['Room_count'] == str(
-                room_count_str)]
-        colum_line = "[Rooms, Floor, Size, Price, SQM Price, Apartment Street, Pub_date,  URL]"
-        email_body_txt.append(colum_line)
-        for index, row in filtered_by_room_count.iterrows():
-            url_str = row["URL"]
-            sqm_str = row["Size_sqm"]
-            floor_str = row["Floor"]
-            total_price = row["Price_in_eur"]
-            sqm_price = row['SQ_meter_price']
-            rooms_str = row['Room_count']
-            street_str = row['Street']
-            pub_date_str = row['Pub_date']
-            # UX-3: mark listings published today
+            filtered_by_room_count = clean_data_frame.loc[
+                clean_data_frame['Room_count'] == int(room_count_str)]
+        else:
+            filtered_by_room_count = clean_data_frame.loc[
+                clean_data_frame['Room_count'] == str(room_count_str)]
+
+        # DQ-2: count listings per street within this segment
+        street_counts = filtered_by_room_count['Street'].value_counts()
+
+        table_rows = []
+        for _, row in filtered_by_room_count.iterrows():
+            street_str = str(row['Street'])
+            pub_date_str = str(row['Pub_date'])
             new_marker = " [NEW]" if pub_date_str == today_str else ""
-            report_line = "  " + str(rooms_str) + "     " + \
-                          str(floor_str) + "    " + \
-                          str(sqm_str) + "   " + \
-                          str(total_price) + "    " + \
-                          str(sqm_price) + "   " + \
-                          str(street_str) + "   " + \
-                          str(pub_date_str) + " " + \
-                          str(url_str) + new_marker
-            email_body_txt.append(report_line)
+            count = street_counts.get(street_str, 1)
+            street_display = f"{street_str} ({count} listings)" if count > 1 else street_str
+            table_rows.append([
+                str(row['Room_count']),
+                str(row['Floor']),
+                str(row['Size_sqm']),
+                f"{row['Price_in_eur']} EUR",
+                f"{row['SQ_meter_price']} EUR",
+                street_display,
+                pub_date_str + new_marker,
+                str(row['URL']),
+            ])
+        email_body_txt.append(tabulate(table_rows, headers=headers, tablefmt="simple"))
+        email_body_txt.append("")
+
     log.info(f"Completed creation of {file_name} file")
     save_text_report_to_file(email_body_txt, file_name)
 
@@ -399,10 +401,10 @@ def create_file_copy() -> None:
         "Started copy of cleaned-sorted-df-YYYY-MM-DD.csv in data folder")
     todays_date = datetime.today().strftime('%Y-%m-%d')
     dest_file = 'cleaned-sorted-df-' + todays_date + '.csv'
-    copy_cmd = 'cp cleaned-sorted-df.csv data/' + dest_file
+    dest_path = os.path.join('data', dest_file)
     if not os.path.exists('data'):
         os.makedirs('data')
-    os.system(copy_cmd)
+    shutil.copy2('cleaned-sorted-df.csv', dest_path)
     log.info(f"Completed creating file copy of {dest_file}")
 
 
@@ -412,11 +414,11 @@ def create_mb_file_copy() -> None:
         "Started copy of email_body_txt_m4-YYYY-MM-DD.txt in data folder")
     todays_date = datetime.today().strftime('%Y-%m-%d')
     dest_file = 'email_body_txt_m4-' + todays_date + '.txt'
-    copy_cmd = 'cp email_body_txt_m4.txt data/' + dest_file
+    dest_path = os.path.join('data', dest_file)
     if not os.path.exists('data'):
         os.makedirs('data')
-    os.system(copy_cmd)
-    log.info("Completed creating file copy of %s ",  dest_file)
+    shutil.copy2('email_body_txt_m4.txt', dest_path)
+    log.info("Completed creating file copy of %s", dest_file)
 
 
 if __name__ == "__main__":

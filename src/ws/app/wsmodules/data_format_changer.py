@@ -34,6 +34,7 @@ Mudule creates:
 import gc
 import os
 import re
+import shutil
 from datetime import datetime
 import logging
 import logging.handlers as handlers
@@ -330,17 +331,15 @@ def create_file_copy() -> None:
     """
     todays_date = datetime.today().strftime('%Y-%m-%d')
     dest_file = 'pandas_df_' + todays_date + '.csv'
-    copy_cmd = 'cp pandas_df.csv data/' + dest_file
+    dest_path = os.path.join('data', dest_file)
     log.info("Creating backup of file: %s into folder 'data/'", dest_file)
 
     if not os.path.exists('data'):
         log.warning("'data' folder does not exist. Creating folder.")
         os.makedirs('data')
 
-    os.system(copy_cmd)
-    # log.info("Completed moving file: %s to folder 'data/' with success", dest_file)
+    shutil.copy2('pandas_df.csv', dest_path)
     try:
-        dest_path = './data/' + dest_file
         file_size = os.path.getsize(dest_path)
         log.info("Completed moving file: %s to folder 'data/' with success."
                  "File size: %d bytes", dest_file, file_size)
