@@ -103,6 +103,22 @@ jobs:
       - uses: actions/checkout@v6
         with:
           ref: ${{ github.event.inputs.branch }}
+          fetch-depth: 0
+      - name: Compute release version
+        id: version
+        run: |
+          git fetch --tags
+          LATEST_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "v0.0.0")
+          COMMITS_SINCE=$(git rev-list "${LATEST_TAG}..HEAD" --count)
+          if [ "$COMMITS_SINCE" = "0" ]; then
+            echo "release_version=${LATEST_TAG}" >> "$GITHUB_OUTPUT"
+          else
+            MAJOR=$(echo "$LATEST_TAG" | sed 's/v//' | cut -d. -f1)
+            MINOR=$(echo "$LATEST_TAG" | cut -d. -f2)
+            PATCH=$(echo "$LATEST_TAG" | cut -d. -f3)
+            NEXT_PATCH=$((PATCH + 1))
+            echo "release_version=v${MAJOR}.${MINOR}.${NEXT_PATCH}-rc" >> "$GITHUB_OUTPUT"
+          fi
       - name: Set up SSH key
         run: |
           echo "${{ secrets.DEV_EC2_PRIVATE_KEY }}" > private_key
@@ -112,6 +128,8 @@ jobs:
           HOSTNAME: ${{ secrets.DEV_EC2_IP }}
           USER_NAME: ${{ secrets.DEV_EC2_USER }}
           DEPLOY_BRANCH: ${{ github.event.inputs.branch }}
+          RELEASE_VERSION: ${{ steps.version.outputs.release_version }}
+          APP_ENV: staging
         run: |
           ssh -o StrictHostKeyChecking=no -i private_key "${USER_NAME}@${HOSTNAME}" 'bash -s' <<EOF
             set -e
@@ -132,6 +150,10 @@ jobs:
 
             echo "=== Loading secrets ==="
             source ./scripts/load_secrets.sh
+
+            echo "=== Injecting version and environment ==="
+            echo "RELEASE_VERSION=${RELEASE_VERSION}" >> .env
+            echo "APP_ENV=${APP_ENV}" >> .env
 
             echo "=== Running setup ==="
             make setup
