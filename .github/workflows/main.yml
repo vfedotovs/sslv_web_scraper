@@ -93,12 +93,21 @@ jobs:
             echo "=== Loading secrets ==="
             source ./scripts/load_secrets.sh
 
-            echo "=== Injecting version and environment ==="
-            echo "RELEASE_VERSION=${RELEASE_VERSION}" >> .env
-            echo "APP_ENV=${APP_ENV}" >> .env
-
             echo "=== Running setup ==="
             make setup
+
+            echo "=== Injecting version and environment ==="
+            export RELEASE_VERSION="${RELEASE_VERSION}"
+            export APP_ENV="${APP_ENV}"
+            sed -i '/^RELEASE_VERSION=/d; /^APP_ENV=/d' .env.prod
+            echo "RELEASE_VERSION=${RELEASE_VERSION}" >> .env.prod
+            echo "APP_ENV=${APP_ENV}" >> .env.prod
+            echo "Shell env (what docker-compose actually uses):"
+            env | grep -E '^(RELEASE_VERSION|APP_ENV)='
+            echo ".env.prod values:"
+            grep -E '^(RELEASE_VERSION|APP_ENV)=' .env.prod
+            echo "Resolved docker-compose config:"
+            docker compose --env-file .env.prod config | grep -E 'RELEASE_VERSION|APP_ENV' || true
 
             echo "=== Building containers ==="
             make build
