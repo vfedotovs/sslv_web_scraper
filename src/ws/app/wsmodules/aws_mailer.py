@@ -8,11 +8,12 @@ subject line that includes release version and deployment environment,
 sends the message through AWS SES, and removes the scratch files.
 
 Required environment variables:
-    SRC_EMAIL          Sender address (falls back to info@propertydata.lv)
-    DEST_EMAIL         Recipient address (falls back to info@propertydata.lv)
-    AWS_REGION         SES region (falls back to eu-west-1)
-    RELEASE_VERSION    Used in the email subject (falls back to 'unknown')
-    APP_ENV            Used in the email subject (falls back to 'local')
+    SRC_EMAIL              Sender address (falls back to info@propertydata.lv)
+    DEST_EMAIL             Recipient address (falls back to info@propertydata.lv)
+    AWS_REGION             SES region (falls back to eu-west-1)
+    RELEASE_VERSION        Used in the email subject (falls back to 'unknown')
+    APP_ENV                Used in the email subject (falls back to 'local')
+    AWS_MAILER_LOG_PATH    Path for the rotating log file (falls back to './aws_mailer.log')
 
 AWS credentials must be available via the standard boto3 chain
 (instance profile, env vars, or ~/.aws/credentials).
@@ -28,30 +29,64 @@ from botocore.exceptions import ClientError
 
 
 log = logging.getLogger("aws_mailer")
-log.setLevel(logging.INFO)
-fa_log_format = logging.Formatter(
-    "%(asctime)s [%(levelname)-5.5s] : %(funcName)s: %(lineno)d: %(message)s"
-)
-ch = logging.StreamHandler(sys.stdout)
-ch.setFormatter(fa_log_format)
-log.addHandler(ch)
-fh = handlers.RotatingFileHandler(
-    "aws_mailer.log", maxBytes=(1048576 * 5), backupCount=7
-)
-fh.setFormatter(fa_log_format)
-log.addHandler(fh)
+
+_LOG_FILE_PATH = os.environ.get("AWS_MAILER_LOG_PATH", "aws_mailer.log")
 
 
-data_files = [
-    "email_body_txt_m4.txt",
+def _configure_logging() -> None:
+    """Idempotently attach stdout and rotating-file handlers to the module logger.
+
+    Safe to call multiple times — the handler guard check skips re-attach
+    so file descriptors don't leak across worker restarts. Called at the
+    start of aws_mailer_main(); other entry points that want module logging
+    should call this too.
+    """
+    if log.handlers:
+        return
+    log.setLevel(logging.INFO)
+    fmt = logging.Formatter(
+        "%(asctime)s [%(levelname)-5.5s] : %(funcName)s: %(lineno)d: %(message)s"
+    )
+    ch = logging.StreamHandler(sys.stdout)
+    ch.setFormatter(fmt)
+    log.addHandler(ch)
+    fh = handlers.RotatingFileHandler(
+        _LOG_FILE_PATH, maxBytes=(1048576 * 5), backupCount=7
+    )
+    fh.setFormatter(fmt)
+    log.addHandler(fh)
+
+
+_EMAIL_MAIN_FILE = "email_body_txt_m4.txt"
+
+# Files appended to the email body in order. scraped_and_removed.txt is
+# preserved on disk between runs (matches historical behavior).
+_EMAIL_EXTRA_FILES = [
+    "basic_price_stats.txt",
+    "email_body_add_dates_table.txt",
+    "scraped_and_removed.txt",
+]
+
+# Files explicitly NOT cleaned by remove_tmp_files() after sending.
+_PRESERVED_FILES = {"scraped_and_removed.txt"}
+
+# Scratch artifacts produced by upstream pipeline modules (df_cleaner,
+# db_worker, run_analisys) that are not part of the email body.
+_OTHER_SCRATCH_FILES = [
     "Mailer_report.txt",
     "Ogre-raw-data-report.txt",
     "cleaned-sorted-df.csv",
     "pandas_df.csv",
-    "basic_price_stats.txt",
-    "email_body_add_dates_table.txt",
     "1_rooms_tmp.txt",
     "mrv2.txt",
+]
+
+# Single source of truth for files removed after the email is sent.
+# Derived so adding a file above (extras or scratch) auto-includes it
+# in cleanup, unless it's also in _PRESERVED_FILES.
+data_files = [
+    f for f in [_EMAIL_MAIN_FILE, *_EMAIL_EXTRA_FILES, *_OTHER_SCRATCH_FILES]
+    if f not in _PRESERVED_FILES
 ]
 
 
@@ -102,46 +137,39 @@ def gen_subject_title() -> str:
 
 
 def extract_file_contents(file_name: str) -> str:
-    """
-    Extracts the contents of a file and returns them as a string with two appended new lines.
+    """Read a UTF-8 text file and return its contents with a trailing blank line.
 
-    This function attempts to read the contents of a specified file. It reads the entire
-    file into a list of lines, concatenates them into a single string, and appends two
-    new lines (`\n\n`) to the end of the string. If the file is not found, or if any
-    other error occurs, an appropriate error message is logged and a fallback string
-    indicating that the file was not found is returned.
+    Used to assemble the email body — the trailing `\n\n` separates this
+    file's contents from whatever comes next.
+
+    Recoverable errors (file missing, permission denied, encoding error,
+    path is a directory) are logged and returned as a human-readable
+    fallback string so a bad input file degrades gracefully rather than
+    aborting the mailer. Programming errors propagate unchanged.
 
     Args:
-        file_name (str): The path to the file to be read.
+        file_name: Path to the file to read.
 
     Returns:
-        str: The contents of the file as a string, or a fallback message if an error occurs.
+        File contents plus `"\n\n"`, or a fallback message describing
+        the recoverable error encountered.
     """
     try:
         with open(file_name, "r", encoding="utf-8") as file_object:
-            # Read file in to list
             log.info(f"Trying to read file {file_name} contents.")
-            file_content = file_object.readlines()
-            # Convert list to string with no space as separator
-            extracted_file_contents = "".join(file_content)
-            extracted_file_contents += "\n\n"
-            return extracted_file_contents
+            return "".join(file_object.readlines()) + "\n\n"
     except FileNotFoundError:
         log.error(f"FileNotFoundError: file {file_name} not found.")
-        extracted_file_contents = (
-            "\n\nFileNotFoundError: "
-            + file_name
-            + " Please contact the developer team to provide feedback."
+        return (
+            f"\n\nFileNotFoundError: {file_name}"
+            " Please contact the developer team to provide feedback."
         )
-        # Return an empty string or a default value to avoid further errors
-        return extracted_file_contents
-    except Exception as e:
-        log.error(f"An unexpected error occurred: {e}")
-        extracted_file_contents = (
-            "\n\nUnexpected error: file " + file_name + " was not found. "
+    except (UnicodeDecodeError, PermissionError, IsADirectoryError) as e:
+        log.error(f"Error reading {file_name}: {e}")
+        return (
+            f"\n\nError reading {file_name}: {e}. "
             "Please contact the developer team to provide feedback."
         )
-        return extracted_file_contents
 
 
 def aws_mailer_main() -> None:
@@ -171,6 +199,7 @@ def aws_mailer_main() -> None:
     Returns:
       None
     """
+    _configure_logging()
     log.info("--- AWS SES mailer module started ---")
 
     SENDER = os.environ.get('SRC_EMAIL', 'info@propertydata.lv')
@@ -178,17 +207,9 @@ def aws_mailer_main() -> None:
     AWS_REGION = os.environ.get('AWS_REGION', 'eu-west-1')
     SUBJECT = gen_subject_title()
 
-    BODY_TEXT = extract_file_contents("email_body_txt_m4.txt")
+    BODY_TEXT = extract_file_contents(_EMAIL_MAIN_FILE)
 
-    # List the files you want to append in order
-    extra_files = [
-        "basic_price_stats.txt",
-        "email_body_add_dates_table.txt",
-        "scraped_and_removed.txt",
-    ]
-
-    # Append contents of each file
-    for filename in extra_files:
+    for filename in _EMAIL_EXTRA_FILES:
         try:
             with open(filename, "r", encoding="utf-8") as ef:
                 BODY_TEXT += "\n\n" + ef.read()
