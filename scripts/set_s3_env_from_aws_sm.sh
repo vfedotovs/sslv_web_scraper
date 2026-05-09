@@ -1,8 +1,13 @@
 
 #!/bin/bash
 
+# Secrets Manager is region-scoped; sslv_creds lives in eu-west-1.
+# Override AWS_RES_REGION if the secret moves.
+AWS_RES_REGION="${AWS_RES_REGION:-eu-west-1}"
+
 # Fetch secret
-secret=$(aws secretsmanager get-secret-value --secret-id sslv_creds --query SecretString --output text)
+secret=$(aws --region "$AWS_RES_REGION" secretsmanager get-secret-value \
+    --secret-id sslv_creds --query SecretString --output text)
 
 if [ $? -ne 0 ]; then
   echo "❌ Failed to fetch secret"
