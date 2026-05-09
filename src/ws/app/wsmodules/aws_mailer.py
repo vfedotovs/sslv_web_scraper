@@ -1,25 +1,26 @@
 #!/usr/bin/env python3
 
-"""aws_mailer.py module
+"""Send the daily Ogre apartment scrape report via AWS SES.
 
-Main usage case for this module:
-    1. Send email using AWS SES service
-    3. Add ad oneline information about each apartment in email body
-    4. Use environemt varibales for source/destination email and API key
+Assembles the email body from text files produced by upstream pipeline
+modules (df_cleaner, db_worker, run_analisys), generates a dynamic
+subject line that includes release version and deployment environment,
+sends the message through AWS SES, and removes the scratch files.
 
-Tasks:
-[x] task 01 - test email is getting sent with success
-[x] task 02 - tmp files are deleted after email sent functionality
-[x] task 03 - dynamic email title functionality (city name, version, deploy date)
-[x] task 04 - email body contains adverts data for 1-6 room categories
-[x] task 05 - email body contains medatada/debug info
+Required environment variables:
+    SRC_EMAIL          Sender address (falls back to info@propertydata.lv)
+    DEST_EMAIL         Recipient address (falls back to info@propertydata.lv)
+    AWS_REGION         SES region (falls back to eu-west-1)
+    RELEASE_VERSION    Used in the email subject (falls back to 'unknown')
+    APP_ENV            Used in the email subject (falls back to 'local')
 
+AWS credentials must be available via the standard boto3 chain
+(instance profile, env vars, or ~/.aws/credentials).
 """
 
 from datetime import datetime
 import logging
 from logging import handlers
-from logging.handlers import RotatingFileHandler
 import sys
 import os
 import boto3
@@ -55,7 +56,15 @@ data_files = [
 
 
 def remove_tmp_files(files_to_remove: list) -> None:
-    """FIXME: Refactor this function to better code"""
+    """Best-effort delete of a list of temp files in the current working directory.
+
+    Per-file errors are logged but do not abort the loop — used post-send
+    to clean up scratch files left by upstream modules. Missing files are
+    treated as ordinary errors and logged at error level.
+
+    Args:
+        files_to_remove: List of filenames (relative to cwd) to delete.
+    """
     directory = os.getcwd()
     log.info(f"Attempting clean temp files from {directory} folder")
     for file in files_to_remove:
@@ -68,9 +77,17 @@ def remove_tmp_files(files_to_remove: list) -> None:
 
 
 def gen_subject_title() -> str:
-    """Function generates uniq subject line to improve debugging
-    Example of subject:
-    Ogre City Apartments for sale from ss.lv web_scraper_v1.5.12_20260502_1330 [production]"""
+    """Generate a unique email subject line tagged with version and environment.
+
+    The subject embeds the current timestamp, the deploy's RELEASE_VERSION
+    env var (or 'unknown' if unset), and the APP_ENV env var (or 'local'
+    if unset) in square brackets — making it trivial to identify which
+    deploy produced which email.
+
+    Returns:
+        A subject string of the form
+        "Ogre City Apartments for sale from ss.lv web_scraper_<version>_<YYYYMMDD>_<HHMM> [<env>]".
+    """
     log.info("Generating email subject with todays date")
     release = os.environ.get('RELEASE_VERSION', 'unknown')
     app_env = os.environ.get('APP_ENV', 'local')
@@ -158,7 +175,7 @@ def aws_mailer_main() -> None:
 
     SENDER = os.environ.get('SRC_EMAIL', 'info@propertydata.lv')
     RECIPIENT = os.environ.get('DEST_EMAIL', 'info@propertydata.lv')
-    AWS_REGION = "eu-west-1"  # e.g., Ireland
+    AWS_REGION = os.environ.get('AWS_REGION', 'eu-west-1')
     SUBJECT = gen_subject_title()
 
     BODY_TEXT = extract_file_contents("email_body_txt_m4.txt")
@@ -183,10 +200,10 @@ def aws_mailer_main() -> None:
 
     CHARSET = "UTF-8"
 
-    log.info("Creating AWS SES clinet using boto3 ")
+    log.info("Creating AWS SES client using boto3")
     client = boto3.client("ses", region_name=AWS_REGION)
 
-    log.info("Trying to sent email with AWS SES clinet using boto3 ")
+    log.info("Trying to send email with AWS SES client using boto3")
     try:
         response = client.send_email(
             Destination={
@@ -212,7 +229,7 @@ def aws_mailer_main() -> None:
         log.error(f"Failed to send email: {e.response['Error']['Message']}")
     else:
         log.info(f"Email sent! Message ID: {response['MessageId']}")
-    log.info("--- AWS SES mailer module completed with succeess ---")
+    log.info("--- AWS SES mailer module completed with success ---")
     remove_tmp_files(data_files)
 
 
