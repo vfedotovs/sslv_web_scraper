@@ -294,6 +294,13 @@ def extract_new_msg_data(df, new_msg_hashes: list) -> dict:
             row_data.append(rotated_pub_date)
             days_count = get_days_listed_count(pub_date)
             row_data.append(days_count)
+            # view_count extraction event logging (Phase 4 / feature)
+            view_count = row.get("Unique_Visits", 0)
+            if pd.isna(view_count):
+                view_count = 0
+            view_count = int(view_count)
+            row_data.append(view_count)
+            logger.info(f"view_count extraction event: count={view_count} for url_hash={url_hash}")
             if url_hash == hash_str:
                 data_dict[url_hash] = row_data
     logger.info(f"Extrcted new ad count from todays data frame {len(data_dict)} ")
@@ -356,6 +363,7 @@ def insert_data_to_listed_table(data: dict) -> None:
             apt_address = v[6]
             list_date = v[7]
             days_listed = v[8]
+            view_count = v[9]
             cur.execute(
                 """ INSERT INTO listed_ads
                   (url_hash,
@@ -367,8 +375,9 @@ def insert_data_to_listed_table(data: dict) -> None:
                   sqm_price,
                   apt_address,
                   list_date,
-                  days_listed)
-                  VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s) """,
+                  days_listed,
+                  view_count)
+                  VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s) """,
                 (
                     url_hash,
                     room_count,
@@ -380,8 +389,10 @@ def insert_data_to_listed_table(data: dict) -> None:
                     apt_address,
                     list_date,
                     days_listed,
+                    view_count,
                 ),
             )
+            logger.info(f"DB interaction: inserting view_count={view_count} for {url_hash} into listed_ads")
         conn.commit()
         cur.close()
         for k, v in data.items():
@@ -420,6 +431,7 @@ def extract_to_remove_msg_data(delisted_hashes: list) -> dict:
                     list_date = table_rows[i][8]
                     removed_date = gen_removed_date()
                     days_listed = table_rows[i][9]
+                    view_count = table_rows[i][10] if len(table_rows[i]) > 10 else 0
                     data_values = []
                     data_values.append(room_count)
                     data_values.append(house_floor_count)
@@ -431,6 +443,7 @@ def extract_to_remove_msg_data(delisted_hashes: list) -> dict:
                     data_values.append(list_date)
                     data_values.append(removed_date)
                     data_values.append(days_listed)
+                    data_values.append(view_count)
                     delisted_mesages[curr_row_hash] = data_values
         cur.close()
     except (Exception, psycopg2.DatabaseError) as error:
@@ -512,6 +525,7 @@ def insert_data_to_removed_table(data: dict) -> None:
             listed_date = value[7]
             removed_date = value[8]
             days_listed = value[9]
+            view_count = value[10] if len(value) > 10 else 0
             cur.execute(
                 """ INSERT INTO removed_ads
                   (url_hash,
@@ -524,8 +538,9 @@ def insert_data_to_removed_table(data: dict) -> None:
                   apt_address,
                   listed_date,
                   removed_date,
-                  days_listed)
-                  VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s) """,
+                  days_listed,
+                  view_count)
+                  VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s) """,
                 (
                     url_hash,
                     room_count,
@@ -538,8 +553,10 @@ def insert_data_to_removed_table(data: dict) -> None:
                     listed_date,
                     removed_date,
                     days_listed,
+                    view_count,
                 ),
             )
+            logger.info(f"DB interaction: inserting view_count={view_count} for {url_hash} into removed_ads")
         conn.commit()
         cur.close()
         for k, v in data.items():

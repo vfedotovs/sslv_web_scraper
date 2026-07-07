@@ -219,6 +219,7 @@ def extract_data_from_url(nondup_urls: list, dest_file: str) -> None:
             if soup:
                 visits = extract_visits_count(soup)
                 ad_data["unique_visits"] = visits
+                logger.info(f"view_count extraction event: count={visits} url={url}")
                 if info.get("tracked"):
                     logger.debug(f"View tracking fired for {url}")
         except Exception as e:

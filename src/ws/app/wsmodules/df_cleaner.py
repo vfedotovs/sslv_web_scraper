@@ -232,7 +232,7 @@ def create_email_body(clean_data_frame, file_name: str) -> None:
     else:
         unique_room_counts = sorted(clean_data_frame['Room_count'].unique(), key=int)
 
-    headers = ['Rooms', 'Floor', 'Size', 'Price EUR', 'SQM EUR', 'Street', 'Date', 'URL']
+    headers = ['Rooms', 'Floor', 'Size', 'Price EUR', 'SQM EUR', 'Street', 'Date', 'Views', 'URL']
 
     for room_count_val in unique_room_counts:
         room_count_str = str(room_count_val)
@@ -243,7 +243,7 @@ def create_email_body(clean_data_frame, file_name: str) -> None:
         if rc_column_dtype == 'object':
             filtered_by_room_count = clean_data_frame.loc[clean_data_frame['Room_count'] == str(
                 room_count_str)]
-        colum_line = "[Rooms, Floor, Size, Price EUR, SQM Price EUR, Apartment Street, Pub_date,  URL]"
+        colum_line = "[Rooms, Floor, Size, Price EUR, SQM Price EUR, Apartment Street, Pub_date, Views, URL]"
         email_body_txt.append(colum_line)
         for index, row in filtered_by_room_count.iterrows():
             url_str = row["URL"]
@@ -254,6 +254,7 @@ def create_email_body(clean_data_frame, file_name: str) -> None:
             rooms_str = row['Room_count']
             street_str = row['Street']
             pub_date_str = row['Pub_date']
+            views = int(row.get('Unique_Visits', 0) or 0)
             # UX-3: mark listings published today
             new_marker = " [NEW]" if pub_date_str == today_str else ""
             report_line = "  " + str(rooms_str) + "     " + \
@@ -263,6 +264,7 @@ def create_email_body(clean_data_frame, file_name: str) -> None:
                           str(sqm_price) + " EUR   " + \
                           str(street_str) + "   " + \
                           str(pub_date_str) + " " + \
+                          str(views) + " " + \
                           str(url_str) + new_marker
             email_body_txt.append(report_line)
     log.info(f"Completed creation of {file_name} file")
