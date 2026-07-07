@@ -63,34 +63,36 @@ def scrape_website():
     # page = requests.get("https://www.ss.lv/lv/real-estate/flats/ogre-and-reg/ogre/sell/")
     # bs_ogre_object = BeautifulSoup(page.content, "html.parser")
     # valid_msg_urls = find_single_page_urls(bs_ogre_object)
-    # New static way of extracting data from first three pages
-    # TODO: make page count extraction dynamic
-    page_one = requests.get(
-        "https://www.ss.lv/lv/real-estate/flats/ogre-and-reg/ogre/sell/", timeout=10)
-    page_two = requests.get(
-        "https://www.ss.lv/lv/real-estate/flats/ogre-and-reg/ogre/sell/page2.html", timeout=10)
-    page_three = requests.get(
-        "https://www.ss.lv/lv/real-estate/flats/ogre-and-reg/ogre/sell/page3.html", timeout=10)
-    # Error handling behavior by ss.lv
-    # If non existing page requested for example
-    # https://www.ss.lv/lv/real-estate/flats/ogre-and-reg/ogre/sell/page4.html
-    # it rederacts to first page
-    # https://www.ss.lv/lv/real-estate/flats/ogre-and-reg/ogre/sell/page.html
+    # Dynamic page discovery (item 17) instead of hardcoded 3 pages.
+    # We loop until we get no new message URLs or ss.lv redirects back to first page.
+    base_url = "https://www.ss.lv/lv/real-estate/flats/ogre-and-reg/ogre/sell/"
+    all_msg_urls = []
+    seen = set()
+    page_num = 1
+    max_pages = 100  # safety cap
+    while page_num <= max_pages:
+        if page_num == 1:
+            url = base_url
+        else:
+            url = base_url.rstrip("/") + f"/page{page_num}.html"
+        try:
+            resp = requests.get(url, timeout=10, allow_redirects=True)
+            # ss.lv redirects non-existent pages back toward the first page
+            if page_num > 1 and "page" not in resp.url.split("/")[-1]:
+                break
+            bs = BeautifulSoup(resp.content, "html.parser")
+            page_urls = find_single_page_urls(bs)
+            new_urls = [u for u in page_urls if u not in seen]
+            if not new_urls:
+                break
+            seen.update(page_urls)
+            all_msg_urls.extend(new_urls)
+            page_num += 1
+        except Exception as e:
+            logging.warning(f"Error fetching listing page {page_num}: {e}")
+            break
 
-    page_one_bs_obj = BeautifulSoup(page_one.content, "html.parser")
-    page_two_bs_obj = BeautifulSoup(page_two.content, "html.parser")
-    page_three_bs_obj = BeautifulSoup(page_three.content, "html.parser")
-
-    page_one_msg_urls = find_single_page_urls(page_one_bs_obj)
-    page_two_msg_urls = find_single_page_urls(page_two_bs_obj)
-    page_three_msg_urls = find_single_page_urls(page_three_bs_obj)
-    combined_urls = page_one_msg_urls + page_two_msg_urls + page_three_msg_urls
-    # Since currently there is no dynamic page cound extraction avilable
-    # curent behavior of ss.lv if you request none existing page it redirects to
-    # first page current quick fix is to remove duplicate entries because of scenario
-    # if page 3 is missing an you have requested it will gra  urls from first page and
-    # it will end up with duplicate entries
-    valid_msg_urls = list(set(combined_urls))
+    valid_msg_urls = list(set(all_msg_urls))
 
     logger.info("Found %s parsable message URLs", str(len(valid_msg_urls)))
     logger.info(
@@ -602,11 +604,51 @@ def fetch_detail_page(
             soup = BeautifulSoup(resp.content, "html.parser")
             info["refetched"] = True
 
+        # Optional Playwright for highest fidelity (item 18)
+        if os.getenv("USE_PLAYWRIGHT"):
+            pw_html = fetch_with_playwright(url)
+            if pw_html:
+                soup = BeautifulSoup(pw_html, "html.parser")
+                info["used_playwright"] = True
+
         return soup, info
 
     except Exception as e:
         logging.warning(f"fetch_detail_page failed for {url}: {e}")
         return None, info
+
+
+# === Phase 6 spike (item 18): optional Playwright for JS-accurate counts ===
+def fetch_with_playwright(url: str) -> Optional[str]:
+    """Optional browser-based fetch (behind USE_PLAYWRIGHT=1 env var).
+
+    Useful if visit counters are still inaccurate with requests + tracking.
+    Requires: pip install playwright && playwright install chromium
+
+    Returns page HTML or None (graceful fallback).
+    """
+    if not os.getenv("USE_PLAYWRIGHT"):
+        return None
+    try:
+        from playwright.sync_api import sync_playwright
+        with sync_playwright() as p:
+            browser = p.chromium.launch(headless=True)
+            page = browser.new_page()
+            page.goto(url, wait_until="networkidle", timeout=30000)
+            # Give the counter a moment if it's updated client-side
+            try:
+                page.wait_for_selector("#show_cnt_stat", timeout=3000)
+            except Exception:
+                pass
+            content = page.content()
+            browser.close()
+            return content
+    except ImportError:
+        logging.info("Playwright not installed. pip install playwright && playwright install")
+        return None
+    except Exception as e:
+        logging.warning(f"Playwright fetch failed for {url}: {e}")
+        return None
 
 
 if __name__ == "__main__":

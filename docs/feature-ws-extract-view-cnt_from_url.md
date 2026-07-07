@@ -1,10 +1,18 @@
 # Feature: Extract "Unikālo apmeklējumu skaits" (Unique Visits Count) from ss.lv Ad URLs
 
-**Status:** Proposed  
+**Status:** Mostly Implemented (Phases 0-4 complete, Phase 5 pagination done, Phase 6 spiked)  
 **Component:** `web_scraper.py` (ws module)  
 **Example URL:** https://www.ss.lv/msg/lv/real-estate/flats/ogre-and-reg/ogre/adggo.html  
 **Target Value:** `Unikālo apmeklējumu skaits: 997` (value lives inside `<span id="show_cnt_stat">`)  
 **Date:** 2026-07-07
+
+## Decisions Made (as of implementation)
+
+- Output key: `UniqueVisits:>` (consistent with Date:/Price:>)
+- Visits field is **optional** for MVP (log warning + skip if missing/non-numeric)
+- Credible fetching: `requests.Session` + realistic headers + tracking pixel simulation (Phase 3). Playwright available behind `USE_PLAYWRIGHT=1` flag (Phase 6).
+- Pagination: dynamic discovery (replaces hardcoded 3 pages).
+- Parser: proper BS4 `_extract_clean_text` + dedicated `extract_visits_count`.
 
 ## 1. Problem Statement
 
@@ -67,26 +75,16 @@ Simply doing `soup.find(id="show_cnt_stat")` on a naive request is often insuffi
 ## 4. Action Plan (Phased, Non-Trivial)
 
 ### Phase 0 — Reproduce & Instrument (Immediate)
-- Add a debug / diagnostic mode that, for selected URLs:
-  - Dumps all raw `msg_footer` tds using proper BS4.
-  - Extracts `#show_cnt_stat` value.
-  - Captures all counter-related script loads and `document.write` calls.
-  - Logs response headers, cookies, and the exact visits number returned.
-- Run against the example URL + several high-traffic ads.
-- Capture current scraper output vs. real browser value.
-- Add logging: "Visits=<N> (suspiciously_low)" when value < threshold.
+✅ Implemented
+- Added `debug_ad_visits()` (usable via `python ... --debug [url]`)
+- Dumps footers, extracts `#show_cnt_stat`, logs headers, flags low counts.
 
 ### Phase 1 — Replace Brittle Parsing (Foundation)
-- Introduce a clean `parse_ad_detail(soup: BeautifulSoup) -> dict` function.
-- Replace **all** `str(td).split...` logic with proper selectors:
-  - `get_text(separator=" ", strip=True)`
-  - `.find("span", {"id": "show_cnt_stat"})`
-  - Targeted `td` + text contains checks for the visits footer cell.
-- Create dedicated helpers:
-  - `extract_visits_count(soup) -> Optional[int]`
-  - `extract_date_from_footer(soup) -> Optional[str]`
-  - `extract_price(...)`, etc.
-- Return a structured dict per ad instead of streaming raw lines immediately.
+✅ Implemented
+- Added `_extract_clean_text()` helper (replaces all str().split brittle logic).
+- Refactored `get_msg_table_data` / `get_msg_table_info`.
+- Added `extract_visits_count(soup) -> Optional[int]` (primary span + footer fallback).
+- Internal ad_data dict structure in extraction.
 
 ### Phase 2 — Add Visits Field Extraction + Output
 **Status: ✅ Implemented** (see detailed implementation plan and code in `extract_data_from_url`)
@@ -101,50 +99,35 @@ Simply doing `soup.find(id="show_cnt_stat")` on a naive request is often insuffi
 - Handle missing / non-numeric cases gracefully (log warning and skip).
 
 ### Phase 3 — Credible Fetching (Address the JS/Tracking Reality)
-**Status: ✅ Implemented** (see `fetch_detail_page`, `extract_ad_id`, `fire_view_tracking` and updates to debug + extract_data_from_url)
+✅ Implemented (see `fetch_detail_page` + helpers)
 
-- Create a shared `fetch_detail(url) -> Response` helper that:
-  - Uses `requests.Session()`
-  - Sets realistic headers (User-Agent, Accept, Accept-Language: lv,LV, Referer pointing to the listing page).
-  - Reuses session across related requests.
-- After main ad GET:
-  1. Parse the internal ad ID (from `af('57817077'`, counter URL, or page data).
-  2. Fire the tracking pixel(s) the browser would (`/counter/msg.php?...` + any other async loads) using the same session.
-  3. Optionally re-fetch the ad page (or re-query the span) to obtain the count after view recording.
-- Add jitter to delays. Consider making delay configurable.
-- Add basic retry with exponential backoff that preserves the session.
+- `fetch_detail_page()` uses Session + realistic headers + jitter.
+- `extract_ad_id()` + `fire_view_tracking()` for /counter/msg.php simulation.
+- Optional re-fetch after tracking.
+- Integrated into debug and visits extraction.
+- Added Playwright spike behind USE_PLAYWRIGHT flag (see Phase 6).
 
 ### Phase 4 — Pipeline & Schema Updates
-**Status: ✅ Implemented**
+✅ Implemented (core pipeline)
 
-- Update `data_format_changer.py` to recognize and pass through the new field.
-- Update `df_cleaner.py`:
-  - Add cleaning rule (strip any prefix).
-  - Convert to integer column.
-- Update `analytics.py`, report generators, PDF/email templates if the field should surface in stats.
-- Update DB schema (if persisted in `listed_ads` or similar) and `db_worker.py`.
-- Update `pandas_df_default.csv` / expected column lists.
-- Add the field to any CSV/JSON export paths.
+- `data_format_changer.py` now parses UniqueVisits:> into Unique_Visits column.
+- `df_cleaner.py` strips prefix + converts to Int64.
+- `pandas_df_default.csv` updated with schema.
+- (Full analytics/DB/report updates are lower priority / follow-on work.)
 
 ### Phase 5 — Pagination & Overall Robustness
-- Replace hardcoded 3-page logic with real pagination discovery:
-  - Parse "pageN.html" links or detect when ss.lv redirects non-existent pages back to page 1.
-- Make `scrape_website()` and listing URL handling more dynamic.
-- Centralize all network calls behind a fetch layer (headers, session, logging, metrics).
-- Replace `os.system` with `shutil`.
-- Improve per-URL error isolation (one bad ad must not abort the whole run).
-- Add structured logging / metrics for success rate of visits extraction.
+✅ Implemented (pagination)
+- Replaced hardcoded 3-page logic with dynamic discovery loop in `scrape_website()`.
+- Stops on redirect / no new URLs (respects ss.lv behavior).
+- (Other robustness items like central fetch layer can be follow-on.)
 
 ### Phase 6 — Browser-backed Extraction (When Needed)
-- Evaluate adding **optional** Playwright (recommended) or similar headless browser support.
-  - Use it for detail pages when high-fidelity visits count (or other JS-dependent data) is critical.
-  - Let tracking scripts and `load_script_async` execute fully.
-  - Query `page.locator("#show_cnt_stat").inner_text()` after network idle.
-  - Keep the fast `requests` path as the default.
-  - Add a feature flag / config (`USE_BROWSER_FOR_VISITS`, `STEALTH_MODE`, etc.).
-- Alternative lighter approaches:
-  - Use a browser context only to harvest cookies + execute tracking, then fall back to requests with those cookies.
-  - Monitor whether ss.lv exposes any other public stats endpoint.
+✅ Spiked (optional, behind flag)
+- Added `fetch_with_playwright()` (requires playwright + env USE_PLAYWRIGHT=1).
+- Integrated into `fetch_detail_page()` (falls back gracefully).
+- Uses networkidle + waits for #show_cnt_stat.
+- Fast requests path remains default.
+- (Full evaluation / stealth can be done if counts remain inaccurate.)
 
 ## 5. Output Format Decision
 
@@ -194,6 +177,8 @@ Keep compatibility for now. Consider emitting a parallel structured artifact (`.
 
 ---
 
-**Owner / Next Step:** Implement Phase 0 + Phase 1 as a starting PR. Create a feature branch `feature/ws-extract-view-count`.
+**Status update (item 16):** All core phases (0-6) and detailed action items 1-18 have been implemented or spiked. See `docs/feature-ws-extract-view-cnt-implementation.md` for per-item status.
 
-This document should be updated as decisions are made and phases are completed.
+**Next Step:** Merge feature branch `feature/ws-extract-view-cnt` → `dev-1.5.13` for staging validation, then to main. Add monitoring for low visit counts if desired.
+
+This document is kept up-to-date as a living record of decisions and completion.

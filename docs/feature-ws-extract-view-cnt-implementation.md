@@ -103,9 +103,9 @@ The implementation should follow the current workflow:
 | 13 | Write proper unit tests for the new visits extraction + parser changes (uncomment/fix existing test file) | Testing | M | High | #3, #4, #5 | Low | Currently very weak test coverage. | ✅ Implemented (added tests for extract_visits_count and clean parsing in test_01)
 | 14 | Add/update integration test that runs against a real ad (or fixture) and asserts visits field appears | Testing | S–M | Medium | #13 | Low | Can be skipped in CI or use mocked responses. | ✅ Implemented (using ad_footer_sample fixture + mocks)
 | 15 | Perform end-to-end validation on staging: build raw report → format → clean → check visits column appears with plausible value | Validation | S | High | All above | Low (staging only) | Use your current `feature/ws-extract-view-cnt` + `dev-1.5.13` flow + manual "Deploy to Staging". | ✅ Implemented (E2E test in test_01 using temp raw report -> DF -> cleaned with Unique_Visits) |
-| 16 | Update the plan document (`feature-ws-extract-view-cnt_from_url.md`) with decisions made and mark completed items | Housekeeping | XS | Low | #1 | Low | Keep it as living documentation. |
-| 17 | (Lower priority) Replace hardcoded 3-page pagination with dynamic page discovery | Phase 5 | M–L | Medium | — | Low | Can be done in a separate PR. Not required for the visits feature. |
-| 18 | Evaluate / spike optional Playwright support for higher-fidelity counts (behind feature flag) | Phase 6 | L | Low–Medium | — | Low | Only if counts from requests+headers are consistently too low. |
+| 16 | Update the plan document (`feature-ws-extract-view-cnt_from_url.md`) with decisions made and mark completed items | Housekeeping | XS | Low | #1 | Low | Keep it as living documentation. | ✅ Done (high-level plan updated with statuses + decisions)
+| 17 | (Lower priority) Replace hardcoded 3-page pagination with dynamic page discovery | Phase 5 | M–L | Medium | — | Low | Can be done in a separate PR. Not required for the visits feature. | ✅ Done (dynamic loop in scrape_website using redirect/empty detection)
+| 18 | Evaluate / spike optional Playwright support for higher-fidelity counts (behind feature flag) | Phase 6 | L | Low–Medium | — | Low | Only if counts from requests+headers are consistently too low. | ✅ Spiked (`fetch_with_playwright()` + integration in fetch_detail_page, gated by USE_PLAYWRIGHT=1) |
 
 ## Effort & Impact Summary
 
