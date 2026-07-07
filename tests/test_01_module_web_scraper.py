@@ -4,6 +4,8 @@ from src.ws.app.wsmodules.web_scraper import write_line
 from src.ws.app.wsmodules.web_scraper import get_msg_field_info
 from src.ws.app.wsmodules.web_scraper import create_file_copy
 from src.ws.app.wsmodules.web_scraper import find_single_page_urls
+from src.ws.app.wsmodules.web_scraper import extract_visits_count
+from src.ws.app.wsmodules.web_scraper import get_msg_table_data
 
 import requests
 import os
@@ -54,6 +56,111 @@ def create_mock_response(html_string: str, status_code: int = 200) -> requests.R
 #     # Test with a bs4 object that contains no URLs
 #     bs_object = create_bs4_object(html_string="<p>No URLs in this object</p>")
 #     assert find_single_page_urls(bs_object) == []
+
+
+# === Item 13: Unit tests for visits extraction and parser changes ===
+def test_extract_visits_count_from_fixture():
+    """Test the dedicated extractor using the footer fixture."""
+    fixture_path = os.path.join(os.path.dirname(__file__), "fixtures", "ad_footer_sample.html")
+    with open(fixture_path, "r", encoding="utf-8") as f:
+        html = f.read()
+    soup = BeautifulSoup(html, "html.parser")
+    visits = extract_visits_count(soup)
+    assert visits == 997
+
+
+def test_get_msg_table_data_footer_clean_parsing():
+    """Test that get_msg_table_data now uses clean BS4 parsing (no HTML remnants)."""
+    fixture_path = os.path.join(os.path.dirname(__file__), "fixtures", "ad_footer_sample.html")
+    with open(fixture_path, "r", encoding="utf-8") as f:
+        html_content = f.read()
+
+    # Mock the requests.get inside get_msg_table_data
+    with patch('src.ws.app.wsmodules.web_scraper.requests.get') as mock_get:
+        mock_response = create_mock_response(html_content)
+        mock_get.return_value = mock_response
+
+        footers = get_msg_table_data("https://example.com", "msg_footer")
+        assert footers is not None
+        # Check that the visits footer is clean, no <span> tags
+        visits_footer = [f for f in footers if "Unikālo" in f][0]
+        assert "<span" not in visits_footer
+        assert "997" in visits_footer
+        assert visits_footer == "Unikālo apmeklējumu skaits: 997"
+
+
+# === Item 14: Integration-style test for visits in ad page ===
+def test_visits_extracted_in_ad_page_context():
+    """Integration test using fixture to simulate full ad page extraction for visits."""
+    fixture_path = os.path.join(os.path.dirname(__file__), "fixtures", "ad_footer_sample.html")
+    with open(fixture_path, "r", encoding="utf-8") as f:
+        html = f.read()
+    soup = BeautifulSoup(html, "html.parser")
+
+    # Direct test of extractor (core of visits)
+    visits = extract_visits_count(soup)
+    assert visits == 997
+
+    # Also verify via table data (simulating how footer is fetched)
+    with patch('src.ws.app.wsmodules.web_scraper.requests.get') as mock_get:
+        mock_response = create_mock_response(html)
+        mock_get.return_value = mock_response
+        footers = get_msg_table_data("https://example.com/ad", "msg_footer")
+        assert any("Unikālo apmeklējumu skaits: 997" in f for f in footers)
+
+
+# === Item 15: End-to-end pipeline validation (raw -> format -> clean) ===
+def test_end_to_end_pipeline_with_unique_visits(tmp_path):
+    """E2E test: raw report with UniqueVisits -> pandas_df -> cleaned DF has column with int value."""
+    import pandas as pd
+    from src.ws.app.wsmodules import data_format_changer as dfc
+    from src.ws.app.wsmodules import df_cleaner as dfc_clean
+
+    # Create a minimal raw report file with one ad including UniqueVisits
+    raw_content = """https://ss.lv/msg/lv/real-estate/flats/ogre-and-reg/ogre/test.html
+Istabas:>2
+Platība:>50 m²
+Stāvs:>3/9/lifts
+Iela:><b>Test Street
+Price:>100000 € (2000 €/m²)
+Date:>01.07.2026
+UniqueVisits:>997
+"""
+    raw_file = tmp_path / "test_raw_report.txt"
+    raw_file.write_text(raw_content, encoding="utf-8")
+
+    # Step 1: format to one-line DF (simulates data_format_changer)
+    df = dfc.create_oneline_report(str(raw_file))
+    assert df is not None
+    assert "Unique_Visits" in df.columns
+    assert "UniqueVisits:>997" in df["Unique_Visits"].iloc[0]
+
+    # Step 2: clean (simulates df_cleaner)
+    cleaned = dfc_clean.clean_data_frame(df.copy())
+    assert "Unique_Visits" in cleaned.columns
+    assert cleaned["Unique_Visits"].iloc[0] == 997
+    assert pd.api.types.is_integer_dtype(cleaned["Unique_Visits"].dtype) or cleaned["Unique_Visits"].dtype == "Int64"
+
+
+# === Action item #3: Reusable test fixture for msg_footer (including visits span) ===
+def test_load_footer_fixture_has_visits_span():
+    """Verifies that the static fixture for Phase 0/1 development contains the expected structure."""
+    fixture_path = os.path.join(os.path.dirname(__file__), "fixtures", "ad_footer_sample.html")
+    assert os.path.isfile(fixture_path), f"Fixture not found: {fixture_path}"
+
+    with open(fixture_path, "r", encoding="utf-8") as f:
+        html = f.read()
+
+    soup = BeautifulSoup(html, "html.parser")
+
+    # Check the visits span exists with expected value from sample
+    span = soup.find("span", id="show_cnt_stat")
+    assert span is not None, "Missing <span id='show_cnt_stat'> in fixture"
+    assert span.get_text(strip=True) == "997"
+
+    # Also ensure we have multiple msg_footer tds as in real pages (at least 4)
+    footers = soup.find_all("td", class_="msg_footer")
+    assert len(footers) >= 4, "Fixture should contain multiple msg_footer tds like real ss.lv pages"
 
 
 # def test_get_msg_field_info():

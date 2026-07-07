@@ -68,6 +68,10 @@ def clean_data_frame(df_name):
     df.replace(to_replace=r'Iela:><b>', value='', regex=True, inplace=True)
     df.replace(to_replace=r'Price:>', value='', regex=True, inplace=True)
     df.replace(to_replace=r'Date:>', value='', regex=True, inplace=True)
+    df.replace(to_replace=r'UniqueVisits:>', value='', regex=True, inplace=True)
+    # Convert visits to integer (nullable)
+    if 'Unique_Visits' in df.columns:
+        df['Unique_Visits'] = pd.to_numeric(df['Unique_Visits'], errors='coerce').astype('Int64')
     log.info("Completed latvian keyword remove from data frame")
     return df
 
