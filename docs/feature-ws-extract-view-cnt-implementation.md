@@ -28,6 +28,22 @@ This document provides a detailed, ordered action item list derived from the hig
 - Created `tests/fixtures/ad_footer_sample.html` with the 6 msg_footer tds (including the visits span with value 997)
 - Added `test_load_footer_fixture_has_visits_span()` in `tests/test_01_module_web_scraper.py`
 
+### Item #4: Refactor get_msg_table_data (and related)
+- **Status:** ✅ Implemented
+- Introduced `_extract_clean_text(element)` helper using `get_text(separator=" ", strip=True)` + whitespace normalization.
+- Replaced all `str(td).split('">')` brittle logic in `get_msg_table_data`, `get_msg_table_info`.
+- Added basic None checks for table.
+- Also improved `get_msg_table_data` with timeout and broader error handling.
+- This affects all data extraction (ads_opt, price, footer, etc.) positively.
+
+### Item #5: Implement extract_visits_count
+- **Status:** ✅ Implemented
+- Added `extract_visits_count(soup: BeautifulSoup) -> Optional[int]`
+- Primary: looks for `<span id="show_cnt_stat">`
+- Fallback: scans msg_footer tds for "Unikālo apmeklējumu skaits" and extracts the number.
+- Reuses the new `_extract_clean_text`.
+- Ready to be used in `extract_data_from_url` (see item 6).
+
 Future items will reference this decision.
 
 The implementation should follow the current workflow:

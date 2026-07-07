@@ -14,6 +14,8 @@ from datetime import datetime
 import logging
 from logging import handlers
 from logging.handlers import RotatingFileHandler
+from typing import Optional
+
 import requests
 from bs4 import BeautifulSoup
 from requests.exceptions import ConnectionError, Timeout
@@ -222,6 +224,19 @@ def get_msg_field_info(msg_url: str, span_id: str):
     return span.text
 
 
+def _extract_clean_text(element) -> str:
+    """Helper: Use proper BeautifulSoup to extract clean text from an element.
+    Replaces the old brittle str(td).split() logic (action item #4).
+    Handles nested tags (e.g. <b>, <span>) gracefully.
+    """
+    if element is None:
+        return ""
+    # get_text handles nested elements better than string splitting
+    text = element.get_text(separator=" ", strip=True)
+    # Normalize multiple whitespace
+    return " ".join(text.split())
+
+
 def get_msg_table_info(msg_url: str, td_class: str) -> list:
     """ Function parses message page and extracts td_class table fields
     Paramters:
@@ -233,14 +248,14 @@ def get_msg_table_info(msg_url: str, td_class: str) -> list:
     soup = BeautifulSoup(page.content, "html.parser")
     table = soup.find('table', id="page_main")
 
+    if table is None:
+        return []
+
     table_fields = []
 
-    table_data = table.findAll('td', {"class": td_class})
-    for data in table_data:
-        tostr = str(data)
-        no_front = tostr.split('">', 1)[1]
-        name = no_front.split("</", 1)[0]
-        clean_name = name.replace('\t', '').replace('\r', '').replace('\n', '')
+    table_data = table.find_all('td', {"class": td_class})
+    for td in table_data:
+        clean_name = _extract_clean_text(td)
         table_fields.append(clean_name)
     return table_fields
 
@@ -248,35 +263,41 @@ def get_msg_table_info(msg_url: str, td_class: str) -> list:
 def get_msg_table_data(msg_url: str, td_class: str, retries=3, backoff_factor=0.3):
     """
     Fetch data from the given URL with a retry mechanism.
-    
+    Refactored (item #4) to use proper BeautifulSoup extraction instead of
+    fragile str(td).split('">') logic.
+
     :param msg_url: The URL to scrape.
-    :param table_name: The table name to retrieve information from.
+    :param td_class: The table cell class to retrieve information from.
     :param retries: Number of retries in case of a connection error.
     :param backoff_factor: The factor by which the delay increases after each retry.
-    :return: Response content or None if the request fails.
+    :return: List of cleaned text values or None if the request fails.
     """
     attempt = 0
     while attempt < retries:
         try:
             logging.info(f"Attempting to fetch data from {msg_url}")
-            page = requests.get(msg_url)
+            page = requests.get(msg_url, timeout=15)
             soup = BeautifulSoup(page.content, "html.parser")
             table = soup.find('table', id="page_main")
 
+            if table is None:
+                logging.warning(f"No page_main table found for {msg_url}")
+                return []
+
             table_fields = []
 
-            table_data = table.findAll('td', {"class": td_class})
-            for data in table_data:
-                tostr = str(data)
-                no_front = tostr.split('">', 1)[1]
-                name = no_front.split("</", 1)[0]
-                clean_name = name.replace('\t', '').replace('\r', '').replace('\n', '')
+            table_data = table.find_all('td', {"class": td_class})
+            for td in table_data:
+                clean_name = _extract_clean_text(td)
                 table_fields.append(clean_name)
             return table_fields
         except ConnectionError as e:
             logging.error(f"ConnectionError: {e}, retrying in {backoff_factor * (2 ** attempt)} seconds...")
             attempt += 1
             time.sleep(backoff_factor * (2 ** attempt))
+        except Exception as e:
+            logging.error(f"Unexpected error fetching {msg_url}: {e}")
+            return None
 
     logging.error(f"Failed to fetch data from {msg_url} after {retries} attempts.")
     return None
@@ -381,12 +402,54 @@ def debug_ad_visits(msg_url: str = None) -> dict:
         else:
             print("\nCould not extract visits count (may need better headers or JS simulation)")
 
+        # Also run the dedicated extractor (item #5) for comparison
+        visits2 = extract_visits_count(soup)
+        print(f"extract_visits_count(soup) result: {visits2}")
+        if visits2 is not None:
+            result["visits"] = visits2
+
         return result
 
     except Exception as e:
         print(f"DEBUG ERROR: {type(e).__name__}: {e}")
         result["error"] = str(e)
         return result
+
+
+# === Item #5: Dedicated extractor for unique visits count ===
+def extract_visits_count(soup: BeautifulSoup) -> Optional[int]:
+    """Reliably extract the 'Unikālo apmeklējumu skaits' value.
+
+    Primary method: find the <span id="show_cnt_stat">
+    Fallback: search msg_footer tds for the text and extract the number.
+
+    Returns the integer count or None if not found / unparseable.
+    """
+    if soup is None:
+        return None
+
+    try:
+        # Primary: dedicated span (cleanest)
+        span = soup.find("span", id="show_cnt_stat")
+        if span:
+            text = span.get_text(strip=True)
+            if text.isdigit():
+                return int(text)
+
+        # Fallback using the footer cells (more robust against span changes)
+        footers = soup.find_all("td", {"class": "msg_footer"})
+        for td in footers:
+            text = _extract_clean_text(td)
+            if "Unikālo apmeklējumu skaits" in text:
+                # Find the first (or only) number in the text
+                match = re.search(r"(\d+)", text)
+                if match:
+                    return int(match.group(1))
+
+        return None
+    except Exception as e:
+        logging.warning(f"Failed to extract visits count: {e}")
+        return None
 
 
 if __name__ == "__main__":
