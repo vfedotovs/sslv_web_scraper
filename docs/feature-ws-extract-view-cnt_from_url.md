@@ -89,16 +89,20 @@ Simply doing `soup.find(id="show_cnt_stat")` on a naive request is often insuffi
 - Return a structured dict per ad instead of streaming raw lines immediately.
 
 ### Phase 2 — Add Visits Field Extraction + Output
+**Status: ✅ Implemented** (see detailed implementation plan and code in `extract_data_from_url`)
+
 - After successful date extraction, also extract and write:
   ```
   UniqueVisits:>997
   ```
-  (or another agreed key name — decide on `UniqueVisits`, `Views`, `Apmeklejumi` etc.)
-- Place it consistently (e.g. right after `Date:>` line).
-- Update `extract_data_from_url` to call the new parser and serialize the new field.
-- Handle missing / non-numeric cases gracefully (log warning, write empty or skip).
+  (decided on `UniqueVisits:>` key)
+- Place it consistently (right after `Date:>` line).
+- Update `extract_data_from_url` to call the new parser (`extract_visits_count`) and serialize the new field.
+- Handle missing / non-numeric cases gracefully (log warning and skip).
 
 ### Phase 3 — Credible Fetching (Address the JS/Tracking Reality)
+**Status: ✅ Implemented** (see `fetch_detail_page`, `extract_ad_id`, `fire_view_tracking` and updates to debug + extract_data_from_url)
+
 - Create a shared `fetch_detail(url) -> Response` helper that:
   - Uses `requests.Session()`
   - Sets realistic headers (User-Agent, Accept, Accept-Language: lv,LV, Referer pointing to the listing page).

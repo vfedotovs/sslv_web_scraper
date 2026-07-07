@@ -54,6 +54,18 @@ This document provides a detailed, ordered action item list derived from the hig
 - Uses the same output format (`Key:>value`) for compatibility.
 - Added timeout to the visits fetch.
 
+### Items 11 + 12: Phase 3 Credible Fetching
+- **Status:** ✅ Implemented
+- Added `fetch_detail_page(url, simulate_view=True, use_session=True)`:
+  - Uses `requests.Session()` + realistic headers (UA, Accept-Language, Referer).
+  - Jitter (`random.uniform`).
+  - Extracts ad ID via `extract_ad_id`.
+  - Fires tracking pixel via `fire_view_tracking` (the /counter/msg.php mechanism).
+  - Optionally re-fetches after tracking.
+- Updated `debug_ad_visits` and the visits extraction in `extract_data_from_url` to use the new credible fetch.
+- Added `extract_ad_id` and `fire_view_tracking` helpers.
+- This should produce more realistic (higher) visit counts than plain requests.
+
 Future items will reference this decision.
 
 The implementation should follow the current workflow:

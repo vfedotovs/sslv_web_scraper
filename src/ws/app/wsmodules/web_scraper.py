@@ -10,11 +10,13 @@ import re
 import os
 import sys
 import time
+import random
+import base64
 from datetime import datetime
 import logging
 from logging import handlers
 from logging.handlers import RotatingFileHandler
-from typing import Optional
+from typing import Optional, Tuple
 
 import requests
 from bs4 import BeautifulSoup
@@ -207,14 +209,16 @@ def extract_data_from_url(nondup_urls: list, dest_file: str) -> None:
             logger.error(f"Error writing data from {current_msg_url} to file : {e}")
 
         # === Items 6+7: Integrate UniqueVisits output ===
-        # Fetch once more for visits (keeps original sleep pattern for rate limiting)
-        time.sleep(1)
+        # Phase 3: Use credible fetch (session + headers + tracking simulation)
+        time.sleep(random.uniform(0.5, 1.5))  # jitter
         visits = None
         try:
-            page = requests.get(url, timeout=15)
-            soup = BeautifulSoup(page.content, "html.parser")
-            visits = extract_visits_count(soup)
-            ad_data["unique_visits"] = visits
+            soup, info = fetch_detail_page(url, simulate_view=True, use_session=True)
+            if soup:
+                visits = extract_visits_count(soup)
+                ad_data["unique_visits"] = visits
+                if info.get("tracked"):
+                    logger.debug(f"View tracking fired for {url}")
         except Exception as e:
             logger.warning(f"Failed to fetch/extract visits for {url}: {e}")
 
@@ -375,13 +379,6 @@ def debug_ad_visits(msg_url: str = None) -> dict:
     if msg_url is None:
         msg_url = "https://www.ss.lv/msg/lv/real-estate/flats/ogre-and-reg/ogre/adggo.html"
 
-    headers = {
-        "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36",
-        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-        "Accept-Language": "lv-LV,lv;q=0.9,en-US;q=0.8,en;q=0.7",
-        "Referer": "https://www.ss.lv/lv/real-estate/flats/ogre-and-reg/ogre/sell/",
-    }
-
     result = {
         "url": msg_url,
         "status_code": None,
@@ -395,16 +392,24 @@ def debug_ad_visits(msg_url: str = None) -> dict:
     print(f"URL: {msg_url}")
 
     try:
-        resp = requests.get(msg_url, headers=headers, timeout=15)
-        result["status_code"] = resp.status_code
-        result["headers"] = {k: resp.headers.get(k) for k in ["Server", "Date", "Content-Type", "Cache-Control"] if k in resp.headers}
+        # Use Phase 3 credible fetch (session + headers + optional tracking)
+        soup, info = fetch_detail_page(msg_url, simulate_view=True, use_session=True)
+        if soup is None:
+            print("WARNING: Failed to fetch page")
+            return result
 
-        print(f"HTTP Status: {resp.status_code}")
+        result["status_code"] = info["status"]
+        result["headers"] = info["headers"]
+
+        print(f"HTTP Status: {info['status']}")
         print("Relevant response headers:")
-        for k, v in result["headers"].items():
+        for k, v in info["headers"].items():
             print(f"  {k}: {v}")
+        if info.get("ad_id"):
+            print(f"Ad ID: {info['ad_id']}")
+        if info.get("tracked"):
+            print("View tracking pixel fired (simulated real visit)")
 
-        soup = BeautifulSoup(resp.content, "html.parser")
         table = soup.find("table", id="page_main")
         if not table:
             print("WARNING: No <table id=\"page_main\"> found on page")
@@ -487,6 +492,121 @@ def extract_visits_count(soup: BeautifulSoup) -> Optional[int]:
     except Exception as e:
         logging.warning(f"Failed to extract visits count: {e}")
         return None
+
+
+# === Phase 3: Credible Fetching helpers (items 11 and 12) ===
+def extract_ad_id(soup: BeautifulSoup) -> Optional[str]:
+    """Extract internal ad ID e.g. 57817077 from onclick="af('57817077','lv')" or counter urls."""
+    if soup is None:
+        return None
+    html = str(soup)
+    # Primary: af('digits'
+    match = re.search(r"af\('(\d+)'", html)
+    if match:
+        return match.group(1)
+    # Fallback: base64 in /counter/msg.php?
+    match = re.search(r"/counter/msg\.php\?([A-Za-z0-9+/=]+)", html)
+    if match:
+        b64 = match.group(1)
+        # add padding if needed
+        b64 += "=" * (-len(b64) % 4)
+        try:
+            decoded = base64.b64decode(b64).decode(errors="ignore")
+            if decoded.isdigit():
+                return decoded
+        except Exception:
+            pass
+    return None
+
+
+def fire_view_tracking(ad_id: str, session: Optional[requests.Session] = None) -> bool:
+    """Fire the /counter/msg.php pixel (and similar) to simulate a real view.
+    This is what increments the 'Unikālo apmeklējumu skaits' on the server side.
+    """
+    if not ad_id:
+        return False
+    try:
+        encoded = base64.b64encode(ad_id.encode()).decode().rstrip("=")
+        ts = int(time.time())
+        pixel_url = f"https://www.ss.lv/counter/msg.php?{encoded}|14742|{ts}"
+        req_headers = {"Referer": "https://www.ss.lv/"}
+        if session:
+            session.get(pixel_url, timeout=5, headers=req_headers)
+        else:
+            requests.get(pixel_url, timeout=5, headers=req_headers)
+        return True
+    except Exception as e:
+        logging.debug(f"Tracking pixel failed for ad {ad_id}: {e}")
+        return False
+
+
+def fetch_detail_page(
+    url: str, simulate_view: bool = True, use_session: bool = True
+) -> Tuple[Optional[BeautifulSoup], dict]:
+    """Phase 3 credible fetch for ad detail pages.
+
+    - Uses Session + realistic headers
+    - Jitter on delays
+    - After GET, optionally fires tracking pixels
+    - Optionally re-fetches to pick up updated visit count
+
+    Returns (soup or None, info dict)
+    """
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36",
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        "Accept-Language": "lv-LV,lv;q=0.9,en-US;q=0.8,en;q=0.7",
+        "Referer": "https://www.ss.lv/lv/real-estate/flats/ogre-and-reg/ogre/sell/",
+    }
+
+    info = {
+        "status": None,
+        "headers": {},
+        "ad_id": None,
+        "tracked": False,
+        "refetched": False,
+    }
+
+    try:
+        # jitter before request (configurable in future)
+        time.sleep(random.uniform(0.4, 1.8))
+
+        if use_session:
+            session = requests.Session()
+            session.headers.update(headers)
+            resp = session.get(url, timeout=15)
+        else:
+            session = None
+            resp = requests.get(url, headers=headers, timeout=15)
+
+        info["status"] = resp.status_code
+        info["headers"] = {
+            k: resp.headers.get(k)
+            for k in ["Server", "Date", "Content-Type", "Cache-Control"]
+            if k in resp.headers
+        }
+
+        soup = BeautifulSoup(resp.content, "html.parser")
+        ad_id = extract_ad_id(soup)
+        info["ad_id"] = ad_id
+
+        if simulate_view and ad_id:
+            fire_view_tracking(ad_id, session)
+            info["tracked"] = True
+            # small delay + optional re-fetch so the count may have incremented
+            time.sleep(random.uniform(0.3, 0.8))
+            if use_session and session:
+                resp = session.get(url, timeout=15)
+            else:
+                resp = requests.get(url, headers=headers, timeout=15)
+            soup = BeautifulSoup(resp.content, "html.parser")
+            info["refetched"] = True
+
+        return soup, info
+
+    except Exception as e:
+        logging.warning(f"fetch_detail_page failed for {url}: {e}")
+        return None, info
 
 
 if __name__ == "__main__":
