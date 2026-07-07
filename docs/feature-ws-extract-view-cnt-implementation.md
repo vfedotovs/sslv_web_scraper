@@ -66,6 +66,17 @@ This document provides a detailed, ordered action item list derived from the hig
 - Added `extract_ad_id` and `fire_view_tracking` helpers.
 - This should produce more realistic (higher) visit counts than plain requests.
 
+### Items 8 + 9 + 10: Phase 4 Pipeline & Schema Updates
+- **Status:** ✅ Implemented (verified with test data)
+- Updated `data_format_changer.py` (`create_oneline_report`):
+  - Added parsing for "UniqueVisits:" lines.
+  - Added `unique_visits` list, updated trim/validate/unpack and mydict with 'Unique_Visits' column.
+- Updated `df_cleaner.py`:
+  - Added `df.replace(to_replace=r'UniqueVisits:>', value='', regex=True, inplace=True)`
+  - Added conversion of 'Unique_Visits' to Int64 after cleaning.
+- Updated `pandas_df_default.csv` with header including Unique_Visits and sample row.
+- Schema expectations in pandas_df and column handling now support the new field (existing named-column code continues to work; verified parser + clean produces correct column and numeric values).
+
 Future items will reference this decision.
 
 The implementation should follow the current workflow:

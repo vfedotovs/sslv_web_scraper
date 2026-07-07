@@ -115,6 +115,8 @@ Simply doing `soup.find(id="show_cnt_stat")` on a naive request is often insuffi
 - Add basic retry with exponential backoff that preserves the session.
 
 ### Phase 4 — Pipeline & Schema Updates
+**Status: ✅ Implemented**
+
 - Update `data_format_changer.py` to recognize and pass through the new field.
 - Update `df_cleaner.py`:
   - Add cleaning rule (strip any prefix).

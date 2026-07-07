@@ -195,6 +195,7 @@ def create_oneline_report(source_file: str) -> pd.DataFrame:
     room_prices = []
     room_floors = []
     publish_dates = []
+    unique_visits = []
     log.info("Converting raw-text 12 lines per entry fromat into "
              " 1 line per entry csv file format ")
     log.info("Reading data from file : %s", source_file )
@@ -234,10 +235,14 @@ def create_oneline_report(source_file: str) -> pd.DataFrame:
                     floors = tmp.replace("Stāvs:", "Stavs:")
                     # log.info("L7 element: %s" ,floors )
                     room_floors.append(floors)
+                match_unique_visits = re.search("UniqueVisits:", line)
+                if match_unique_visits:
+                    # log.info("L8 element: %s" ,line )
+                    unique_visits.append(line.rstrip('\n'))
                 if not line:
                     break
             lists = [urls, room_counts, room_sizes, room_floors,
-                room_streets, room_prices, publish_dates]
+                room_streets, room_prices, publish_dates, unique_visits]
             validate_list_lengths(lists)
             trimmed_lists = trim_lists_to_min_length(
                 urls,
@@ -246,11 +251,12 @@ def create_oneline_report(source_file: str) -> pd.DataFrame:
                 room_floors,
                 room_streets,
                 room_prices,
-                publish_dates
+                publish_dates,
+                unique_visits
             )
             validate_list_lengths(trimmed_lists)
             (nurls, nroom_counts, nroom_sizes, nroom_floors,
-            nroom_streets, nroom_prices, npublish_dates) = trimmed_lists
+            nroom_streets, nroom_prices, npublish_dates, nunique_visits) = trimmed_lists
             log.info("Creating dict datastructure from scraped raw data list datastructures")
             mydict = {'URL': nurls,
                       'Room_count': nroom_counts,
@@ -258,7 +264,8 @@ def create_oneline_report(source_file: str) -> pd.DataFrame:
                       'Floor': nroom_floors,
                       'Street': nroom_streets,
                       'Price': nroom_prices,
-                      'Pub_date': npublish_dates}
+                      'Pub_date': npublish_dates,
+                      'Unique_Visits': nunique_visits}
             try:
                 log.info("Attempting to create the DataFrame ")
                 pandas_df = pd.DataFrame(mydict)
@@ -293,7 +300,7 @@ def validate_list_lengths(lists) -> None:
 
 
 def trim_lists_to_min_length(list1, list2, list3,
-                             list4, list5, list6, list7) -> list:
+                             list4, list5, list6, list7, list8) -> list:
     """
     Trims all input lists to the length of the shortest list.
 
@@ -301,10 +308,10 @@ def trim_lists_to_min_length(list1, list2, list3,
         list1, list2, list3, list4, list5 ...: Input lists to be trimmed.
 
     Returns:
-        A list containing the five trimmed lists.
+        A list containing the trimmed lists.
     """
     log.info("Started triming lists to the same len... ")
-    lists = [list1, list2, list3, list4, list5, list6, list7]
+    lists = [list1, list2, list3, list4, list5, list6, list7, list8]
     min_length = min(len(lst) for lst in lists)
     trimmed_lists = [lst[:min_length] for lst in lists]
     return trimmed_lists
