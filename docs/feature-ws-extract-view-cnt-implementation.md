@@ -44,6 +44,16 @@ This document provides a detailed, ordered action item list derived from the hig
 - Reuses the new `_extract_clean_text`.
 - Ready to be used in `extract_data_from_url` (see item 6).
 
+### Items 6 + 7: Integrate visits output + update extract_data_from_url
+- **Status:** ✅ Implemented
+- Refactored `extract_data_from_url` to use per-ad `ad_data` dict for cleaner structure.
+- Integrated `extract_visits_count` after the Date line.
+- Writes `UniqueVisits:>NNN` using the constant.
+- Removed duplicate price write logic.
+- Graceful handling: if visits is None or non-numeric → log warning, skip writing the line.
+- Uses the same output format (`Key:>value`) for compatibility.
+- Added timeout to the visits fetch.
+
 Future items will reference this decision.
 
 The implementation should follow the current workflow:

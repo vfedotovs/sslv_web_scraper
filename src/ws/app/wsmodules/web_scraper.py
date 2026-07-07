@@ -126,66 +126,103 @@ def remove_old_file() -> None:
 
 
 def extract_data_from_url(nondup_urls: list, dest_file: str) -> None:
-    """Iterate over all first page msg urls extract info from each url and write to file """
+    """Iterate over all message urls, extract info from each url and write to file.
+
+    Refactored (items 6+7):
+    - Uses per-ad dict for cleaner data structure.
+    - Integrates extract_visits_count for UniqueVisits.
+    - Writes visits line after Date:> .
+    - Handles missing/non-numeric visits gracefully (log + skip).
+    """
     msg_url_count = len(nondup_urls)
     for i in range(msg_url_count):
-        current_msg_url = nondup_urls[i] + "\n"
-        logger.info("Started scraping data from message URL %s" , str(i + 1))
-        table_opt_names = get_msg_table_data(nondup_urls[i], "ads_opt_name")
-        if table_opt_names:
-            pass
-        else:
-            logger.warning(f"Skipping {nondup_urls[i]} due to repeated connection failures.")
+        url = nondup_urls[i]
+        current_msg_url = url + "\n"
+        logger.info("Started scraping data from message URL %s", str(i + 1))
+
+        # Collect data in a cleaner per-ad structure
+        ad_data = {
+            "url": url,
+            "opt_names": [],
+            "opt_values": [],
+            "price": None,
+            "date": None,
+            "unique_visits": None,
+        }
+
+        table_opt_names = get_msg_table_data(url, "ads_opt_name")
+        ad_data["opt_names"] = table_opt_names or []
+        if not table_opt_names:
+            logger.warning(f"Skipping opts names for {url} due to repeated connection failures.")
         time.sleep(1)
-        table_opt_values = get_msg_table_data(nondup_urls[i], "ads_opt")
-        if table_opt_values:
-            pass
-        else:
-            logger.warning(f"Skipping {nondup_urls[i]} due to repeated connection failures.")
+
+        table_opt_values = get_msg_table_data(url, "ads_opt")
+        ad_data["opt_values"] = table_opt_values or []
+        if not table_opt_values:
+            logger.warning(f"Skipping opts values for {url} due to repeated connection failures.")
         time.sleep(1)
-        table_price = get_msg_table_data(nondup_urls[i], "ads_price")
+
+        table_price = get_msg_table_data(url, "ads_price")
         if table_price:
-            pass
+            ad_data["price"] = table_price[0]
         else:
-            logger.warning(f"Skipping {nondup_urls[i]} due to repeated connection failures.")
+            logger.warning(f"Skipping price for {url} due to repeated connection failures.")
+
         try:
             write_line(current_msg_url, dest_file)
-            for idx in range(len(table_opt_names) - 1):
-                text_line = table_opt_names[idx] + \
-                    ">" + table_opt_values[idx] + "\n"
+            for idx in range(len(ad_data["opt_names"]) - 1):
+                text_line = ad_data["opt_names"][idx] + ">" + ad_data["opt_values"][idx] + "\n"
                 write_line(text_line, dest_file)
-        except TypeError as e:
+        except (TypeError, IndexError) as e:
             logger.error(f"Error writing data from {current_msg_url} to file : {e}")
 
-        if not table_price:
-            logging.error(f"Error writing data from {current_msg_url} to file: table_price is None or empty")
+        if not ad_data["price"]:
+            logging.error(f"Error writing data from {current_msg_url} to file: price is None or empty")
             continue  # Skip further processing for this URL
+
         try:
-            # Assuming table_price is a list and we want the first element
-            price_line = "Price:>" + table_price[0] + "\n"
+            price_line = f"Price:>{ad_data['price']}\n"
             write_line(price_line, dest_file)
         except (TypeError, IndexError) as e:
             logging.error(f"Error writing data from {current_msg_url} to file: {e}")
 
-        price_line = "Price:>" + table_price[0] + "\n"
-
         time.sleep(1)
-        table_date = get_msg_table_data(nondup_urls[i], "msg_footer")
+        table_date = get_msg_table_data(url, "msg_footer")
         if table_date:
             pass
         else:
-            logger.warning(f"Skipping {nondup_urls[i]} due to repeated connection failures.")
+            logger.warning(f"Skipping date for {url} due to repeated connection failures.")
 
+        date_clean = None
         try:
             for date_idx in range(len(table_date)):
                 if date_idx == 2:
                     date_str = table_date[date_idx]
                     date_and_time = date_str.replace("Datums:", "")
                     date_clean = date_and_time.split()[0]
-                    date_field = "Date:>" + str(date_clean) + "\n"
-            write_line(date_field, dest_file)
+                    date_field = f"Date:>{date_clean}\n"
+                    write_line(date_field, dest_file)
+                    ad_data["date"] = date_clean
         except TypeError as e:
             logger.error(f"Error writing data from {current_msg_url} to file : {e}")
+
+        # === Items 6+7: Integrate UniqueVisits output ===
+        # Fetch once more for visits (keeps original sleep pattern for rate limiting)
+        time.sleep(1)
+        visits = None
+        try:
+            page = requests.get(url, timeout=15)
+            soup = BeautifulSoup(page.content, "html.parser")
+            visits = extract_visits_count(soup)
+            ad_data["unique_visits"] = visits
+        except Exception as e:
+            logger.warning(f"Failed to fetch/extract visits for {url}: {e}")
+
+        if visits is not None:
+            visits_line = f"{UNIQUE_VISITS_OUTPUT_KEY}{visits}\n"
+            write_line(visits_line, dest_file)
+        else:
+            logger.warning(f"Could not extract {UNIQUE_VISITS_OUTPUT_KEY} for {url} (missing or non-numeric)")
         time.sleep(3)
 
 
