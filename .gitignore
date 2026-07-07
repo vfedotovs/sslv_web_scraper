@@ -20,6 +20,9 @@ __init__.pyc
 !scripts/test_setup_files/basic_price_stats.txt
 !scripts/test_setup_files/email_body_txt_m4.txt
 
+# Test fixtures (HTML samples for parser development)
+!tests/fixtures/*.html
+
 
 # Exclude postgress data base settings
 database.ini

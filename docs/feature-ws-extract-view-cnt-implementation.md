@@ -10,6 +10,26 @@
 
 This document provides a detailed, ordered action item list derived from the high-level plan. Items are prioritized for safe, incremental delivery with clear effort and impact assessments.
 
+## Decisions Made
+
+### Item #1: Output Key Name and Optionality
+- **Chosen key:** `UniqueVisits:>`
+- **Optionality:** Optional for MVP (log warning and skip if extraction fails or value is invalid)
+- **Rationale:** Clear, descriptive, consistent with existing `Date:>`, `Price:>` format. "UniqueVisits" matches the Latvian "Unikālo apmeklējumu skaits".
+- **Status:** ✅ Implemented (constant `UNIQUE_VISITS_OUTPUT_KEY` defined in web_scraper.py)
+- **Date:** 2026-07-07
+
+### Item #2: Debug / Instrumentation
+- **Status:** ✅ Implemented (`debug_ad_visits()` function + `--debug` CLI support)
+- Supports dumping footers, extracting #show_cnt_stat, logging headers, and low-count warnings.
+
+### Item #3: Reusable Test Fixtures
+- **Status:** ✅ Implemented
+- Created `tests/fixtures/ad_footer_sample.html` with the 6 msg_footer tds (including the visits span with value 997)
+- Added `test_load_footer_fixture_has_visits_span()` in `tests/test_01_module_web_scraper.py`
+
+Future items will reference this decision.
+
 The implementation should follow the current workflow:
 - Develop on `feature/ws-extract-view-cnt`
 - Merge to `dev-1.5.13` for staging validation (manual "Deploy to Staging")

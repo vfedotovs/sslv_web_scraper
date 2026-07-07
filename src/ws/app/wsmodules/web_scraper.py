@@ -39,6 +39,13 @@ FLATS_OGRE = "https://www.ss.lv/lv/real-estate/flats/ogre-and-reg/ogre/sell/"
 # (for Ogre 5 sec x 70 URLs = 350 sec or < 6 min should last )
 SCRAPE_DELAY_SEC = 5
 
+# === Decision from implementation plan (item #1) ===
+# Output key for the unique visits counter.
+# Chosen: "UniqueVisits:>" (consistent with Date:>, Price:>)
+# Optional for initial implementation: write only if value successfully extracted,
+# otherwise log a warning.
+UNIQUE_VISITS_OUTPUT_KEY = "UniqueVisits:>"
+
 
 def scrape_website():
     """Main function of module calls all sub-functions"""
@@ -291,5 +298,100 @@ def create_file_copy() -> None:
     os.system(copy_cmd)
 
 
+# === Phase 0: Debug / Instrumentation helper (action item #2) ===
+def debug_ad_visits(msg_url: str = None) -> dict:
+    """
+    Debug helper for extracting and inspecting the unique visits counter.
+
+    Dumps:
+    - HTTP response headers (for bot detection analysis)
+    - All td.msg_footer elements (text + short html)
+    - Attempt to extract #show_cnt_stat value
+    - Warning for suspiciously low counts (< 10)
+
+    Usage (from project root):
+        python -m src.ws.app.wsmodules.web_scraper --debug [optional-url]
+
+    Returns a dict with the findings (useful in tests too).
+    """
+    if msg_url is None:
+        msg_url = "https://www.ss.lv/msg/lv/real-estate/flats/ogre-and-reg/ogre/adggo.html"
+
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36",
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        "Accept-Language": "lv-LV,lv;q=0.9,en-US;q=0.8,en;q=0.7",
+        "Referer": "https://www.ss.lv/lv/real-estate/flats/ogre-and-reg/ogre/sell/",
+    }
+
+    result = {
+        "url": msg_url,
+        "status_code": None,
+        "headers": {},
+        "footers": [],
+        "visits": None,
+        "warning": None,
+    }
+
+    print(f"\n=== DEBUG: Fetching ad page for visits inspection ===")
+    print(f"URL: {msg_url}")
+
+    try:
+        resp = requests.get(msg_url, headers=headers, timeout=15)
+        result["status_code"] = resp.status_code
+        result["headers"] = {k: resp.headers.get(k) for k in ["Server", "Date", "Content-Type", "Cache-Control"] if k in resp.headers}
+
+        print(f"HTTP Status: {resp.status_code}")
+        print("Relevant response headers:")
+        for k, v in result["headers"].items():
+            print(f"  {k}: {v}")
+
+        soup = BeautifulSoup(resp.content, "html.parser")
+        table = soup.find("table", id="page_main")
+        if not table:
+            print("WARNING: No <table id=\"page_main\"> found on page")
+            return result
+
+        footers = table.find_all("td", {"class": "msg_footer"})
+        print(f"\nFound {len(footers)} td.msg_footer elements:")
+
+        for idx, td in enumerate(footers):
+            text = td.get_text(separator=" ", strip=True)
+            html_snippet = str(td)[:280].replace("\n", " ").replace("\r", "")
+            footer_info = {"index": idx, "text": text[:150], "html": html_snippet}
+            result["footers"].append(footer_info)
+
+            print(f"  [{idx}] text: {text[:120]}")
+            if "Unikālo apmeklējumu skaits" in text or "show_cnt_stat" in str(td):
+                span = td.find("span", {"id": "show_cnt_stat"})
+                if span:
+                    visits = span.get_text(strip=True)
+                    result["visits"] = visits
+                    print(f"      *** EXTRACTED VISITS: {visits} ***")
+                    if visits.isdigit():
+                        val = int(visits)
+                        if val < 10:
+                            result["warning"] = f"suspiciously_low ({val})"
+                            print(f"      WARNING: suspiciously_low visits count: {val}")
+                else:
+                    print(f"      (found 'Unikālo' text but no #show_cnt_stat span)")
+
+        if result["visits"]:
+            print(f"\nFinal extracted visits: {result['visits']}")
+        else:
+            print("\nCould not extract visits count (may need better headers or JS simulation)")
+
+        return result
+
+    except Exception as e:
+        print(f"DEBUG ERROR: {type(e).__name__}: {e}")
+        result["error"] = str(e)
+        return result
+
+
 if __name__ == "__main__":
-    scrape_website()
+    if len(sys.argv) > 1 and sys.argv[1] == "--debug":
+        url = sys.argv[2] if len(sys.argv) > 2 else None
+        debug_ad_visits(url)
+    else:
+        scrape_website()

@@ -56,6 +56,27 @@ def create_mock_response(html_string: str, status_code: int = 200) -> requests.R
 #     assert find_single_page_urls(bs_object) == []
 
 
+# === Action item #3: Reusable test fixture for msg_footer (including visits span) ===
+def test_load_footer_fixture_has_visits_span():
+    """Verifies that the static fixture for Phase 0/1 development contains the expected structure."""
+    fixture_path = os.path.join(os.path.dirname(__file__), "fixtures", "ad_footer_sample.html")
+    assert os.path.isfile(fixture_path), f"Fixture not found: {fixture_path}"
+
+    with open(fixture_path, "r", encoding="utf-8") as f:
+        html = f.read()
+
+    soup = BeautifulSoup(html, "html.parser")
+
+    # Check the visits span exists with expected value from sample
+    span = soup.find("span", id="show_cnt_stat")
+    assert span is not None, "Missing <span id='show_cnt_stat'> in fixture"
+    assert span.get_text(strip=True) == "997"
+
+    # Also ensure we have multiple msg_footer tds as in real pages (at least 4)
+    footers = soup.find_all("td", class_="msg_footer")
+    assert len(footers) >= 4, "Fixture should contain multiple msg_footer tds like real ss.lv pages"
+
+
 # def test_get_msg_field_info():
 #     # Test with a message URL that contains the specified span ID
 #     msg_url = "https://ss.lv/msg123"
