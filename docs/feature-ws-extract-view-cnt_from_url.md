@@ -171,10 +171,10 @@ Keep compatibility for now. Consider emitting a parallel structured artifact (`.
 
 ## 7. Testing Strategy
 
-- Unit tests with realistic ad HTML fragments (include the exact 6 `msg_footer` blocks).
-- Regression test that visits extraction survives the crude old parser removal.
-- Integration test (or manual script) against the example URL asserting a plausible integer value.
-- End-to-end pipeline test: raw → formatted → cleaned DF → DB contains the field.
+- ✅ Unit tests with realistic ad HTML fragments (include the exact 6 `msg_footer` blocks). (item 13)
+- ✅ Regression test that visits extraction survives the crude old parser removal.
+- ✅ Integration test (or manual script) against the example URL asserting a plausible integer value. (item 14)
+- ✅ End-to-end pipeline test: raw → formatted → cleaned DF → DB contains the field. (item 15)
 - Add a health metric: "% of ads with missing or suspiciously low visits count".
 
 ## 8. Open Questions / Decisions Needed
