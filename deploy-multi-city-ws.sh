@@ -102,6 +102,17 @@ fi
 # Optional: allow overriding the cicd files bucket
 CICD_FILES_BUCKET=${CICD_FILES_BUCKET:-sslv-ws-m5-cicd-files}
 
+# Ensure database.ini is present in the ws build context.
+# src/ws/Dockerfile does: COPY database.ini /
+# load_secrets.sh downloads it to the project root, matching Makefile setup behavior.
+if [[ -f "database.ini" ]]; then
+    mkdir -p src/ws
+    if ! cmp -s database.ini src/ws/database.ini 2>/dev/null; then
+        cp -f database.ini src/ws/database.ini
+        log_info "Copied database.ini into src/ws/ for Docker build context"
+    fi
+fi
+
 # Ensure per-city .env file exists on disk.
 # Downloads from S3 (CICD_FILES_BUCKET) using AWS IAM credentials if missing.
 # This allows the script to work on fresh hosts without .env.* pre-existing on disk.
@@ -143,10 +154,20 @@ for city in "${CITIES[@]}"; do
         continue
     fi
     
-    log_info "Deploying $city using $env_file ..."
+    # Build env-file args: use .env.prod (common secrets, POSTGRES_PASSWORD, AWS keys, etc.)
+    # as base when present, then city-specific file (provides/overrides CITY_MAIN_URL etc.).
+    # This allows load_secrets.sh downloads + per-city .env.* to work together.
+    # Later --env-file overrides earlier ones.
+    ENV_FILE_ARGS=()
+    if [[ -f ".env.prod" ]]; then
+        ENV_FILE_ARGS+=(--env-file ".env.prod")
+    fi
+    ENV_FILE_ARGS+=(--env-file "$env_file")
+    
+    log_info "Deploying $city using ${ENV_FILE_ARGS[*]} ..."
     
     # Run docker compose with project name
-    if $COMPOSE_CMD --project-name "$city" --env-file "$env_file" up -d; then
+    if $COMPOSE_CMD --project-name "$city" "${ENV_FILE_ARGS[@]}" up -d; then
         log_info "Successfully deployed $city"
         SUCCESS_COUNT=$((SUCCESS_COUNT + 1))
     else
