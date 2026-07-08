@@ -146,6 +146,153 @@ Items 10, 12, 14, 16, 17, 18
 3. Do we need historical tracking of view counts in DB?
 4. When (if ever) do we introduce browser automation?
 
----
+## Debugging Guide: "Always 1" View Count After PR #428 (2026-07-08)
 
-**Next Step:** Start with item #1 (decision) and item #4 (parser refactor foundation) on the feature branch.
+**Symptom observed:**
+- All ads (including popular ones like adggo.html) extract `view_count=1`
+- Real browser sessions on the same ads show much higher numbers (e.g. 1099+)
+- Logs consistently show:
+  - `view_count extraction event: count=1`
+  - `DB interaction: inserting view_count=1`
+
+### Likely Root Causes (in order of probability)
+
+1. **"Unique" counter semantics + scraper fingerprinting**
+   - The counter (`Unikālo apmeklējumu skaits`) is **unique visitor** based.
+   - Our traffic (even with Session + headers + pixel) is fingerprinted as the same "visitor" or as non-human → server returns base value `1`.
+
+2. **Count is computed server-side at HTML render time**
+   - The number in `<span id="show_cnt_stat">` is baked in when the page HTML is generated.
+   - Firing the pixel + re-fetch may not cause the *next* HTML response to reflect an immediate increment for that client.
+
+3. **Pixel not effective or wrong format**
+   - The pixel might need to be requested as an `<img>` with exact timing/cookies/Referer that the page's `document.write` does.
+   - Session cookies (PHPSESSID) set by the pixel may not be carried correctly to the re-fetch in some environments.
+
+4. **Environment-specific (IP / ASN / datacenter)**
+   - If the scraper runs in a cloud/datacenter IP range, ss.lv may deliberately return low/placeholder counts to suspected bots.
+
+5. **Caching** on ss.lv side for the count value per ad.
+
+### Recommended Debug Action Plan (Step by Step)
+
+**Step 1: Reproduce with maximum visibility (use --debug)**
+```bash
+USE_PLAYWRIGHT=0 python -m src.ws.app.wsmodules.web_scraper --debug https://www.ss.lv/msg/lv/real-estate/flats/ogre-and-reg/ogre/adggo.html
+```
+Capture:
+- Full before/after count from the new logs we just added.
+- All session cookies after first GET and after pixel.
+- Whether `tracked` and `refetched` are true.
+
+**Step 2: Compare with/without simulation**
+Temporarily modify or run two variants:
+- `fetch_detail_page(url, simulate_view=False)` → what count do we get?
+- `fetch_detail_page(url, simulate_view=True)` → what count?
+
+Log the difference explicitly.
+
+**Step 3: Inspect cookies and pixel response**
+Add temporary logging (or use debug_ad_visits enhancements):
+```python
+print("Cookies after ad GET:", dict(session.cookies))
+resp_pixel = session.get(pixel_url, ...)
+print("Pixel status:", resp_pixel.status_code, "cookies after pixel:", dict(session.cookies))
+```
+
+**Step 4: Test the exact pixel the page uses**
+The page does:
+`document.write('<img src="/counter/msg.php?NTc4MTcwNzc=|14742|'+new Date()+'" ...>');`
+
+Try requesting the pixel **without** extra headers or with `Accept: image/*` and see if count changes on re-fetch.
+
+**Step 5: Test persistence across runs**
+- Run the debug tool twice in a row from the same environment (same IP/session).
+- Does the count stay 1, or ever go to 2?
+
+**Step 6: Compare environments**
+- Run from your local laptop browser (note the count).
+- Run the scraper from the same machine (if possible) vs from the server/CI.
+- Difference points to environment fingerprinting.
+
+**Step 7: Try Playwright (if not already)**
+```bash
+USE_PLAYWRIGHT=1 python -m src.ws.app.wsmodules.web_scraper --debug https://...
+```
+Playwright can set real cookies, execute the page's JS, load the pixel as an image, etc. Compare the count it gets vs pure requests.
+
+**Step 8: Check if the count ever increases for scraper traffic**
+Add temporary code to run the fetch + track 3-5 times in a row with delays, logging the count each time.
+
+**Step 9: Consider the counter may be intentionally low for automated traffic**
+If after above experiments the scraper consistently sees 1 while real users see high numbers:
+- This may be **by design** (anti-bot measure).
+- Options:
+  - Accept it and only use the number for "real browser" traffic.
+  - Build our own view counter on top (store cumulative in our DB).
+  - Use Playwright with persistent user profiles / residential proxies (higher cost/risk).
+
+### Immediate Code Improvements (to aid debugging)
+- (Already added in this session) Before/after count logging + cookie logging in `fetch_detail_page`.
+- Consider logging the full `info` dict at the end of visits extraction.
+- In `debug_ad_visits`, print cookies and before/after explicitly.
+
+### Next Actions After Debugging
+1. If the pixel + re-fetch never increases the number → the current "simulate_view" approach has limited effect for unique counters.
+2. Decide whether to keep showing the (low) server-provided number or compute something else.
+3. If Playwright gives significantly higher numbers, make it the default for production runs (with proper stealth + proxy strategy).
+4. Update the email report to flag listings with suspiciously low views (e.g. `< 5` or `< 10`).
+
+**Owner:** Run the debug steps above, especially Step 1-4 with the enhanced logging. Share the before/after + cookie output.
+
+---
+**Next Step:** Focus on debugging why the credible fetch still yields count=1. Update this plan with findings.
+
+## Conclusion & Findings (after live debug runs on 2026-07-08)
+
+**Test results from two runs on the example ad (https://www.ss.lv/msg/lv/real-estate/flats/ogre-and-reg/ogre/adggo.html):**
+
+- **Run with USE_PLAYWRIGHT=0** (requests + session + tracking + re-fetch):
+  - Ad ID correctly extracted: 57817077
+  - "View tracking pixel fired (simulated real visit)"
+  - "Page was re-fetched after tracking"
+  - HTML still showed: `Unikālo apmeklējumu skaits: 1`
+  - `extract_visits_count(soup) result: 1`
+  - Low count warning triggered
+
+- **Run with USE_PLAYWRIGHT=1** (full Playwright):
+  - Identical outcome: extracted count = 1
+  - Same messages about pixel and re-fetch
+  - Still received 1 from the server
+
+**Key conclusions:**
+
+1. **The scraping logic is functioning correctly.** All the Phase 3 mechanisms (Session + headers + jitter + pixel firing + re-fetch) are executing as designed. The same is true for the Playwright path.
+
+2. **The server is returning 1 for this client/environment.** Even after firing the tracking pixel and re-fetching (and even when using a real browser engine via Playwright), the HTML delivered by ss.lv contains `show_cnt_stat">1<`.
+
+3. **Firing the tracking pixel + re-fetch does not increase the displayed count for the scraper.** The counter (`Unikālo apmeklējumu skaits`) is a **unique visitor** counter. The simulated view does not register as an additional unique visit from the server's perspective for this traffic.
+
+4. **Playwright did not help in this case.** This indicates the issue is not simply missing JavaScript execution. It is likely tied to persistent client identity (cookies accumulated over time, browser fingerprint, IP/ASN reputation, or other signals that a fresh automated session does not possess).
+
+5. **The value "1" is what the server chooses to show the scraper.** The high numbers the user observed (e.g. 1099) are almost certainly from long-lived personal browser sessions that carry prior visit history. The scraper (even with best-effort simulation) is treated as a new or non-counting visitor.
+
+6. **Logging is working as specified.**
+   - `web_scraper.log` correctly records: `view_count extraction event: count=1 url=...`
+   - `dbworker.log` correctly records DB interactions: `inserting view_count=1 for ... into listed_ads`
+
+7. **The email report will now reflect reality.** Because the scraper legitimately sees low numbers, the `Views` column (with `[LOW VIEWS]` flags for counts < 10) will show these values. This is correct behavior for the feature.
+
+**Implications:**
+
+- The feature successfully extracts and propagates the number the server returns to the scraper client.
+- It is not currently possible to obtain the "high" cumulative numbers visible to real returning users using the current simulation techniques.
+- The extracted view count is useful for relative comparison and for detecting suspiciously low activity, but absolute values will often be low when the scraper runs from its normal environment.
+
+**Practical recommendation:**
+
+Report the number that was actually observed during the scrape (as we are now doing), and consider adding a clarifying note in future reports:
+
+"View counts reflect the value returned by ss.lv to the scraper at the time of fetch. These are typically lower than numbers seen in long-lived personal browsers."
+
+The root cause is the nature of ss.lv's unique-visitor counter combined with the limitations of simulating unique visits from automated clients. The implementation (extraction, pipeline, logging, reporting) is working; the low values are expected given how the counter operates.

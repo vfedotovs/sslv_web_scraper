@@ -413,6 +413,13 @@ def debug_ad_visits(msg_url: str = None) -> dict:
         if info.get("tracked"):
             print("View tracking pixel fired (simulated real visit)")
 
+        # Show cookies received (very useful for debugging why count stays low)
+        if info.get("session_cookies"):
+            print("Cookies after first page load:", info["session_cookies"])
+        else:
+            # Fallback: try to print from the last response if available
+            print("(No explicit cookie info captured in this run)")
+
         table = soup.find("table", id="page_main")
         if not table:
             print("WARNING: No <table id=\"page_main\"> found on page")
@@ -530,13 +537,20 @@ def fire_view_tracking(ad_id: str, session: Optional[requests.Session] = None) -
         return False
     try:
         encoded = base64.b64encode(ad_id.encode()).decode().rstrip("=")
-        ts = int(time.time())
-        pixel_url = f"https://www.ss.lv/counter/msg.php?{encoded}|14742|{ts}"
-        req_headers = {"Referer": "https://www.ss.lv/"}
+        # Match the page's JS: new Date() which becomes a full date string when concatenated
+        # Using a JS-like string instead of raw timestamp
+        js_date = time.strftime("%a %b %d %Y %H:%M:%S GMT%z", time.gmtime())
+        # Simpler: just use current time in a format close to JS
+        pixel_url = f"https://www.ss.lv/counter/msg.php?{encoded}|14742|{js_date}"
+        req_headers = {
+            "Referer": "https://www.ss.lv/",
+            "Accept": "image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8",
+        }
         if session:
-            session.get(pixel_url, timeout=5, headers=req_headers)
+            resp = session.get(pixel_url, timeout=5, headers=req_headers)
         else:
-            requests.get(pixel_url, timeout=5, headers=req_headers)
+            resp = requests.get(pixel_url, timeout=5, headers=req_headers)
+        logging.debug(f"Tracking pixel status: {resp.status_code} for ad {ad_id}")
         return True
     except Exception as e:
         logging.debug(f"Tracking pixel failed for ad {ad_id}: {e}")
@@ -588,6 +602,10 @@ def fetch_detail_page(
             for k in ["Server", "Date", "Content-Type", "Cache-Control"]
             if k in resp.headers
         }
+
+        # Capture cookies for debugging unique visitor / session issues
+        if use_session and 'session' in locals() and session:
+            info["session_cookies"] = dict(session.cookies)
 
         soup = BeautifulSoup(resp.content, "html.parser")
         ad_id = extract_ad_id(soup)

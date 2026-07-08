@@ -124,6 +124,27 @@ venv-info:  ## ℹ️  Show virtual environment information
 		echo "Run 'make setup-venv' to create one"; \
 	fi
 
+install-ws:  ## 📦 Install ws module dependencies (requests, bs4, pandas, etc.)
+	@if [ ! -d "$(VENV_DIR)" ]; then \
+		echo "❌ Virtual environment not found. Run 'make setup-venv' first"; \
+		exit 1; \
+	fi
+	@echo "Installing ws dependencies from src/ws/requirements.txt..."
+	uv pip install --python $(PYTHON) -r src/ws/requirements.txt
+	@echo "✅ ws requirements installed"
+
+debug-ad:  ## 🐛 Run web_scraper --debug for view count inspection (uses venv)
+	@if [ ! -d "$(VENV_DIR)" ]; then \
+		echo "Virtual environment not found. Setting up..."; \
+		$(MAKE) setup-venv; \
+	fi
+	@echo "Installing ws dependencies (if missing)..."
+	@uv pip install --python $(PYTHON) -r src/ws/requirements.txt -q 2>/dev/null || true
+	@URL=$${URL:-https://www.ss.lv/msg/lv/real-estate/flats/ogre-and-reg/ogre/adggo.html}; \
+	PLAYWRIGHT_FLAG=$${USE_PLAYWRIGHT:-0}; \
+	echo "Running debug for: $$URL (USE_PLAYWRIGHT=$$PLAYWRIGHT_FLAG)"; \
+	USE_PLAYWRIGHT=$$PLAYWRIGHT_FLAG $(PYTHON) -m src.ws.app.wsmodules.web_scraper --debug $$URL
+
 # Define the precheck function
 precheck:  ## checks OS, architecture and if required exports are present
 	@echo "=========================================="
