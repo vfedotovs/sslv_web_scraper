@@ -80,6 +80,12 @@ fi
 
 log_info "Using compose command: $COMPOSE_CMD"
 
+# Check common files once
+if [[ ! -f "docker-compose.yml" ]]; then
+    log_error "docker-compose.yml not found in current directory"
+    exit 1
+fi
+
 SUCCESS_COUNT=0
 FAIL_COUNT=0
 FAILED_CITIES=()
@@ -89,20 +95,18 @@ for city in "${CITIES[@]}"; do
     
     log_info "Starting undeploy for city: $city"
     
-    # For undeploy we are more lenient with missing .env,
-    # but we still prefer to have it for consistency.
-    if [[ ! -f "$env_file" ]]; then
-        log_warn "Environment file not found for city '$city': $env_file (continuing anyway)"
+    # Build env-file args only if the file is present on disk.
+    # This makes undeploy work without .env.* files needing to exist.
+    ENV_ARGS=()
+    if [[ -f "$env_file" ]]; then
+        ENV_ARGS=(--env-file "$env_file")
+    else
+        log_warn "No $env_file on disk; proceeding with project-name only (sufficient for down)"
     fi
     
-    if [[ ! -f "docker-compose.yml" ]]; then
-        log_error "docker-compose.yml not found in current directory"
-        exit 1
-    fi
+    log_info "Stopping and removing $city ..."
     
-    log_info "Stopping and removing $city using $env_file ..."
-    
-    if $COMPOSE_CMD --project-name "$city" --env-file "$env_file" down -v; then
+    if $COMPOSE_CMD --project-name "$city" "${ENV_ARGS[@]}" down -v; then
         log_info "Successfully undeployed $city"
         SUCCESS_COUNT=$((SUCCESS_COUNT + 1))
     else

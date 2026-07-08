@@ -80,6 +80,54 @@ fi
 
 log_info "Using compose command: $COMPOSE_CMD"
 
+# Check common files once (outside per-city loop)
+if [[ ! -f "docker-compose.yml" ]]; then
+    log_error "docker-compose.yml not found in current directory"
+    exit 1
+fi
+
+# Load common secrets/config from helper scripts (Secrets Manager / S3) if present.
+# These populate shell env for compose or other tools. Per-city .env.* files (for CITY_ vars etc)
+# are still handled explicitly via ensure_env_file below (download on demand).
+if [ -f "scripts/set_s3_env_from_aws_sm.sh" ]; then
+    log_info "Loading secrets from AWS Secrets Manager..."
+    source "scripts/set_s3_env_from_aws_sm.sh" 2>/dev/null || log_warn "Could not source set_s3_env_from_aws_sm.sh"
+fi
+
+if [ -f "scripts/load_secrets.sh" ]; then
+    log_info "Loading additional secrets and config from S3..."
+    source "scripts/load_secrets.sh" 2>/dev/null || log_warn "Could not source load_secrets.sh"
+fi
+
+# Optional: allow overriding the cicd files bucket
+CICD_FILES_BUCKET=${CICD_FILES_BUCKET:-sslv-ws-m5-cicd-files}
+
+# Ensure per-city .env file exists on disk.
+# Downloads from S3 (CICD_FILES_BUCKET) using AWS IAM credentials if missing.
+# This allows the script to work on fresh hosts without .env.* pre-existing on disk.
+# No secrets are printed or leaked by this logic.
+ensure_env_file() {
+    local city="$1"
+    local env_file=".env.${city}"
+
+    if [[ -f "$env_file" ]]; then
+        log_info "Using existing $env_file on disk"
+        return 0
+    fi
+
+    log_info "Downloading $env_file from s3://${CICD_FILES_BUCKET}/ (using IAM)..."
+    if aws s3 cp "s3://${CICD_FILES_BUCKET}/${env_file}" "$env_file" --quiet 2>&1; then
+        log_info "Downloaded $env_file successfully"
+        # Protect the file (contains secrets)
+        chmod 600 "$env_file" 2>/dev/null || true
+        return 0
+    else
+        log_error "Failed to download $env_file from s3://${CICD_FILES_BUCKET}/"
+        log_error "Check: file exists in bucket, AWS credentials/IAM role has s3:GetObject, and aws cli is configured."
+        return 1
+    fi
+}
+
 SUCCESS_COUNT=0
 FAIL_COUNT=0
 FAILED_CITIES=()
@@ -89,18 +137,10 @@ for city in "${CITIES[@]}"; do
     
     log_info "Starting deployment for city: $city"
     
-    # Check if env file exists
-    if [[ ! -f "$env_file" ]]; then
-        log_error "Environment file not found for city '$city': $env_file"
+    if ! ensure_env_file "$city"; then
         FAIL_COUNT=$((FAIL_COUNT + 1))
         FAILED_CITIES+=("$city")
         continue
-    fi
-    
-    # Check if docker-compose file exists (in case we ever split them)
-    if [[ ! -f "docker-compose.yml" ]]; then
-        log_error "docker-compose.yml not found in current directory"
-        exit 1
     fi
     
     log_info "Deploying $city using $env_file ..."

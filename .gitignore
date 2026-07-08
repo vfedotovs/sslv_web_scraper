@@ -27,6 +27,7 @@ database.ini
 
 # Exclude docker compose env file
 .env.prod
+.env.*
 
 # Exclude setup state file
 .setup_state
