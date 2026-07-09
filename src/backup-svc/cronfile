@@ -1,4 +1,6 @@
 # Database backup cron job - runs daily at 02:00 UTC
-0 2 * * * /usr/local/bin/python /app/backup.py >> /var/log/cron.log 2>&1
+# -u : unbuffered stdout (important for timely log capture)
+# Output is appended to cron.log; Docker CMD tails this + backup.log to container stdout.
+0 2 * * * /usr/local/bin/python -u /app/backup.py >> /var/log/cron.log 2>&1
 
 # Empty line required

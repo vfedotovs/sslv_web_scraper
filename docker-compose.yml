@@ -91,6 +91,8 @@ services:
       AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY}
       CITY: ${CITY:-unknown}
       ENV: ${ENV:-prod}
+      # Set to DEBUG for verbose logging (also written to /var/log/backup.log inside container)
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
     depends_on:
       db:
         condition: service_healthy
