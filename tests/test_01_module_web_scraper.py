@@ -126,7 +126,13 @@ def test_write_line():
 
 # --- New tests for dynamic page count (M6) ---
 
-from src.ws.app.wsmodules.web_scraper import get_total_pages, get_page_url, derive_city_slug
+from src.ws.app.wsmodules.web_scraper import (
+    get_total_pages,
+    get_page_url,
+    derive_city_slug,
+    scrape_website,
+    find_single_page_urls,
+)
 
 
 JURMALA_PAGER_HTML = """
@@ -230,4 +236,77 @@ def test_derive_city_slug():
     assert derive_city_slug("https://www.ss.lv/lv/real-estate/flats/riga-region/adazu-nov/sell/") == "adazu_nov"
     assert derive_city_slug(None) == "city"
     assert derive_city_slug("") == "city"
+
+
+# --- Revived + new tests for Item 9 (Phase 2) ---
+
+from unittest.mock import patch, MagicMock
+
+
+def test_find_single_page_urls_basic():
+    """Revived basic test for find_single_page_urls."""
+    bs_object = create_bs4_object(html_string="<a href='/msg/lv/real-estate/flats/jurmala/fake1.html'>Ad 1</a>")
+    urls = find_single_page_urls(bs_object)
+    assert len(urls) == 1
+    assert urls[0].endswith("fake1.html")
+
+
+def test_find_single_page_urls_dedup():
+    """Revived dedup test."""
+    html = (
+        "<a href='/msg/lv/real-estate/flats/jurmala/a1.html'>1</a>"
+        "<a href='/msg/lv/real-estate/flats/jurmala/a2.html'>2</a>"
+        "<a href='/msg/lv/real-estate/flats/jurmala/a1.html'>1 again</a>"
+    )
+    bs_object = create_bs4_object(html_string=html)
+    urls = find_single_page_urls(bs_object)
+    assert len(urls) == 2
+
+
+@patch("src.ws.app.wsmodules.web_scraper.requests.Session")
+@patch("src.ws.app.wsmodules.web_scraper.extract_data_from_url")
+@patch("src.ws.app.wsmodules.web_scraper.remove_old_file")
+@patch("src.ws.app.wsmodules.web_scraper.create_file_copy")
+def test_scrape_website_multi_page_mocked(mock_create, mock_remove, mock_extract, mock_session_class):
+    """Integration-style test for multi-page scraping (Item 9 / Phase 2).
+
+    Mocks the session + heavy side-effect functions so we test the page discovery + collection logic cleanly.
+    """
+    # Use a 2-page pager so detection reports only 2 pages (not the 6 from JURMALA_PAGER_HTML)
+    TWO_PAGE_PAGER = """
+    <div align=center class=td2 nowrap>
+      <button onclick="return false;" class=navia>1</button>
+      <a name="nav_id" rel="next" class="navi" href="/lv/real-estate/flats/jurmala/sell/page2.html">2</a>
+    </div>
+    """
+
+    page1_html = TWO_PAGE_PAGER + '<a href="/msg/lv/real-estate/flats/jurmala/ad1.html">ad1</a>'
+    page2_html = '<a href="/msg/lv/real-estate/flats/jurmala/ad2.html">ad2</a>'
+
+    mock_resp1 = MagicMock()
+    mock_resp1.content = page1_html.encode()
+    mock_resp1.raise_for_status = MagicMock()
+
+    mock_resp2 = MagicMock()
+    mock_resp2.content = page2_html.encode()
+    mock_resp2.raise_for_status = MagicMock()
+
+    mock_session = MagicMock()
+    mock_session.get.side_effect = [mock_resp1, mock_resp2]
+    mock_session.headers = {}
+    mock_session_class.return_value = mock_session
+
+    # Force no URL limit for the test
+    with patch("src.ws.app.wsmodules.web_scraper.URL_LIMIT", 0):
+        scrape_website(main_url="https://www.ss.lv/lv/real-estate/flats/jurmala/sell/")
+
+    # Should have fetched exactly two list pages (page 1 for detection + page 2)
+    assert mock_session.get.call_count == 2
+
+    # extract_data_from_url should have been called with 2 URLs (ad1 + ad2)
+    assert mock_extract.called
+    called_urls = mock_extract.call_args[0][0]
+    assert len(called_urls) == 2
+    assert any("ad1" in u for u in called_urls)
+    assert any("ad2" in u for u in called_urls)
 

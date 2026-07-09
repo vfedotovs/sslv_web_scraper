@@ -63,9 +63,12 @@ logger.addHandler(fh)
 CITY_MAIN_URL = os.getenv("CITY_MAIN_URL")
 logger.info("Using CITY_MAIN_URL: %s", CITY_MAIN_URL)
 
-# Deplay between scraping each URL 5 sec
-# (for Ogre 5 sec x 70 URLs = 350 sec or < 6 min should last )
-SCRAPE_DELAY_SEC = 5
+# Delay between scraping each individual ad URL (detail pages)
+# (for ~70 URLs: 5s x 70 = ~6 min)
+SCRAPE_DELAY_SEC = int(os.getenv("SCRAPE_DELAY_SEC", "5"))
+
+# Delay between fetching list pages (for politeness when scraping multiple pages)
+SCRAPE_LIST_DELAY_SEC = int(os.getenv("SCRAPE_LIST_DELAY_SEC", "1"))
 
 # URL_LIMIT controls how many individual ad pages are fully scraped per run.
 # Default = 5 (safe dev default to keep runs fast).
@@ -126,36 +129,53 @@ def scrape_website(main_url: str = None, report_file: str = None, city_slug: str
     logger.info("Extracting BS4 objects")
     remove_old_file(report_file)
 
-    # Fetch first page and determine total pages
-    try:
-        page_one_resp = requests.get(main_url, timeout=10)
-        page_one_resp.raise_for_status()
-    except Exception as exc:
-        logger.error("Failed to fetch first page %s: %s", main_url, exc)
-        return
+    # Use a session for connection reuse + polite headers (Item 8)
+    session = requests.Session()
+    session.headers.update({
+        "User-Agent": "Mozilla/5.0 (compatible; SS.LV-Scraper/1.6; +http://propertydata.lv/)",
+        "Accept": "text/html,application/xhtml+xml",
+    })
 
-    page_one_bs_obj = BeautifulSoup(page_one_resp.content, "html.parser")
+    # Fetch first page and determine total pages
+    page_one_bs_obj = _fetch_list_page(session, main_url)
+    if page_one_bs_obj is None:
+        logger.error("Failed to fetch first page %s", main_url)
+        return
 
     total_pages = get_total_pages(page_one_bs_obj)
     logger.info("Detected %s page(s) of listings", total_pages)
 
     # Collect ad URLs from all pages
     all_msg_urls: list[str] = []
-    for page_num in range(1, total_pages + 1):
+    city_display = city_slug or derive_city_slug(main_url)
+
+    # Always collect from page 1 (we already fetched it)
+    page_urls = find_single_page_urls(page_one_bs_obj)
+    all_msg_urls.extend(page_urls)
+    logger.info("Scraping page 1/%s (%s) — found %s new ad URLs (total so far: %s)",
+                total_pages, city_display, len(page_urls), len(all_msg_urls))
+
+    # Fetch remaining pages
+    for page_num in range(2, total_pages + 1):
         page_url = get_page_url(main_url, page_num)
-        logger.info("Fetching page %s/%s: %s", page_num, total_pages, page_url)
-        try:
-            resp = requests.get(page_url, timeout=10)
-            resp.raise_for_status()
-            bs = BeautifulSoup(resp.content, "html.parser")
-            page_urls = find_single_page_urls(bs)
-            all_msg_urls.extend(page_urls)
-            # Be polite between list pages
-            if page_num < total_pages:
-                time.sleep(1)
-        except Exception as exc:
-            logger.warning("Failed to fetch page %s (%s): %s", page_num, page_url, exc)
-            # Continue with what we have
+        log_msg = f"Scraping page {page_num}/{total_pages} ({city_display})"
+        logger.info(log_msg)
+
+        bs = _fetch_list_page(session, page_url)
+        if bs is None:
+            logger.warning("Skipping page %s after failures: %s", page_num, page_url)
+            continue
+
+        page_urls = find_single_page_urls(bs)
+        all_msg_urls.extend(page_urls)
+        logger.info("Page %s/%s (%s) — found %s new ad URLs (total so far: %s)",
+                    page_num, total_pages, city_display, len(page_urls), len(all_msg_urls))
+
+        # Be polite between list pages (configurable)
+        if page_num < total_pages:
+            time.sleep(SCRAPE_LIST_DELAY_SEC)
+
+    session.close()
 
     valid_msg_urls = list(dict.fromkeys(all_msg_urls))  # preserve order, remove dups
 
@@ -320,7 +340,8 @@ def get_page_url(base_url: str, page_num: int) -> str:
     (see scrape_website, Phase 1 Item 4).
     """
     if not base_url:
-        return base_url
+        # Graceful handling for empty base (mostly for tests)
+        return f"/page{page_num}.html" if page_num > 1 else ""
     if page_num <= 1:
         return base_url
     # Ensure trailing slash for clean concatenation
@@ -372,6 +393,24 @@ def get_total_pages(bs_object: BeautifulSoup, default: int = 1) -> int:
     if page_nums:
         return max(page_nums)
     return default
+
+
+def _fetch_list_page(session: requests.Session, url: str, retries: int = 3, backoff: float = 0.5):
+    """Fetch a listing page with retries. Returns BeautifulSoup or None on failure.
+
+    This provides resilience for list page fetches (separate from detail page retries).
+    """
+    for attempt in range(retries):
+        try:
+            resp = session.get(url, timeout=15)
+            resp.raise_for_status()
+            return BeautifulSoup(resp.content, "html.parser")
+        except Exception as exc:
+            wait = backoff * (2 ** attempt)
+            logger.warning("List page fetch failed (attempt %s/%s) for %s: %s. Retrying in %.1fs",
+                           attempt + 1, retries, url, exc, wait)
+            time.sleep(wait)
+    return None
 
 
 def derive_city_slug(main_url: str) -> str:
