@@ -4,11 +4,11 @@
 ## Scenario: when AWS lambda scraped file was available   
     file_downloader.py > main > download_latest_lambda_file() 
     	-> connect to AWS S3 bucket 
-    	-> Creates file in: local_lambda_raw_scraped_data/Ogre-raw-data-report-2024-11-17T00-29-25.txt
+    	-> Creates file in: local_lambda_raw_scraped_data/{city}-raw-data-report-YYYY-MM-DDTHH-MM-SS.txt
 
 
-    data_format_changer.py > main > cloud_data_formater_main()
-        <- Reads local_lambda_raw_scraped_data/Ogre-raw-data-report-2024-11-17T00-29-25.txt
+    data_format_changer.py > main > cloud_data_formater_main(city)
+        <- Reads local_lambda_raw_scraped_data/{city}-raw-data-report-...txt (city-aware)
         -> Creates pandas_df.csv
         -> Creates copy data/pandas_df_2024-11-17.csv
 
@@ -28,6 +28,13 @@
 
 
     analytics.py > analytics_main()
+
+## Multi-city support (Phase 3)
+- Scraper: scrape_website(city_slug="jurmala") produces jurmala-raw-data-report.txt
+- Formaters, mailers, etc now accept city param for file naming.
+- Use EMAIL_CITY_TITLE env for titles.
+- Dated files in data/{city}-raw-data-report-YYYY-MM-DD.txt
+- See m6-dynamic-page-count-action-plan.md for full plan.
     	- bad module doc string  - to many Fixme	
     	<- Reads file: cleaned-sorted-df.csv
     	-> Creates file: basic_price_stats.txt

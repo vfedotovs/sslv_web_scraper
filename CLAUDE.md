@@ -56,6 +56,8 @@ The application supports parallel deployment for multiple cities using Docker Co
 
 **Important:** Do NOT expose ts health check port 8080 to host when running multi-city (causes port conflicts). Health checks work within Docker network.
 
+Dynamic advert page count (M6): Implemented in Phases 1-3. `scrape_website(city_slug="jurmala")` now fetches all pages dynamically. File naming standardized to {city}-raw-... for reports. See m6-dynamic-page-count-action-plan.md for details and remaining items.
+
 ## Development Setup
 
 ### Prerequisites

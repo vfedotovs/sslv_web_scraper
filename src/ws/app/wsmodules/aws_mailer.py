@@ -42,17 +42,29 @@ log.addHandler(fh)
 
 EMAIL_CITY_TITLE = os.getenv("EMAIL_CITY_TITLE")
 
-data_files = [
-    "email_body_txt_m4.txt",
-    "Mailer_report.txt",
-    "Ogre-raw-data-report.txt",
-    "cleaned-sorted-df.csv",
-    "pandas_df.csv",
-    "basic_price_stats.txt",
-    "email_body_add_dates_table.txt",
-    "1_rooms_tmp.txt",
-    "mrv2.txt",
-]
+
+def get_data_files_to_remove(city_name: str = None) -> list:
+    """City-aware list of temp files for cleanup (Phase 3 hygiene)."""
+    base = [
+        "email_body_txt_m4.txt",
+        "Mailer_report.txt",
+        "cleaned-sorted-df.csv",
+        "pandas_df.csv",
+        "basic_price_stats.txt",
+        "email_body_add_dates_table.txt",
+        "1_rooms_tmp.txt",
+        "mrv2.txt",
+    ]
+    if city_name:
+        base.extend([
+            f"{city_name}-raw-data-report.txt",
+        ])
+    else:
+        base.append("Ogre-raw-data-report.txt")
+    return base
+
+
+data_files = get_data_files_to_remove()  # legacy default for backward compat
 
 
 def remove_tmp_files(files_to_remove: list) -> None:
@@ -128,7 +140,7 @@ def extract_file_contents(file_name: str) -> str:
         return extracted_file_contents
 
 
-def aws_mailer_main() -> None:
+def aws_mailer_main(city_name: str = None) -> None:
     """
     Send an email using AWS Simple Email Service (SES) with content assembled from multiple text files.
 
@@ -217,8 +229,9 @@ def aws_mailer_main() -> None:
     else:
         print(f"Email sent! Message ID: {response['MessageId']}")
         log.info(f"Email sent! Message ID: {response['MessageId']}")
-    log.info("--- AWS SES mailer module completed with succeess ---")
-    remove_tmp_files(data_files)
+    log.info("--- AWS SES mailer module completed with success ---")
+    files_to_remove = get_data_files_to_remove(city_name)
+    remove_tmp_files(files_to_remove)
 
 
 if __name__ == "__main__":

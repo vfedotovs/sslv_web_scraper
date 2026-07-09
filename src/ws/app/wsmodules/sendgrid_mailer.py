@@ -131,7 +131,8 @@ def sendgrid_mailer_main() -> None:
         plain_text_content=final_mail_body,
     )
 
-    log.info("Checking if file Ogre_city_report.pdf exists")
+    log.info("Checking if city report pdf exists (Ogre_city_report.pdf or {city}_city_report.pdf)")
+    # legacy hardcoded for now
     report_file_exists = os.path.exists("Ogre_city_report.pdf")
     if report_file_exists:
         log.info("Found Ogre_city_report.pdf file")

@@ -543,16 +543,21 @@ def write_line(text: str, file_name: str) -> None:
 
 
 def create_file_copy(report_file: str = "Ogre-raw-data-report.txt") -> None:
-    """Creates a dated copy of the (city-aware) report file in the data folder."""
+    """Creates a dated copy of the (city-aware) report file in the data/ folder
+    (for check_lst_run_state) and also in local_lambda_raw_scraped_data/."""
     todays_date = datetime.today().strftime("%Y-%m-%d")
-    # Keep legacy "Ogre-" prefix in the archive name for now for compatibility
-    # (full city naming is tracked in plan Item 5/7)
     base = report_file.replace(".txt", "")
     dest_file = f"{base}-{todays_date}.txt"
-    copy_cmd = f"cp {report_file} local_lambda_raw_scraped_data/" + dest_file
+
+    # Copy to data/ so check_lst_run_state and data_format_changer can find it
+    if not os.path.exists("data"):
+        os.makedirs("data")
+    os.system(f"cp {report_file} data/{dest_file}")
+
+    # Copy for cloud/lambda compatibility
     if not os.path.exists("local_lambda_raw_scraped_data"):
         os.makedirs("local_lambda_raw_scraped_data")
-    os.system(copy_cmd)
+    os.system(f"cp {report_file} local_lambda_raw_scraped_data/{dest_file}")
 
 
 if __name__ == "__main__":

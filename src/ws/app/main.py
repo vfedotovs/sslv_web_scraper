@@ -56,7 +56,11 @@ def home():
 
 @app.get("/run-task/{city}")
 async def run_long_task(city: str):
-    """Endpoint to trigger scrape, format and insert data in DB for a specific city."""
+    """Endpoint to trigger scrape, format and insert data in DB for a specific city.
+    Phase 3: city param fully wired for report naming across pipeline.
+    Example verification (Item 10): curl http://localhost:8000/run-task/jurmala
+    Then check data/jurmala-raw-data-report-*.txt and logs for correct city files.
+    """
     log.info("Received GET request to start scraping job for %s city", city)
     # download_latest_lambda_file()
     # todays_cloud_data_file_exist = check_today_cloud_data_file_exist()
@@ -72,7 +76,7 @@ async def run_long_task(city: str):
             last_cloud_file_name,
         )
         log.info("Running cloud_data_formater_main task: using cloud ws file")
-        cloud_data_formater_main()
+        cloud_data_formater_main(city)
         log.info("Running df_cleaner_main task: using cloud ws file")
         df_cleaner_main()
         log.info("Running db_worker_main task: using cloud ws file")
@@ -80,9 +84,9 @@ async def run_long_task(city: str):
         log.info("Running analytics_main task: using cloud ws file")
         analytics_main()
         log.info("Running pdf_creator task: using cloud ws file ")
-        pdf_creator_main()
+        pdf_creator_main(city)
         log.info("Running aws_mailer task: using cloud ws file")
-        aws_mailer_main()
+        aws_mailer_main(city)
         log.info("Completed /run-task/%s using AWS lambda raw-data file", city)
         return {
             "message": f"FAST_API: scrape {city} city apartments"
@@ -101,7 +105,7 @@ async def run_long_task(city: str):
         log.info("Running scrape_website task will create local ws file for %s", city)
         scrape_website(city_slug=city)
         log.info("Running data_formater_main task: using locally scraped file")
-        cloud_data_formater_main()
+        cloud_data_formater_main(city)
         log.info("Running df_cleaner_main task: using locally scraped file")
         df_cleaner_main()
         log.info("Running db_worker_main task: using locally scraped file")
@@ -109,9 +113,9 @@ async def run_long_task(city: str):
         log.info("Running analytics_main task: using locally scraped file")
         analytics_main()
         log.info("Running pdf_creator task: using locally scraped")
-        pdf_creator_main()
+        pdf_creator_main(city)
         log.info("Running aws_mailer task: using locally scraped file")
-        aws_mailer_main()
+        aws_mailer_main(city)
 
         return {
             "message": f"FAST_API: scrape {city} city apartments "
