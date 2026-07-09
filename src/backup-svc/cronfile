@@ -1,0 +1,4 @@
+# Database backup cron job - runs daily at 02:00 UTC
+0 2 * * * /usr/local/bin/python /app/backup.py >> /var/log/cron.log 2>&1
+
+# Empty line required

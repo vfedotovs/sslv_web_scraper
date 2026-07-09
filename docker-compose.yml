@@ -70,6 +70,27 @@ services:
       - postgresql
     depends_on:
       - ts
+
+  # DB Backup Service (dedicated container for scheduled backups - item 4)
+  # Runs cron inside the container. Deployed per-city via --project-name <city>
+  # (becomes {city}-backup-1). Uses S3_BUCKET from .env for the city's db-backups bucket.
+  backup:
+    build: ./src/backup-svc
+    restart: always
+    environment:
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      DB_USER: new_docker_user
+      DB_NAME: new_docker_db
+      DB_HOST: db
+      S3_BUCKET: ${S3_BUCKET}
+      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID}
+      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY}
+    depends_on:
+      db:
+        condition: service_healthy
+    networks:
+      - postgresql
+
 # web:
 #  image:  vfedotovsdocker/st-web:latest-amd64   #Use the specified Docker image
 #  ports:

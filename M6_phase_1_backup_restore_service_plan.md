@@ -270,7 +270,7 @@ Items are ordered by recommended implementation sequence.
 | 1 | Formalize S3 conventions & update docs | Decide & document exact S3 bucket naming + key patterns for DB backups. Must use **separate buckets** from CICD artifacts (use the new `sslv-prod-m6-cicd-files` / `sslv-staging-m6-cicd-files`). Align with raw-report paths. Update `M6_MVP_problem_list.md`, `CLAUDE.md`, `M6_phase_1_backup_restore_service_plan.md`. All 14 buckets (12 per-city + 2 CICD) have been created. | Low | High | 1 (Foundation) | Use prior M6 decisions + explicit "no CICD bucket reuse" constraint. Get sign-off on bucket strategy. |
 | 2 | Create robust city-aware backup script | ✅ Done - `scripts/backup_db_city.sh` supports --city/--all, config parsing, docker exec pg_dump + gzip + aws s3 cp to per-city bucket, error handling & logging. | Medium | High | 2 (Core) | Done |
 | 3 | Create city-aware restore / injection script | ✅ Done - `scripts/restore_db_city.sh` with --date / latest, --prepare-init mode, running psql restore. | Medium | High | 3 (Core) | Done |
-| 4 | Add scheduling / daily automation | Implement as **dedicated Docker container** (`{city}-backup-1`). Cron + backup logic run inside the container (revive `src/backup-svc`). Add as service in `docker-compose.yml`. Per-city via `--project-name`. Host scripts only for manual/one-off. | Low-Medium | High | 4 | Core requirement: inside container, not on EC2 host. |
+| 4 | Add scheduling / daily automation | ✅ Done - Dedicated `{city}-backup-1` container added to docker-compose.yml (build: ./src/backup-svc with Dockerfile + internal cron + backup.py). Per-city via project name. Host scripts only for manual use. Revived backup-svc pattern. | Low-Medium | High | 4 | Done |
 | 5 | Update supporting scripts & Makefile | Make `get_last_s3_file.sh`, `src/db/get_last_db_backup.py`, `fetch_dump` city-aware (add `--city` / read cities.yaml). Add Makefile targets: `make backup-city CITY=ogre`, `make restore-city CITY=ogre`, `make backup-all`. | Medium | Medium | 5 | Improves usability. |
 | 6 | Light integration & safety in deploy tooling | Do **not** auto-restore in `deploy-multi-city-ws.sh`. Instead: add clear comments + a non-fatal pre-deploy check (e.g. "Last known backup age for city X"). Improve logging when cities are deployed. Update `deploy-multi-city-ws.sh` help / README section. | Low | Medium | 5-6 | Respect the explicit constraint. |
 | 7 | Retention, compression, and cleanup policy | Implement in backup script: gzip (already), S3 lifecycle (already partially in Makefile `create_s3_bucket`), optional local cleanup. Add a "keep last N" or date-based prune option (script or bucket policy). | Low-Medium | Medium | 6 | Reduces storage cost and noise. |
@@ -307,10 +307,10 @@ Items are ordered by recommended implementation sequence.
 ## 6. Deliverables per Phase
 
 - `scripts/backup_db_city.sh` and `restore_db_city.sh` (usable manually or copied into the backup container)
-- Dedicated `{city}-backup-1` container (Dockerfile + internal cron) as the primary scheduled backup service
-- Added as a service in `docker-compose.yml` (multi-city aware via project name)
-- Host scripts (`add_cron.sh`, etc.) only for manual / one-off use
-- `src/backup-svc` revived and adapted (or equivalent backup service added to compose)
+- ✅ Dedicated `{city}-backup-1` container implemented (src/backup-svc/ with Dockerfile, cron, backup.py)
+- Added as service in docker-compose.yml (multi-city aware)
+- Host scripts kept for manual use only
+- `src/backup-svc` revived and integrated (containerized scheduling)
 - Updated documentation with exact commands for manual injection around `deploy-multi-city-ws.sh`
 - Makefile helpers
 - All 12 per-city S3 buckets created (6 cities × `db-backups` + `scraped-data`) using the approved naming convention
@@ -324,7 +324,7 @@ Items are ordered by recommended implementation sequence.
 
 1. Review & agree on this plan (especially the updated scheduling requirement: **inside Docker container**, not host cron on EC2).
 2. Implement in small PRs on `dev-1.6.1` (item #1 done; items 2-3 scripts ready; item 4 = containerized backup service).
-3. Create/revive the dedicated backup container (Dockerfile + cron + backup logic) and integrate it into `docker-compose.yml` (per-city via `--project-name`).
+3. ✅ Dedicated backup container implemented and integrated (src/backup-svc + docker-compose service).
 4. Test end-to-end on a non-prod city first.
 5. Update `M6_MVP_problem_list.md` with status (mark related risks as mitigated once done).
 
