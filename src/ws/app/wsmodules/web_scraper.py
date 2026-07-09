@@ -42,6 +42,8 @@ from bs4 import BeautifulSoup
 from requests.exceptions import ConnectionError, Timeout
 
 # Optional: runtime city config loader (Phase 4 Item 12)
+# Note on Item 13: Cloud Lambda scraper parity (full pages) should be verified
+# separately; this local path now handles dynamic pages fully.
 try:
     from .city_config import get_display_name, validate_city_slug, get_city_info
 except Exception:
