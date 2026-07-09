@@ -106,7 +106,8 @@ if [ -f "scripts/load_secrets.sh" ]; then
 fi
 
 # Optional: allow overriding the cicd files bucket
-CICD_FILES_BUCKET=${CICD_FILES_BUCKET:-sslv-ws-m5-cicd-files}
+# For M6 staging deployments, default to the dedicated staging CICD bucket
+CICD_FILES_BUCKET=${CICD_FILES_BUCKET:-sslv-staging-m6-cicd-files}
 
 # Ensure database.ini is present in the ws build context.
 # src/ws/Dockerfile does: COPY database.ini /
