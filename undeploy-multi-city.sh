@@ -43,15 +43,21 @@ parse_cities() {
         return 1
     fi
 
-    # Pure bash parser for this simple YAML structure (2-space indent)
+    # Awk parser for the simple "cities:\n  cityname:\n    ..." YAML.
+    # IMPORTANT: We copy the line into a variable instead of modifying $1/$0.
+    # Modifying awk fields causes it to rebuild $0 (using OFS), which
+    # can falsely trigger the "stop on next top-level key" rule on the
+    # very first city (the root cause of "only 1 city found").
     awk '
         /^cities:/ { in_cities=1; next }
         in_cities && /^[[:space:]]{2}[a-zA-Z0-9_]+:/ {
-            gsub(/:/, "", $1)
-            gsub(/^[[:space:]]+/, "", $1)
-            print $1
+            city = $0
+            gsub(/^[[:space:]]+/, "", city)
+            sub(/:.*/, "", city)
+            if (city != "") print city
         }
-        in_cities && /^[a-zA-Z_]/ && !/^cities:/ { exit }
+        # Stop when we hit a new top-level key (line does not start with whitespace)
+        in_cities && /^[^[:space:]][a-zA-Z_]/ && !/^cities:/ { exit }
     ' "$yaml_file"
 }
 
