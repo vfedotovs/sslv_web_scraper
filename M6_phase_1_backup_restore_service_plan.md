@@ -64,7 +64,7 @@ The commit introduced a new `src/backup-svc/` prototype:
 - Postgres runs as plain `postgres:15` container (not RDS for now).
 
 **Recommended High-Level Design**
-- **Primary implementation**: Host-level (or single helper container) scripts driven by `config/cities.yaml`.
+- **Primary implementation**: The backup/restore logic runs **inside the dedicated backup container** (for scheduled runs) or manually from the host.
   - `scripts/backup_db_city.sh --city <slug>` (or `--all`)
   - `scripts/restore_db_city.sh --city <slug> [--date YYYY_MM_DD]`
 - Container name convention: `{city}-db-1`
@@ -72,8 +72,59 @@ The commit introduced a new `src/backup-svc/` prototype:
   - **Dedicated buckets per city per purpose** (strongly recommended). All 12 per-city buckets + 2 M6 CICD buckets have been created in eu-west-1 with public access fully blocked.
   - **Do not use** the legacy CICD bucket `sslv-ws-m5-cicd-files`, or the new M6 CICD buckets (`sslv-prod-m6-cicd-files`, `sslv-staging-m6-cicd-files`), for application data (or any buckets referenced by the `s3_db_backups` secret when those are tied to CICD artifact loading in main).
   - See "Proposed AWS S3 Bucket Naming Convention" and "Actual Buckets Created for M6 Phase 1" sections below for the exact list and scalable pattern.
-- Scheduling: Simple cron on the deployment host that calls the backup script for all cities (or one per city).
-- The reviewed `backup-svc` idea can be revisited later as an optional per-city sidecar (adds container overhead).
+- Scheduling: Implemented via a dedicated backup container (see "Containerized DB Backup Service" section below). The container includes cron + backup logic and has direct access to `{city}-db-1`.
+- The reviewed `backup-svc` idea (Dockerfile + cron) will be revived/adapted as the dedicated `{city}-backup-1` service.
+
+## Containerized DB Backup Service (Dedicated Docker Container)
+
+**Yes — the DB backup service (including scheduling) is explicitly planned to run as a dedicated Docker container**, not as a host-level cron job on the EC2 instance.
+
+### Why a Dedicated Container?
+- Matches the updated requirement: "scheduling must be triggered inside docker container".
+- Provides isolation per city (via `--project-name`).
+- Allows the backup process to have direct, reliable network access to the city's `db` service.
+- Reuses the pattern from the reviewed commit (`src/backup-svc` with its own `Dockerfile` + internal `cron`).
+- Keeps the host clean — the EC2 only runs the main multi-city services.
+
+### Architecture
+For each city (using `docker compose --project-name <city>`):
+
+```
+[city project]
+├── {city}-db-1          (postgres:15)
+├── {city}-ws-1          (web scraper)
+├── {city}-ts-1          (task scheduler)
+└── {city}-backup-1      ← NEW: dedicated backup container
+    ├── cron (inside container)
+    ├── backup logic (adapted from backup_db_city.sh)
+    └── direct access to {city}-db-1 network
+```
+
+The backup container:
+- Runs its own cron (e.g. daily at 02:00).
+- Executes the backup (pg_dump → gzip → S3 upload to the city's `*-db-backups` bucket).
+- Can be included in the main `docker-compose.yml` (as an optional service) or deployed via the same `deploy-multi-city-ws.sh` pattern.
+
+### Implementation Approach
+1. Revive / adapt `src/backup-svc/`:
+   - Use the existing `Dockerfile` (python + postgresql-client + cron).
+   - Add the city-aware backup logic (from `scripts/backup_db_city.sh` or a container-optimized version).
+   - Configure cron inside the container (via `cronfile` or entrypoint).
+2. Make it multi-city aware:
+   - Accept `CITY` / `ENV` env vars.
+   - Derive container name `{CITY}-db-1`.
+   - Derive S3 bucket: `sslv-{ENV}-{CITY}-db-backups`.
+3. Integration:
+   - Add `backup` service to `docker-compose.yml` (with `depends_on: db`).
+   - Deploy it together with the city using the existing multi-city deploy script (or a small extension).
+4. Manual fallback:
+   - The host scripts (`backup_db_city.sh`, `restore_db_city.sh`) remain available for one-off runs from the EC2 shell.
+
+### Benefits vs Host Cron
+- Consistent with "inside Docker" requirement.
+- Easier to version, log, and monitor the backup process.
+- Can share the same network/credentials as the city services.
+- Scales naturally with the per-city compose projects.
 
 ---
 
@@ -204,6 +255,7 @@ These CICD buckets are used by `deploy-multi-city-ws.sh` (via `CICD_FILES_BUCKET
   - `make tag_existing_bucket BUCKET_NAME=sslv-prod-xxx-db-backups` (or M6_ vars) – reapplies correct M6 tags.
   - `make check_m6_bucket BUCKET_NAME=...` – verifies public access block, versioning, location, and lifecycle.
   - `make create_all_m6_buckets ENV=prod` – bulk-create all 12 buckets for an environment (use with caution).
+- **Scheduling note**: The DB backup service (including cron) is implemented as a dedicated Docker container (`{city}-backup-1`). See the new "Containerized DB Backup Service" section above. Host scripts are only for manual/one-off use.
 
 ---
 
@@ -218,7 +270,7 @@ Items are ordered by recommended implementation sequence.
 | 1 | Formalize S3 conventions & update docs | Decide & document exact S3 bucket naming + key patterns for DB backups. Must use **separate buckets** from CICD artifacts (use the new `sslv-prod-m6-cicd-files` / `sslv-staging-m6-cicd-files`). Align with raw-report paths. Update `M6_MVP_problem_list.md`, `CLAUDE.md`, `M6_phase_1_backup_restore_service_plan.md`. All 14 buckets (12 per-city + 2 CICD) have been created. | Low | High | 1 (Foundation) | Use prior M6 decisions + explicit "no CICD bucket reuse" constraint. Get sign-off on bucket strategy. |
 | 2 | Create robust city-aware backup script | ✅ Done - `scripts/backup_db_city.sh` supports --city/--all, config parsing, docker exec pg_dump + gzip + aws s3 cp to per-city bucket, error handling & logging. | Medium | High | 2 (Core) | Done |
 | 3 | Create city-aware restore / injection script | ✅ Done - `scripts/restore_db_city.sh` with --date / latest, --prepare-init mode, running psql restore. | Medium | High | 3 (Core) | Done |
-| 4 | Add scheduling / daily automation | ✅ Done - Updated `scripts/add_cron.sh` with M6 support for daily backup cron. | Low-Medium | High | 4 | Done |
+| 4 | Add scheduling / daily automation | Implement as **dedicated Docker container** (`{city}-backup-1`). Cron + backup logic run inside the container (revive `src/backup-svc`). Add as service in `docker-compose.yml`. Per-city via `--project-name`. Host scripts only for manual/one-off. | Low-Medium | High | 4 | Core requirement: inside container, not on EC2 host. |
 | 5 | Update supporting scripts & Makefile | Make `get_last_s3_file.sh`, `src/db/get_last_db_backup.py`, `fetch_dump` city-aware (add `--city` / read cities.yaml). Add Makefile targets: `make backup-city CITY=ogre`, `make restore-city CITY=ogre`, `make backup-all`. | Medium | Medium | 5 | Improves usability. |
 | 6 | Light integration & safety in deploy tooling | Do **not** auto-restore in `deploy-multi-city-ws.sh`. Instead: add clear comments + a non-fatal pre-deploy check (e.g. "Last known backup age for city X"). Improve logging when cities are deployed. Update `deploy-multi-city-ws.sh` help / README section. | Low | Medium | 5-6 | Respect the explicit constraint. |
 | 7 | Retention, compression, and cleanup policy | Implement in backup script: gzip (already), S3 lifecycle (already partially in Makefile `create_s3_bucket`), optional local cleanup. Add a "keep last N" or date-based prune option (script or bucket policy). | Low-Medium | Medium | 6 | Reduces storage cost and noise. |
@@ -254,9 +306,11 @@ Items are ordered by recommended implementation sequence.
 
 ## 6. Deliverables per Phase
 
-- Working `scripts/backup_db_city.sh` (supports --city/--all) and `restore_db_city.sh`
-- `scripts/add_cron.sh` helper for installing daily backup cron
-- Cron support added (daily 2am backup example)
+- `scripts/backup_db_city.sh` and `restore_db_city.sh` (usable manually or copied into the backup container)
+- Dedicated `{city}-backup-1` container (Dockerfile + internal cron) as the primary scheduled backup service
+- Added as a service in `docker-compose.yml` (multi-city aware via project name)
+- Host scripts (`add_cron.sh`, etc.) only for manual / one-off use
+- `src/backup-svc` revived and adapted (or equivalent backup service added to compose)
 - Updated documentation with exact commands for manual injection around `deploy-multi-city-ws.sh`
 - Makefile helpers
 - All 12 per-city S3 buckets created (6 cities × `db-backups` + `scraped-data`) using the approved naming convention
@@ -268,9 +322,10 @@ Items are ordered by recommended implementation sequence.
 
 ## 7. Next Steps After This Plan
 
-1. Review & agree on this plan (especially the new S3 bucket naming convention that avoids all CICD buckets, and the "manual step" boundary).
-2. Implement in small PRs on `dev-1.6.1` (start with item #1 and #2).
-3. Test end-to-end on a non-prod city first.
-4. Update `M6_MVP_problem_list.md` with status (mark related risks as mitigated once done).
+1. Review & agree on this plan (especially the updated scheduling requirement: **inside Docker container**, not host cron on EC2).
+2. Implement in small PRs on `dev-1.6.1` (item #1 done; items 2-3 scripts ready; item 4 = containerized backup service).
+3. Create/revive the dedicated backup container (Dockerfile + cron + backup logic) and integrate it into `docker-compose.yml` (per-city via `--project-name`).
+4. Test end-to-end on a non-prod city first.
+5. Update `M6_MVP_problem_list.md` with status (mark related risks as mitigated once done).
 
 This plan directly addresses the reviewed incomplete backup-svc commit while respecting the multi-city architecture and the critical constraint around `deploy-multi-city-ws.sh`.
