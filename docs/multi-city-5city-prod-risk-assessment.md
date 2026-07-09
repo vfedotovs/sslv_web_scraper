@@ -68,6 +68,12 @@
   - Simulate restore: use get_last for each city, confirm correct backup downloaded for that city's DB container.
   - Check logs in dbworker/file_downloader for correct bucket per city.
 
+**Daily DB Backup & Manual Restore Flow for Multi-City (M6)**
+- Backup scheduled inside dedicated `{city}-backup-1` container (cron, not host).
+- Manual restore: `./scripts/restore_db_city.sh --city <city> [--date YYYY_MM_DD] [--prepare-init]`
+- For redeploy new code without data loss: restore first if needed, then deploy.
+- Troubleshooting: failed pg_dump (check password/container), wrong city (verify .env and bucket), permission (AWS creds/IAM). See M6_phase_1_backup_restore_service_plan.md for full details.
+
 ### 5. Resource contention on single host (5 DB + 5 WS + 5 TS containers)
 - **Description:** All on one machine. 5 Postgres + heavy scraping + scheduling compete for CPU, RAM, disk I/O.
 - **Likelihood:** High (especially during simultaneous scrapes).

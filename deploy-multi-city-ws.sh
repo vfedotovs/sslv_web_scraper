@@ -150,16 +150,57 @@ SUCCESS_COUNT=0
 FAIL_COUNT=0
 FAILED_CITIES=()
 
+# Pre-deploy safety check for backup age (non-fatal warning only)
+# Note: Restore is manual. Use scripts/restore_db_city.sh if needed.
+check_backup_age() {
+    local city="$1"
+    local env="${M6_ENV:-prod}"
+    local city_slug="${city//_/-}"
+    local bucket="sslv-${env}-${city_slug}-db-backups"
+    
+    local latest=$(aws s3 ls "s3://${bucket}/db-backups/" --recursive 2>/dev/null | sort | tail -1 | awk '{print $1}')
+    if [ -z "$latest" ]; then
+        log_warn "[LOW BACKUP] No backup found for $city in $bucket"
+        return
+    fi
+    
+    # Extract date from path like db-backups/2026/07/09/...
+    local bdate=$(echo "$latest" | cut -d/ -f1-3 | tr / _ )
+    if [ -z "$bdate" ]; then
+        log_warn "[LOW BACKUP] Could not parse backup date for $city"
+        return
+    fi
+    
+    local bepoch=$(date -j -f "%Y_%m_%d" "$bdate" +%s 2>/dev/null || date -d "${bdate//_/-}" +%s 2>/dev/null || echo 0)
+    local now=$(date +%s)
+    local age=$(( (now - bepoch) / 86400 ))
+    
+    if [ $age -gt 30 ]; then
+        log_warn "[LOW BACKUP AGE] Last backup for $city is $age days old"
+    else
+        log_info "Last backup for $city is $age days old"
+    fi
+}
+
 for city in "${CITIES[@]}"; do
     env_file=".env.${city}"
     
     log_info "Starting deployment for city: $city"
+    
+    # IMPORTANT: DB restore is MANUAL only. Do not auto-restore on deploy.
+    # Use ./scripts/restore_db_city.sh --city $city if needed (e.g. after volume wipe with down -v).
+    # See "Daily DB Backup & Manual Restore Flow for Multi-City" in README.
+    
+    log_info "Checking backup age for $city (non-fatal pre-deploy check)..."
+    check_backup_age "$city"
     
     if ! ensure_env_file "$city"; then
         FAIL_COUNT=$((FAIL_COUNT + 1))
         FAILED_CITIES+=("$city")
         continue
     fi
+    
+    log_info "Environment prepared for $city. Deploying with compose..."
     
     # Build env-file args: use .env.prod (common secrets, POSTGRES_PASSWORD, AWS keys, etc.)
     # as base when present, then city-specific file (provides/overrides CITY_MAIN_URL etc.).

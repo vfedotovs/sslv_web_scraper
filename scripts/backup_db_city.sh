@@ -164,6 +164,16 @@ backup_city() {
     log_info "Uploading to s3://${bucket}/${key} ..."
     if aws s3 cp "$gzip_file" "s3://${bucket}/${key}" --quiet; then
         log_info "Successfully uploaded backup for $city"
+        
+        # Retention: keep last 5 backups in S3 (prune older ones)
+        local keep_last=5
+        aws s3 ls "s3://${bucket}/db-backups/" --recursive | sort | head -n -${keep_last} | awk '{print $4}' | while read -r old_key; do
+            if [ -n "$old_key" ]; then
+                aws s3 rm "s3://${bucket}/${old_key}" --quiet
+                log_info "Pruned old backup key: $old_key (kept last $keep_last)"
+            fi
+        done
+        
         # Clean up local
         rm -f "$gzip_file"
         return 0

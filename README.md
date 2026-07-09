@@ -56,6 +56,32 @@ clean                removes setup and DB files and folders
 lt                   Lists tables sizes in postgres docker allows to test if DB dump was restored correctly
 ```
 
+## Daily DB Backup & Manual Restore Flow for Multi-City (M6)
+
+**Important:** Restore is **manual only**. `deploy-multi-city-ws.sh` does **not** auto-restore DBs.
+
+### Backup (Automated)
+- Scheduled inside dedicated `{city}-backup-1` container (cron at 02:00 UTC).
+- Per-city bucket: `sslv-prod-{city}-db-backups`
+- Key: `db-backups/YYYY/MM/DD/pg_backup_....sql.gz`
+- Script: `./scripts/backup_db_city.sh --all --env prod`
+- Install cron on EC2: `./scripts/add_cron.sh --env prod`
+
+### Manual Restore
+- Use `./scripts/restore_db_city.sh --city <city> [--date YYYY_MM_DD] [--prepare-init]`
+- `--prepare-init`: copies to `src/db/` for fresh volume init on next deploy.
+- Normal mode: pipes to running `psql` in the DB container.
+- Example for redeploy without losing data:
+  1. `./scripts/restore_db_city.sh --city ogre --date 2026_07_08`
+  2. `docker compose --project-name ogre --env-file .env.ogre up -d`
+
+### Troubleshooting
+- Failed pg_dump: check POSTGRES_PASSWORD in .env.city, container running.
+- Wrong city: verify CITY in .env and bucket name.
+- Permission errors: ensure AWS creds in env or IAM role on EC2.
+
+See `M6_phase_1_backup_restore_service_plan.md` for full details.
+
 
 ## Currently available features
 - [x] Scrape ss.lv website to extract advert data from Ogre city apartments for sale section

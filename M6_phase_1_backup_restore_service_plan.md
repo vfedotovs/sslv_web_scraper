@@ -272,9 +272,9 @@ Items are ordered by recommended implementation sequence.
 | 3 | Create city-aware restore / injection script | ✅ Done - `scripts/restore_db_city.sh` with --date / latest, --prepare-init mode, running psql restore. | Medium | High | 3 (Core) | Done |
 | 4 | Add scheduling / daily automation | ✅ Done - Dedicated `{city}-backup-1` container added to docker-compose.yml (build: ./src/backup-svc with Dockerfile + internal cron + backup.py). Per-city via project name. Host scripts only for manual use. Revived backup-svc pattern. | Low-Medium | High | 4 | Done |
 | 5 | Update supporting scripts & Makefile | ✅ Done - Made get_last_s3_file.sh and get_last_db_backup.py city-aware (--city/--all/--env, reads cities.yaml or .env). Updated fetch_dump. Added Makefile targets: backup-city, restore-city, backup-all, restore-all, etc. | Medium | Medium | 5 | Done |
-| 6 | Light integration & safety in deploy tooling | Do **not** auto-restore in `deploy-multi-city-ws.sh`. Instead: add clear comments + a non-fatal pre-deploy check (e.g. "Last known backup age for city X"). Improve logging when cities are deployed. Update `deploy-multi-city-ws.sh` help / README section. | Low | Medium | 5-6 | Respect the explicit constraint. |
-| 7 | Retention, compression, and cleanup policy | Implement in backup script: gzip (already), S3 lifecycle (already partially in Makefile `create_s3_bucket`), optional local cleanup. Add a "keep last N" or date-based prune option (script or bucket policy). | Low-Medium | Medium | 6 | Reduces storage cost and noise. |
-| 8 | Documentation & operational runbooks | Update CLAUDE.md, README, `docs/multi-city-5city-prod-risk-assessment.md`. Add section: "Daily DB Backup & Manual Restore Flow for Multi-City". Include example commands for "redeploy new ws code without losing data". Add troubleshooting (failed pg_dump, wrong city, permission errors). | Low | High | 6-7 | Critical for team / future operators. |
+| 6 | Light integration & safety in deploy tooling | ✅ Done - Added comments (no auto-restore), non-fatal pre-deploy backup age check, improved logging in deploy-multi-city-ws.sh. Updated README with flow section. | Low | Medium | 5-6 | Done |
+| 7 | Retention, compression, and cleanup policy | ✅ Done - Added S3 prune keep-last-5 in backup_db_city.sh. Gzip present. S3 lifecycle in Makefile. | Low-Medium | Medium | 6 | Done |
+| 8 | Documentation & operational runbooks | ✅ Done - Updated CLAUDE.md, README, docs/multi-city-5city-prod-risk-assessment.md with "Daily DB Backup & Manual Restore Flow for Multi-City", examples, troubleshooting. | Low | High | 6-7 | Done |
 | 9 | Basic verification & health of backups | After backup, optionally verify (e.g. check file size > threshold, or `aws s3 ls`). Add a "test-restore" dry-run mode or separate verification step (list tables after sample restore to temp DB). | Medium | High | 7 | Prevents silent backup failures. |
 | 10 | Optional: Revive & improve backup-svc (future) | Using ideas from reviewed commit (Dockerfile with cron + client). Make it city-aware or runnable per compose project. Consider Docker Compose profiles or a separate per-city override file. Defer until script-based solution is proven. | High | Medium | 8+ (Optional) | Adds containerization of the backup process but increases resource use per city. |
 | 11 | Testing, CI, and migration | Add basic tests (mocked) for backup/restore scripts. Document migration steps from current 3-city to 5+ (one city at a time). End-to-end test: backup one city → simulate volume loss → manual restore → verify data. | Medium-High | High | Parallel / after core | Include in future PRs. |
@@ -286,7 +286,7 @@ Items are ordered by recommended implementation sequence.
 1 (done) → 2 (done) → 3 (done) → 4 (done)
 
 **Phase 2 (Usability & deploy safety)**
-5 → 6 → 7 → 8
+5 (done) → 6 (done) → 7 (done) → 8 (done)
 
 **Phase 3 (Confidence & optional advanced)**
 9 → 11 → 10 (optional) → 12
@@ -306,25 +306,22 @@ Items are ordered by recommended implementation sequence.
 
 ## 6. Deliverables per Phase
 
-- `scripts/backup_db_city.sh` and `restore_db_city.sh` (usable manually or copied into the backup container)
-- ✅ Dedicated `{city}-backup-1` container implemented (src/backup-svc/ with Dockerfile, cron, backup.py)
-- Added as service in docker-compose.yml (multi-city aware)
-- Host scripts kept for manual use only
-- `src/backup-svc` revived and integrated (containerized scheduling)
-- Updated documentation with exact commands for manual injection around `deploy-multi-city-ws.sh`
+- ✅ `scripts/backup_db_city.sh` and `restore_db_city.sh` (manual or inside container)
+- ✅ Dedicated `{city}-backup-1` container (src/backup-svc + docker-compose)
+- ✅ Pre-deploy safety check, improved logging in deploy script (item 6)
+- ✅ Retention/prune in backup script (item 7)
+- ✅ Full docs with flow, examples, troubleshooting (item 8)
 - Makefile helpers
-- All 12 per-city S3 buckets created (6 cities × `db-backups` + `scraped-data`) using the approved naming convention
-- 2 dedicated M6 CICD buckets created (`sslv-prod-m6-cicd-files`, `sslv-staging-m6-cicd-files`) for deployment secrets
-- All 14 buckets have public access fully blocked and are ready for use
-- Per-city S3 paths verified inside the new buckets
+- All 14 buckets ready (public blocked)
+- Host scripts for manual only
 
 ---
 
 ## 7. Next Steps After This Plan
 
 1. Review & agree on this plan (especially the updated scheduling requirement: **inside Docker container**, not host cron on EC2).
-2. Implement in small PRs on `dev-1.6.1` (item #1 done; items 2-3 scripts ready; item 4 = containerized backup service).
-3. ✅ Dedicated backup container implemented and integrated (src/backup-svc + docker-compose service).
+2. Implement in small PRs on `dev-1.6.1` (items 1-5 + 6,7,8 completed).
+3. Items 6,7,8 done in parallel: deploy safety checks/logging, retention/prune in backup, full multi-city backup/restore docs.
 4. Test end-to-end on a non-prod city first.
 5. Update `M6_MVP_problem_list.md` with status (mark related risks as mitigated once done).
 

@@ -243,6 +243,16 @@ Database credentials (production):
 - **Lifecycle:** 90-day retention recommended on db-backups buckets
 - **Important:** Never use CICD buckets for DB backups or scraped data.
 
+### Daily DB Backup & Manual Restore Flow for Multi-City (M6)
+- Scheduled inside dedicated `{city}-backup-1` Docker container (internal cron at 02:00).
+- Per-city S3: `sslv-prod-{city}-db-backups`
+- Manual restore: `./scripts/restore_db_city.sh --city <city> [--date YYYY_MM_DD] [--prepare-init]`
+- For redeploy: restore first if volume was wiped, then deploy.
+- Troubleshooting:
+  - pg_dump fail: check POSTGRES_PASSWORD, container health.
+  - Wrong city data: verify per-city .env and S3_BUCKET.
+  - Permission: AWS IAM or creds in env.
+
 ### File Patterns
 - DB backups: `pg_backup_YYYY_MM_DD.sql`
 - Raw scraped data: `{City}-raw-data-report-YYYY-MM-DD.txt`
