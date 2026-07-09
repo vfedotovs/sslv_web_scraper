@@ -30,21 +30,25 @@ echo "All cilty web scraper container instances deployed successfully..."
 - No resource limits
 - Ports mostly commented out (good for multi-city to avoid conflicts)
 
-**S3 Buckets for DB injection and backup (confirmed via `gh search code` + CLAUDE.md + scripts):**
+**S3 Buckets (M6 Phase 1 - formalized in M6_phase_1_backup_restore_service_plan.md):**
 
-- **DB backups** (pg_dump files for restore/injection):
-  - Loaded via `S3_BUCKET` from AWS Secrets Manager secret `sslv_creds` → key `s3_db_backups`
-  - **Decision**: One bucket per city (e.g. `sslv-prod-ogre-scraped-data`, `sslv-prod-sigulda-scraped-data`, etc.).
-  - Scripts: `scripts/get_last_s3_file.sh`, `scripts/load_secrets*.sh`, `src/db/get_last_db_backup.py`, `scripts/backup_pg_container_db.sh`, `scripts/upload_backup_to_s3.sh` will be updated to use per-city buckets.
+- **CICD / Deployment files (secrets, .env.*, database.ini):**
+  - `sslv-staging-m6-cicd-files`
+  - `sslv-prod-m6-cicd-files`
+  - **Important:** These must **never** be used for DB backups or scraped data.
 
-- **Lambda scraped data** (file injection for ws):
-  - Currently **hardcoded** in `src/ws/app/wsmodules/file_downloader.py`: `S3_LAMBDA_BUCKET_NAME = "lambda-ogre-scraped-data"`
-  - Roadmap mentions `sslv-prod-lambda-data` / `sslv-staging-lambda-data` (per-env)
-  - In multi-city this is a major gap — only ogre data will be downloaded unless fixed per-city.
-  - **Decision**: When using per-city buckets, each city will have its own dedicated bucket for scraped data (e.g. `sslv-prod-{city}-scraped-data`). Lambda (when implemented later) will use the city-specific bucket.
+- **Per-city application data (DB backups + raw scraped reports):**
+  - Format (approved): `sslv-{env}-{city-slug}-{purpose}`
+  - Cities (from config/cities.yaml): salaspils, sigulda, marupes-pag, adazu-nov, ogre, jurmala
+  - Purposes: `db-backups`, `scraped-data`
+  - All 12 production buckets have been created (eu-west-1, public access fully blocked).
+  - Object keys:
+    - DB: `db-backups/{YYYY}/{MM}/{DD}/pg_backup_{...}.sql.gz`
+    - Reports: `scraped-data/{YYYY-MM-DD}/raw-report.txt`
+  - **Decision (confirmed):** Dedicated bucket per city per purpose for strong isolation. No sharing with CICD buckets.
 
-- In multi-city: `.env.$city` will export its own `S3_BUCKET` (dedicated bucket per city).
-- CI/CD and setup will need to support per-city buckets.
+- Scripts (`backup_db_city.sh`, `restore_db_city.sh`, etc.) and `.env.{city}` must reference the correct per-city bucket.
+- See `M6_phase_1_backup_restore_service_plan.md` for full naming details and "Actual Buckets Created" list.
 
 **Current multi-city approach:** Separate Docker Compose projects per city for isolation. Works for MVP (3 cities) + URL limit in scraper.
 

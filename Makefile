@@ -253,6 +253,22 @@ clean:  ## removes setup and DB files and folders
 BUCKET_NAME ?= sslv-ogre-city-dev-v1-6-db-backups-2025-11
 AWS_REGION ?= us-east-1
 
+# M6 multi-city bucket helpers (recommended for new buckets)
+# Usage: make create_m6_bucket CITY=salaspils ENV=prod PURPOSE=db-backups
+#   or:  make create_m6_bucket CITY=salaspils ENV=staging PURPOSE=scraped-data
+M6_ENV ?= prod
+M6_CITY ?= 
+M6_PURPOSE ?= db-backups
+M6_BUCKET_NAME = sslv-$(M6_ENV)-$(M6_CITY)-$(M6_PURPOSE)
+
+# List of cities and purposes for M6 (derived from config/cities.yaml + plan)
+M6_CITIES ?= salaspils sigulda marupes-pag adazu-nov ogre jurmala
+M6_PURPOSES ?= db-backups scraped-data
+M6_ENVS ?= prod staging dev
+
+create_m6_bucket: ## creates M6-style per-city bucket using M6_ENV, M6_CITY, M6_PURPOSE (e.g. make create_m6_bucket CITY=salaspils ENV=prod PURPOSE=db-backups)
+	$(MAKE) create_s3_bucket BUCKET_NAME=sslv-$(M6_ENV)-$(M6_CITY)-$(M6_PURPOSE) AWS_REGION=$(AWS_REGION) M6_ENV=$(M6_ENV) M6_CITY=$(M6_CITY) M6_PURPOSE=$(M6_PURPOSE)
+
 create_s3_bucket:  ## creates new S3 bucket for DB backups (use BUCKET_NAME= and AWS_REGION= to override)
 	@printf "$(call log_step,Creating S3 bucket: $(BUCKET_NAME) in region $(AWS_REGION)...)\n"
 	@if aws s3 ls s3://$(BUCKET_NAME) 2>/dev/null; then \
@@ -312,10 +328,11 @@ create_s3_bucket:  ## creates new S3 bucket for DB backups (use BUCKET_NAME= and
 	@aws s3api put-bucket-tagging \
 		--bucket $(BUCKET_NAME) \
 		--tagging 'TagSet=[ \
-			{Key=Project,Value=ogre-city}, \
-			{Key=Environment,Value=dev}, \
+			{Key=Project,Value=sslv}, \
+			{Key=Environment,Value=$(M6_ENV)}, \
+			{Key=City,Value=$(M6_CITY)}, \
 			{Key=Version,Value=1.6}, \
-			{Key=Purpose,Value=db-backups}, \
+			{Key=Purpose,Value=$(M6_PURPOSE)}, \
 			{Key=CreatedDate,Value=$(shell date +%Y-%m-%d)} \
 		]' || { \
 		printf "$(call log_error,Failed to add tags)\n"; \
@@ -329,6 +346,73 @@ create_s3_bucket:  ## creates new S3 bucket for DB backups (use BUCKET_NAME= and
 	@printf "  - Public Access: Blocked\n"
 	@printf "  - Versioning: Enabled\n"
 	@printf "  - Lifecycle: Delete after 90 days\n"
+
+list_m6_buckets: ## prints all expected M6 bucket names (from M6_ENVS x M6_CITIES x M6_PURPOSES)
+	@echo "Expected M6 buckets:"
+	@for env in $(M6_ENVS); do \
+		for city in $(M6_CITIES); do \
+			for purpose in $(M6_PURPOSES); do \
+				echo "  sslv-$$env-$$city-$$purpose"; \
+			done; \
+		done; \
+	done
+
+list_existing_m6_buckets: ## lists buckets in AWS that match the M6 naming pattern
+	@echo "Existing buckets matching M6 pattern (sslv-{env}-{city}-{purpose}):"
+	@aws s3 ls | awk '{print $$3}' | grep -E '^sslv-(prod|staging|dev)-.*-(db-backups|scraped-data)$$' || echo "  (none found or no AWS access)"
+
+tag_existing_bucket: ## applies standard M6 tags to an existing bucket. Use BUCKET_NAME=... or M6_ENV + M6_CITY + M6_PURPOSE
+	@if [ -n "$(BUCKET_NAME)" ]; then \
+		BUCKET="$(BUCKET_NAME)"; \
+		ENV_TAG="$$(echo $$BUCKET | cut -d- -f2)"; \
+		CITY_TAG="$$(echo $$BUCKET | cut -d- -f3- | rev | cut -d- -f2- | rev)"; \
+		PURPOSE_TAG="$$(echo $$BUCKET | rev | cut -d- -f1 | rev)"; \
+	else \
+		if [ -z "$(M6_CITY)" ]; then \
+			echo "Error: provide BUCKET_NAME=... or M6_CITY=... (with M6_ENV and M6_PURPOSE)"; \
+			exit 1; \
+		fi; \
+		BUCKET="sslv-$(M6_ENV)-$(M6_CITY)-$(M6_PURPOSE)"; \
+		ENV_TAG="$(M6_ENV)"; \
+		CITY_TAG="$(M6_CITY)"; \
+		PURPOSE_TAG="$(M6_PURPOSE)"; \
+	fi; \
+	echo "Tagging bucket: $$BUCKET"; \
+	aws s3api put-bucket-tagging \
+		--bucket $$BUCKET \
+		--tagging 'TagSet=[ \
+			{Key=Project,Value=sslv}, \
+			{Key=Environment,Value='$$ENV_TAG'}, \
+			{Key=City,Value='$$CITY_TAG'}, \
+			{Key=Version,Value=1.6}, \
+			{Key=Purpose,Value='$$PURPOSE_TAG'}, \
+			{Key=CreatedDate,Value=$(shell date +%Y-%m-%d)} \
+		]' || { printf "$(call log_error,Failed to tag $$BUCKET)\n"; exit 1; }; \
+	echo "Tags applied to $$BUCKET"
+
+check_m6_bucket: ## checks configuration of a bucket (public access, versioning, etc). Use BUCKET_NAME=...
+	@if [ -z "$(BUCKET_NAME)" ]; then \
+		echo "Error: BUCKET_NAME=... is required"; \
+		exit 1; \
+	fi; \
+	echo "Checking bucket: $(BUCKET_NAME)"; \
+	echo "  Public access block:"; \
+	aws s3api get-public-access-block --bucket $(BUCKET_NAME) --query 'PublicAccessBlockConfiguration' --output text 2>/dev/null || echo "    (not set or error)"; \
+	echo "  Versioning:"; \
+	aws s3api get-bucket-versioning --bucket $(BUCKET_NAME) --query 'Status' --output text 2>/dev/null || echo "    (unknown)"; \
+	echo "  Location:"; \
+	aws s3api get-bucket-location --bucket $(BUCKET_NAME) --query 'LocationConstraint' --output text 2>/dev/null || echo "    us-east-1"; \
+	echo "  Lifecycle rules:"; \
+	aws s3api get-bucket-lifecycle-configuration --bucket $(BUCKET_NAME) --query 'Rules[0].Status' --output text 2>/dev/null || echo "    (none or error)"
+
+create_all_m6_buckets: ## creates ALL M6 buckets for ENV (default prod). WARNING: will attempt to create 12 buckets.
+	@echo "Creating all M6 buckets for ENV=$(M6_ENV) ..."
+	@for city in $(M6_CITIES); do \
+		for purpose in $(M6_PURPOSES); do \
+			$(MAKE) create_m6_bucket M6_ENV=$(M6_ENV) M6_CITY=$$city M6_PURPOSE=$$purpose || true; \
+		done; \
+	done
+	@echo "Done (some may have been skipped if already existed)."
 
 fetch_dump_example: # Example of fetch specific date DB dump file form S3 bucket
 	@echo "make fetch_dump DB_BACKUP_DATE=2022_11_05"

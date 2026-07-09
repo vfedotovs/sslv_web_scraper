@@ -193,10 +193,17 @@ These CICD buckets are used by `deploy-multi-city-ws.sh` (via `CICD_FILES_BUCKET
 ### Implementation Notes for the Plan
 
 - All 14 buckets (12 per-city + 2 M6 CICD) have already been created in eu-west-1 with public access fully blocked.
-- Item #1 (Formalize S3 conventions) should now focus on documenting the final approved naming + a small script or Makefile target to help manage the buckets (e.g. `make create_s3_bucket BUCKET_NAME=sslv-prod-xxx-db-backups` for any future cities).
+- Item #1 (Formalize S3 conventions) is implemented: naming is documented below + Makefile support added (`make create_m6_bucket CITY=xxx ENV=prod PURPOSE=db-backups` or `make create_s3_bucket BUCKET_NAME=sslv-prod-xxx-db-backups`). See updated Makefile, CLAUDE.md and M6_MVP_problem_list.md.
 - Each city's `.env.{city}` (or Secrets) should point to its own DB backup bucket (not a shared one).
 - The backup script (`backup_db_city.sh`) must construct the bucket name from city + env, or take it directly from environment.
 - Update `deploy-multi-city-ws.sh` and related scripts to default `CICD_FILES_BUCKET` to the new M6 CICD buckets (`sslv-prod-m6-cicd-files` for prod, `sslv-staging-m6-cicd-files` for staging).
+- Use `make create_m6_bucket CITY=<city> ENV=prod PURPOSE=db-backups` (or scraped-data) to create future buckets following the convention.
+- Additional helpers added to Makefile:
+  - `make list_m6_buckets` – prints all expected M6 bucket names (all envs/cities/purposes).
+  - `make list_existing_m6_buckets` – shows which M6 buckets actually exist in your AWS account.
+  - `make tag_existing_bucket BUCKET_NAME=sslv-prod-xxx-db-backups` (or M6_ vars) – reapplies correct M6 tags.
+  - `make check_m6_bucket BUCKET_NAME=...` – verifies public access block, versioning, location, and lifecycle.
+  - `make create_all_m6_buckets ENV=prod` – bulk-create all 12 buckets for an environment (use with caution).
 
 ---
 

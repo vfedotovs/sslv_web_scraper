@@ -227,11 +227,21 @@ Database credentials (production):
 
 ## Key Configuration Details
 
-### S3 Buckets
-- **CICD files:** `sslv-ws-m5-cicd-files` (contains .env.prod, database.ini)
-- **DB backups:** Pattern `{project}-{env}-{version}-db-backups-{date}`
-  - Example: `sslv-ogre-city-dev-v1-6-db-backups-2025-11`
-- **Lambda scraped data:** Downloaded to `local_lambda_raw_scraped_data/`
+### S3 Buckets (M6 Phase 1 multi-city)
+- **CICD / Deployment files (secrets, .env.*):**
+  - Staging: `sslv-staging-m6-cicd-files`
+  - Production: `sslv-prod-m6-cicd-files`
+  - (Legacy `sslv-ws-m5-cicd-files` should be phased out)
+- **Per-city application data buckets (created, eu-west-1, public access blocked):**
+  - Format: `sslv-{env}-{city}-{purpose}`
+  - Cities: salaspils, sigulda, marupes-pag, adazu-nov, ogre, jurmala
+  - Purposes: `db-backups`, `scraped-data`
+  - Example: `sslv-prod-salaspils-db-backups`, `sslv-prod-ogre-scraped-data`
+- **Object keys inside buckets:**
+  - DB backups: `db-backups/{YYYY}/{MM}/{DD}/pg_backup_{YYYY_MM_DD_HHMMSS}.sql.gz`
+  - Scraped data: `scraped-data/{YYYY-MM-DD}/raw-report.txt`
+- **Lifecycle:** 90-day retention recommended on db-backups buckets
+- **Important:** Never use CICD buckets for DB backups or scraped data.
 
 ### File Patterns
 - DB backups: `pg_backup_YYYY_MM_DD.sql`
