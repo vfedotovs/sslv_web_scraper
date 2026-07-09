@@ -3,15 +3,37 @@
 ss.lv web scraper module.
 
 Fetches apartment sale listings for a city (via CITY_MAIN_URL env or param),
-dynamically discovers the number of result pages, extracts ad data,
-and writes a raw report file for the rest of the pipeline.
+dynamically discovers the number of result pages (Phase 1 Items 2-4),
+and writes a raw report file.
+
+Phase 1 Item 5 support: can produce city-prefixed files such as
+"jurmala-raw-data-report.txt" (via city_slug or auto-derivation from URL)
+instead of the previous hard-coded "Ogre-raw-data-report.txt".
+
+See derive_city_slug(), get_total_pages(), get_page_url(), and scrape_website().
 """
+
+# --- Phase 1 Item 1: Pagination research notes ---
+# All cities in config/cities.yaml use the same pager structure:
+#   <div class=td2> ... <button class=navia>1</button> <a class="navi">2</a> ...
+#
+# Observed last page numbers (research performed 2026-07):
+#   jurmala     : 6
+#   marupes-pag : ~2
+#   ogre        : ~2
+#   sigulda     : ~1
+#   salaspils   : ~1
+#   adazu-nov   : ~1
+#
+# Non-existent pages (e.g. /page99.html) redirect to the base listing page.
+# This is why we must discover the count from page 1 instead of guessing.
 
 import re
 import os
 import sys
 import time
 from datetime import datetime
+from urllib.parse import urlparse
 import logging
 from logging import handlers
 from logging.handlers import RotatingFileHandler
@@ -44,29 +66,63 @@ logger.info("Using CITY_MAIN_URL: %s", CITY_MAIN_URL)
 # Deplay between scraping each URL 5 sec
 # (for Ogre 5 sec x 70 URLs = 350 sec or < 6 min should last )
 SCRAPE_DELAY_SEC = 5
-URL_LIMIT = 5
+
+# URL_LIMIT controls how many individual ad pages are fully scraped per run.
+# Default = 5 (safe dev default to keep runs fast).
+# Set SCRAPE_URL_LIMIT=0 (or a very high number) in env to process ALL ads.
+# This is the recommended dev toggle / config for full vs limited scraping.
+_raw_limit = os.getenv("SCRAPE_URL_LIMIT", "5")
+try:
+    URL_LIMIT = int(_raw_limit) if _raw_limit else 5
+except (ValueError, TypeError):
+    logger.warning("Invalid SCRAPE_URL_LIMIT value, falling back to 5")
+    URL_LIMIT = 5
+
+if URL_LIMIT <= 0:
+    logger.info("SCRAPE_URL_LIMIT=%s → will process ALL discovered ads", _raw_limit)
+else:
+    logger.info("SCRAPE_URL_LIMIT=%s (dev safety limit)", URL_LIMIT)
 
 # true
 SKIP_LAMBDA_FILE = True
 
 
-def scrape_website(main_url: str = None, report_file: str = "Ogre-raw-data-report.txt"):
+def scrape_website(main_url: str = None, report_file: str = None, city_slug: str = None):
     """Main function of module calls all sub-functions.
 
     Dynamically discovers the total number of pages from the ss.lv pager
     and scrapes all pages (instead of hard-coded first page only).
 
+    For Phase 1 (Item 5), this function now supports producing city-prefixed
+    working files (e.g. "jurmala-raw-data-report.txt") instead of always
+    hard-coding "Ogre-raw-data-report.txt".
+
     Args:
         main_url: Optional override for the city listing URL.
                   Falls back to CITY_MAIN_URL environment variable.
-        report_file: Name of the raw report file to write (kept for backward
-                     compatibility with existing pipeline; see plan Item 5/6).
+        report_file: Explicit name for the raw report file.
+                     If None, will be derived from city_slug or main_url.
+        city_slug: Optional explicit city identifier (e.g. "jurmala", "ogre").
+                   Takes precedence over URL derivation when report_file is None.
     """
     if main_url is None:
         main_url = CITY_MAIN_URL
 
+    # Item 5 (Phase 1): derive city-prefixed report file when not explicitly provided.
+    # We keep the legacy "Ogre-raw-data-report.txt" name for the classic Ogre URL
+    # so that the rest of the current pipeline continues to work without changes
+    # (per Phase 1 success criteria: "no change to file names outside the scraper yet").
+    if report_file is None:
+        if city_slug is None:
+            city_slug = derive_city_slug(main_url)
+        if city_slug == "ogre":
+            report_file = "Ogre-raw-data-report.txt"
+        else:
+            report_file = f"{city_slug}-raw-data-report.txt"
+
     logger.info("--- Starting web_scraper module ---")
     logger.info("Using listing URL: %s", main_url)
+    logger.info("Using report file: %s (derived city_slug=%s)", report_file, city_slug or derive_city_slug(main_url))
     logger.info("Extracting BS4 objects")
     remove_old_file(report_file)
 
@@ -105,6 +161,11 @@ def scrape_website(main_url: str = None, report_file: str = "Ogre-raw-data-repor
 
     logger.info("Found %s parsable message URLs across %s page(s)", len(valid_msg_urls), total_pages)
 
+    if URL_LIMIT > 0:
+        logger.info("Dev limit active: only first %s ads will be processed for details", URL_LIMIT)
+    else:
+        logger.info("No dev limit: processing all %s ads for details", len(valid_msg_urls))
+
     logger.info("Extracting data for city apartments for sell task")
     extract_data_from_url(valid_msg_urls, report_file)
 
@@ -115,8 +176,8 @@ def scrape_website(main_url: str = None, report_file: str = "Ogre-raw-data-repor
 
 def remove_old_file(filename: str = "Ogre-raw-data-report.txt") -> None:
     """
-    Remove the given report file in the current directory if it is older
-    than a certain number of days.
+    Remove the given report file (default legacy Ogre name for compat)
+    if it is older than a certain number of days.
     """
     days_old = 1
     file_path = os.path.join(os.getcwd(), filename)
@@ -139,10 +200,21 @@ def remove_old_file(filename: str = "Ogre-raw-data-report.txt") -> None:
 
 
 def extract_data_from_url(nondup_urls: list, dest_file: str) -> None:
-    """Iterate over all first page msg urls extract info from each url and write to file"""
-    # msg_url_count = len(nondup_urls)
-    # for i in range(msg_url_count):
-    for i in range(URL_LIMIT):
+    """Iterate over discovered ad URLs and extract details (respecting URL_LIMIT)."""
+    if not nondup_urls:
+        logger.warning("No ad URLs to process.")
+        return
+
+    # Compute how many to process. URL_LIMIT <= 0 means "all"
+    if URL_LIMIT > 0:
+        num_to_process = min(URL_LIMIT, len(nondup_urls))
+    else:
+        num_to_process = len(nondup_urls)
+
+    logger.info("Processing %s of %s discovered ads (URL_LIMIT=%s)", 
+                num_to_process, len(nondup_urls), URL_LIMIT)
+
+    for i in range(num_to_process):
         current_msg_url = nondup_urls[i] + "\n"
         logger.info("Started scraping data from message URL %s", str(i + 1))
         table_opt_names = get_msg_table_data(nondup_urls[i], "ads_opt_name")
@@ -243,6 +315,9 @@ def get_page_url(base_url: str, page_num: int) -> str:
 
     ss.lv uses the pattern: <base>/pageN.html for N >= 2
     Page 1 is the base URL itself.
+
+    Used together with get_total_pages() during the dynamic scraping loop
+    (see scrape_website, Phase 1 Item 4).
     """
     if not base_url:
         return base_url
@@ -256,9 +331,27 @@ def get_page_url(base_url: str, page_num: int) -> str:
 def get_total_pages(bs_object: BeautifulSoup, default: int = 1) -> int:
     """Extract the total number of result pages from the ss.lv pager.
 
-    Looks for <button class=navia> and <a class="navi"> elements that contain
-    numeric page labels (as observed on ss.lv listing pages).
-    Returns the highest page number found, or `default` (usually 1).
+    ss.lv renders pagination inside a <div class="td2"> (or nearby) using:
+      - <button class=navia>1</button> for the current page
+      - <a class="navi" ...>N</a> for other pages
+      - "Nākamie" (next) and "Iepriekšējie" (previous) links
+
+    This function collects all integer labels from elements with "navi" or "navia"
+    classes and returns the maximum (i.e. the last page).
+
+    Observed page counts (as of research against config/cities.yaml):
+      - jurmala: 6 pages
+      - marupes_pag: ~2 pages
+      - ogre: ~2 pages
+      - salaspils, sigulda, adazu_nov: often 1 page
+
+    Edge cases handled:
+      - Single page listings (only the navia button "1")
+      - No pager present at all → returns `default` (1)
+      - Requesting a non-existent high page number redirects to the first page
+
+    This was implemented as part of Phase 1 (Item 2) to replace the previous
+    hard-coded "only scrape page 1" behavior.
     """
     if bs_object is None:
         return default
@@ -279,6 +372,58 @@ def get_total_pages(bs_object: BeautifulSoup, default: int = 1) -> int:
     if page_nums:
         return max(page_nums)
     return default
+
+
+def derive_city_slug(main_url: str) -> str:
+    """Derive a filesystem-friendly city slug from an ss.lv listing URL.
+
+    Used by the scraper (Item 5) to generate city-prefixed report files
+    such as "jurmala-raw-data-report.txt" instead of hard-coded "Ogre-...".
+
+    Examples:
+      - https://www.ss.lv/lv/real-estate/flats/jurmala/sell/          → "jurmala"
+      - https://www.ss.lv/lv/real-estate/flats/ogre-and-reg/ogre/sell/ → "ogre"
+      - https://www.ss.lv/lv/real-estate/flats/riga-region/sigulda/sell/ → "sigulda"
+      - https://www.ss.lv/lv/real-estate/flats/riga-region/marupes-pag/sell/ → "marupes_pag"
+
+    Falls back to "city" when detection fails.
+    """
+    if not main_url:
+        return "city"
+    try:
+        path = urlparse(main_url).path.lower()
+        segments = [s for s in path.split("/") if s]
+
+        # Known city hints (from config/cities.yaml + common patterns)
+        known = {
+            "jurmala": "jurmala",
+            "ogre": "ogre",
+            "sigulda": "sigulda",
+            "salaspils": "salaspils",
+            "marupes-pag": "marupes_pag",
+            "marupes_pag": "marupes_pag",
+            "adazu-nov": "adazu_nov",
+            "adazu_nov": "adazu_nov",
+        }
+
+        for seg in segments:
+            if seg in known:
+                return known[seg]
+            # partial matches for compound paths
+            for key, val in known.items():
+                if key in seg:
+                    return val
+
+        # Fallback: segment immediately before "sell"
+        if "sell" in segments:
+            idx = segments.index("sell")
+            if idx > 0:
+                candidate = segments[idx - 1]
+                return candidate.replace("-", "_")
+
+        return "city"
+    except Exception:
+        return "city"
 
 
 def get_msg_field_info(msg_url: str, span_id: str):
@@ -359,7 +504,7 @@ def write_line(text: str, file_name: str) -> None:
 
 
 def create_file_copy(report_file: str = "Ogre-raw-data-report.txt") -> None:
-    """Creates a dated copy of the report file in the data folder."""
+    """Creates a dated copy of the (city-aware) report file in the data folder."""
     todays_date = datetime.today().strftime("%Y-%m-%d")
     # Keep legacy "Ogre-" prefix in the archive name for now for compatibility
     # (full city naming is tracked in plan Item 5/7)

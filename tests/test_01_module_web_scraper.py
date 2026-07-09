@@ -126,7 +126,7 @@ def test_write_line():
 
 # --- New tests for dynamic page count (M6) ---
 
-from src.ws.app.wsmodules.web_scraper import get_total_pages, get_page_url
+from src.ws.app.wsmodules.web_scraper import get_total_pages, get_page_url, derive_city_slug
 
 
 JURMALA_PAGER_HTML = """
@@ -202,14 +202,32 @@ def test_get_total_pages_no_pager():
 
 
 def test_get_total_pages_from_fixture_files():
-    """Use real downloaded fixture files (more realistic)."""
+    """Use real downloaded fixture files (more realistic).
+
+    Fixtures were captured during Phase 1 Item 1 research against
+    all cities listed in config/cities.yaml.
+    """
     for fname, expected in [
         ("tests/fixtures/sslv/jurmala-page1.html", 6),
         ("tests/fixtures/sslv/ogre-page1.html", 2),
+        # marupes-pag also ~2 pages (see research)
     ]:
         with open(fname, encoding="utf-8", errors="ignore") as f:
             html = f.read()
         bs = create_bs4_object(html)
         got = get_total_pages(bs)
         assert got == expected, f"{fname} expected {expected} got {got}"
+
+
+# --- Tests for Item 5 city slug derivation (Phase 1) ---
+
+def test_derive_city_slug():
+    assert derive_city_slug("https://www.ss.lv/lv/real-estate/flats/jurmala/sell/") == "jurmala"
+    assert derive_city_slug("https://www.ss.lv/lv/real-estate/flats/ogre-and-reg/ogre/sell/") == "ogre"
+    assert derive_city_slug("https://www.ss.lv/lv/real-estate/flats/riga-region/sigulda/sell/") == "sigulda"
+    assert derive_city_slug("https://www.ss.lv/lv/real-estate/flats/riga-region/marupes-pag/sell/") == "marupes_pag"
+    assert derive_city_slug("https://www.ss.lv/lv/real-estate/flats/riga-region/salaspils/sell/") == "salaspils"
+    assert derive_city_slug("https://www.ss.lv/lv/real-estate/flats/riga-region/adazu-nov/sell/") == "adazu_nov"
+    assert derive_city_slug(None) == "city"
+    assert derive_city_slug("") == "city"
 
