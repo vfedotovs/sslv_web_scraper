@@ -21,6 +21,12 @@ import uvicorn
 from fastapi import FastAPI
 from app.wsmodules.file_downloader import download_latest_lambda_file
 from app.wsmodules.web_scraper import scrape_website
+# Optional city config (Phase 4)
+try:
+    from app.wsmodules.city_config import validate_city_slug, get_display_name
+except Exception:
+    validate_city_slug = lambda s: True
+    get_display_name = lambda s, d=None: d or s
 from app.wsmodules.data_format_changer import cloud_data_formater_main
 from app.wsmodules.df_cleaner import df_cleaner_main
 from app.wsmodules.db_worker import db_worker_main
@@ -62,6 +68,9 @@ async def run_long_task(city: str):
     Then check data/jurmala-raw-data-report-*.txt and logs for correct city files.
     """
     log.info("Received GET request to start scraping job for %s city", city)
+    if not validate_city_slug(city):
+        log.warning("City slug '%s' not found in cities.yaml (proceeding with env config)", city)
+    display = get_display_name(city, city)
     # download_latest_lambda_file()
     # todays_cloud_data_file_exist = check_today_cloud_data_file_exist()
     # TODO implement flag skip LAMBDA_FILE
@@ -102,7 +111,7 @@ async def run_long_task(city: str):
         }
 
     if todays_cloud_data_file_exist is False:
-        log.info("Running scrape_website task will create local ws file for %s", city)
+        log.info("Running scrape_website task will create local ws file for %s (%s)", city, display)
         scrape_website(city_slug=city)
         log.info("Running data_formater_main task: using locally scraped file")
         cloud_data_formater_main(city)

@@ -41,6 +41,14 @@ import requests
 from bs4 import BeautifulSoup
 from requests.exceptions import ConnectionError, Timeout
 
+# Optional: runtime city config loader (Phase 4 Item 12)
+try:
+    from .city_config import get_display_name, validate_city_slug, get_city_info
+except Exception:
+    def get_display_name(slug, default=None): return default or slug
+    def validate_city_slug(slug): return True
+    def get_city_info(slug): return None
+
 
 logger = logging.getLogger("web_scraper")
 logger.setLevel(logging.INFO)
@@ -125,7 +133,7 @@ def scrape_website(main_url: str = None, report_file: str = None, city_slug: str
 
     logger.info("--- Starting web_scraper module ---")
     logger.info("Using listing URL: %s", main_url)
-    logger.info("Using report file: %s (derived city_slug=%s)", report_file, city_slug or derive_city_slug(main_url))
+    logger.info("Using report file: %s (city=%s / %s)", report_file, city_display, display_name)
     logger.info("Extracting BS4 objects")
     remove_old_file(report_file)
 
@@ -148,12 +156,13 @@ def scrape_website(main_url: str = None, report_file: str = None, city_slug: str
     # Collect ad URLs from all pages
     all_msg_urls: list[str] = []
     city_display = city_slug or derive_city_slug(main_url)
+    display_name = get_display_name(city_display, city_display)
 
     # Always collect from page 1 (we already fetched it)
     page_urls = find_single_page_urls(page_one_bs_obj)
     all_msg_urls.extend(page_urls)
     logger.info("Scraping page 1/%s (%s) — found %s new ad URLs (total so far: %s)",
-                total_pages, city_display, len(page_urls), len(all_msg_urls))
+                total_pages, display_name, len(page_urls), len(all_msg_urls))
 
     # Fetch remaining pages
     for page_num in range(2, total_pages + 1):
@@ -169,7 +178,7 @@ def scrape_website(main_url: str = None, report_file: str = None, city_slug: str
         page_urls = find_single_page_urls(bs)
         all_msg_urls.extend(page_urls)
         logger.info("Page %s/%s (%s) — found %s new ad URLs (total so far: %s)",
-                    page_num, total_pages, city_display, len(page_urls), len(all_msg_urls))
+                    page_num, total_pages, display_name, len(page_urls), len(all_msg_urls))
 
         # Be polite between list pages (configurable)
         if page_num < total_pages:
