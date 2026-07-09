@@ -26,7 +26,7 @@ Module creates output file:
     - email_body_add_date_table.txt
 
 Modulel TODO tasks:
-    - [ ] move gen_email_body function to sendgrid_mailer.py module
+    - [ ] (deprecated) move gen_email_body function to sendgrid_mailer.py module (sendgrid no longer used)
     - [ ] refactor create file backup function
 """
 from datetime import datetime

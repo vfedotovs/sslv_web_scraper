@@ -16,16 +16,17 @@ import logging
 from logging import handlers
 from logging.handlers import RotatingFileHandler
 import sys
-from sendgrid.helpers.mail import (
-    Mail,
-    Attachment,
-    FileContent,
-    FileName,
-    FileType,
-    Disposition,
-    ContentId,
-)
-from sendgrid import SendGridAPIClient
+# SendGrid imports removed (no longer using sendgrid)
+# from sendgrid.helpers.mail import (
+#     Mail,
+#     Attachment,
+#     FileContent,
+#     FileName,
+#     FileType,
+#     Disposition,
+#     ContentId,
+# )
+# from sendgrid import SendGridAPIClient
 
 
 log = logging.getLogger("sendgrid_mailer")

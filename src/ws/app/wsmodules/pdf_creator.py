@@ -12,7 +12,7 @@ Main module usage is for:
 """
 from datetime import datetime
 import pandas as pd
-from fpdf import FPDF
+# fpdf removed (no longer using fpdf)
 
 
 # This module functional requirements:
@@ -60,10 +60,10 @@ def pdf_creator_main():
     # one_room_apt_txt_lines = read_file_to_list('1_rooms_tmp.txt')
     one_room_apt_txt_lines = ['Some text goes here']
 
-    # creating pdf file
+    # creating pdf file - DISABLED (fpdf removed)
     # FIXME include todays data
-    create_pdf_report(report_txt_lines, one_room_apt_txt_lines)
-    print("Debug info: Completed pdf creator module module ... ")
+    # create_pdf_report(report_txt_lines, one_room_apt_txt_lines)
+    print("Debug info: Completed pdf creator module ... (PDF creation disabled - fpdf removed)")
 
 
 def create_sqm_price_images(data_frames,
@@ -144,46 +144,9 @@ def create_pdf(data_frame, title: str, date: str, file_to_save: str) -> None:
 
 def create_pdf_report(text_lines: list, msg_txt_lines: list) -> None:
     """ This is draft function to test ability to write to create and write pdf file """
-    # library help https://pyfpdf.readthedocs.io/en/latest/reference/image/index.html
-    report_title = "Ogre city apartments for sale listed today"
-    todays_date = datetime.today().strftime('%Y-%m-%d %H:%M')
-
-    # creating pdf object instance
-    pdf = FPDF()  # A4 (210 by 297 mm)
-    pdf.add_page()
-    pdf.set_font('Arial', 'B', 10)
-
-    # Adding title and date to page
-    report_title = "Ogre city apartments for sale"
-    date_created = f"Report date: {todays_date}"
-    pdf.write(5, report_title)  # write str text to pdf
-    pdf.ln(5)
-    pdf.write(5, date_created)  # write str text to pdf
-    pdf.ln(5)
-
-    # writing text lines to page from text_line list
-    for line in text_lines:
-        str_line = str(line)
-        pdf.write(5, str_line)
-        pdf.ln(5)
-
-    pdf.ln(10)
-    pdf.add_page()
-    test_save_df_to_png()  # calling function to generate png from df
-    pdf.ln(10)
-    pdf.ln(10)
-    pdf.image("1_rooms.png", 20, 10, 150)
-    pdf.add_page()
-    pdf.image("2_rooms.png", 20, 10, 150)
-    pdf.add_page()
-    pdf.image("3_rooms.png", 20, 10, 150)
-    pdf.add_page()
-    pdf.image("4_rooms.png", 20, 10, 150)
-    pdf.add_page()
-    pdf.image("1-4_rooms.png", 20, 10, 150)
-    pdf.ln(10)
-
-    pdf.output(name="Ogre_city_report.pdf")  # generate pdf files
+    # fpdf / PDF creation disabled (fpdf removed)
+    print("create_pdf_report disabled (fpdf removed)")
+    # ... (old fpdf code removed)
 
 
 def test_save_df_to_png():
