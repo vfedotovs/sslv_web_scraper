@@ -71,12 +71,16 @@ services:
     depends_on:
       - ts
 
-  # DB Backup Service (dedicated container for scheduled backups - item 4)
-  # Runs cron inside the container. Deployed per-city via --project-name <city>
-  # (becomes {city}-backup-1). Uses S3_BUCKET from .env for the city's db-backups bucket.
+  # DB Backup Service (dedicated container for scheduled backups - items 4 & 10)
+  # Runs cron inside the container (revived backup-svc). 
+  # Deployed per-city via --project-name <city> (becomes {city}-backup-1).
+  # Use with --profile backup to enable.
+  # Uses S3_BUCKET from .env (set per-city to *-db-backups).
+  # CITY/ENV passed for awareness (add CITY=xxx to .env.city if needed for logging/fallback).
   backup:
     build: ./src/backup-svc
     restart: always
+    profiles: ["backup"]  # optional: docker compose --profile backup up
     environment:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
       DB_USER: new_docker_user
@@ -85,6 +89,8 @@ services:
       S3_BUCKET: ${S3_BUCKET}
       AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID}
       AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY}
+      CITY: ${CITY:-unknown}
+      ENV: ${ENV:-prod}
     depends_on:
       db:
         condition: service_healthy

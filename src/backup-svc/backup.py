@@ -10,24 +10,27 @@ def backup_postgres():
     db_user = os.environ.get('DB_USER', 'new_docker_user')
     db_name = os.environ.get('DB_NAME', 'new_docker_db')
     db_password = os.environ.get('POSTGRES_PASSWORD', os.environ.get('DB_PASSWORD', ''))
+    city = os.environ.get('CITY', 'unknown')
+    env = os.environ.get('ENV', 'prod')
     
     s3_bucket = os.environ.get('S3_BUCKET')
     if not s3_bucket:
-        print("ERROR: S3_BUCKET environment variable not set")
-        sys.exit(1)
+        # Fallback to convention if not set
+        city_slug = city.replace('_', '-')
+        s3_bucket = f"sslv-{env}-{city_slug}-db-backups"
+        print(f"INFO: S3_BUCKET not set, using convention: {s3_bucket}")
     
     # Generate backup filename with current date
     now = datetime.datetime.now()
-    date_str = now.strftime("%Y_%m_%d")
     timestamp = now.strftime("%Y%m%d_%H%M%S")
     backup_filename = f"/tmp/pg_backup_{timestamp}.sql"
     gzip_filename = f"{backup_filename}.gz"
     
     # Run pg_dump
-    print(f"Starting pg_dump for {db_name} on {db_host}...")
+    print(f"Starting pg_dump for {db_name} on {db_host} (city={city})...")
     try:
-        env = os.environ.copy()
-        env['PGPASSWORD'] = db_password
+        env_vars = os.environ.copy()
+        env_vars['PGPASSWORD'] = db_password
         subprocess.run(
             [
                 "pg_dump",
@@ -36,7 +39,7 @@ def backup_postgres():
                 "-d", db_name,
                 "-f", backup_filename,
             ],
-            env=env,
+            env=env_vars,
             check=True,
         )
         print("pg_dump completed successfully.")
@@ -67,6 +70,12 @@ def upload_to_s3(file_path, bucket_name):
 if __name__ == "__main__":
     backup_file = backup_postgres()
     s3_bucket = os.environ.get('S3_BUCKET')
+    if not s3_bucket:
+        # Recompute if needed
+        city = os.environ.get('CITY', 'unknown')
+        env = os.environ.get('ENV', 'prod')
+        city_slug = city.replace('_', '-')
+        s3_bucket = f"sslv-{env}-{city_slug}-db-backups"
     upload_to_s3(backup_file, s3_bucket)
     # Cleanup
     os.remove(backup_file)
