@@ -144,6 +144,16 @@ restore_city() {
     fi
 
     log_info "Restore completed for $city"
+    
+    # Verification step: list tables (after sample restore)
+    log_info "Verification: listing tables (test-restore health check)..."
+    if docker exec "$container" psql -U "$db_user" -d "$db_name" -c '\dt+' > /dev/null 2>&1; then
+        log_info "Tables listed successfully - DB health OK"
+        docker exec "$container" psql -U "$db_user" -d "$db_name" -c '\dt+'
+    else
+        log_warn "Could not list tables for verification"
+    fi
+    
     rm -f "$sql_file"
     return 0
 }

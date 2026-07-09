@@ -174,6 +174,22 @@ backup_city() {
             fi
         done
         
+        # Verification: check size and presence in S3 (basic health check)
+        log_info "Verifying backup..."
+        size=$(stat -c%s "$gzip_file" 2>/dev/null || stat -f%z "$gzip_file" 2>/dev/null || echo 0)
+        threshold=1024
+        if [ "$size" -lt "$threshold" ]; then
+            log_warn "Backup size $size bytes < ${threshold} threshold"
+        else
+            log_info "Backup size OK: $size bytes"
+        fi
+        
+        if aws s3 ls "s3://${bucket}/${key}" > /dev/null 2>&1; then
+            log_info "Verified: backup present in S3"
+        else
+            log_warn "Backup not found in S3 after upload"
+        fi
+        
         # Clean up local
         rm -f "$gzip_file"
         return 0

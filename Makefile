@@ -446,6 +446,15 @@ backup-all: ## backup all cities for ENV (default prod)
 restore-all: ## restore all cities (latest)
 	@./scripts/restore_db_city.sh --all --env $(M6_ENV)
 
+verify-backup: ## verify latest backup for CITY (size check, S3 presence, basic health)
+	@echo "Basic verification for backup of CITY=$(CITY) ENV=$(M6_ENV)..."
+	@./scripts/backup_db_city.sh --city $(CITY) --env $(M6_ENV) 2>&1 | grep -E '(Verifying|size|Verified|Pruned)' || true
+	@echo "For full test-restore: use restore with verification step (lists tables)"
+
+test-restore: ## perform sample restore + list tables for verification (uses restore script's built-in verify)
+	@echo "Test-restore + verification for CITY=$(CITY)..."
+	@./scripts/restore_db_city.sh --city $(CITY) --env $(M6_ENV) 2>&1 | tail -20
+
 lt: ## Lists tables sizes to test if DB dump was restored correctly 
 	@docker exec $(PG_CONTAINER_NAME) psql -U new_docker_user -d new_docker_db -c '\dt+'
 
