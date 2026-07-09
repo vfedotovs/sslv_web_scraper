@@ -56,7 +56,16 @@ The application supports parallel deployment for multiple cities using Docker Co
 
 **Important:** Do NOT expose ts health check port 8080 to host when running multi-city (causes port conflicts). Health checks work within Docker network.
 
-Dynamic advert page count (M6): Implemented in Phases 1-3. `scrape_website(city_slug="jurmala")` now fetches all pages dynamically. File naming standardized to {city}-raw-... for reports. See m6-dynamic-page-count-action-plan.md for details and remaining items.
+Dynamic advert page count (M6 - Items 1-13):
+- `get_total_pages(bs)` + `get_page_url()` + full loop in `scrape_website()`
+- `scrape_website(city_slug=...)` or auto-derives from CITY_MAIN_URL
+- `SCRAPE_URL_LIMIT=0` for full runs
+- List page retries + requests.Session + configurable delays (Phase 2)
+- City-prefixed reports everywhere (Phase 3 Item 7)
+- `city_config.py` loader for cities.yaml (Phase 4 Item 12)
+- Verification script: `make verify-scrape CITY=jurmala`
+
+See m6-dynamic-page-count-action-plan.md for the complete phased checklist.
 
 ## Development Setup
 

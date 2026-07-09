@@ -29,12 +29,35 @@
 
     analytics.py > analytics_main()
 
-## Multi-city support (Phase 3)
-- Scraper: scrape_website(city_slug="jurmala") produces jurmala-raw-data-report.txt
-- Formaters, mailers, etc now accept city param for file naming.
-- Use EMAIL_CITY_TITLE env for titles.
-- Dated files in data/{city}-raw-data-report-YYYY-MM-DD.txt
-- See m6-dynamic-page-count-action-plan.md for full plan.
+## Dynamic Page Count & Multi-city (Phases 1-3)
+**Core change (Item 4):** `scrape_website()` no longer hard-codes page 1.
+It now:
+1. Fetches the first page
+2. Calls `get_total_pages(bs)` — parses `<div class=td2>` + `navia`/`navi` elements
+3. Loops `for page in 1..total_pages` using `get_page_url()`
+4. Deduplicates and proceeds
+
+**City support (Items 5+7):**
+- `scrape_website(main_url=..., city_slug="jurmala")` → writes `jurmala-raw-data-report.txt`
+- `create_file_copy` now also writes dated version to `data/jurmala-raw-data-report-YYYY-MM-DD.txt`
+- All downstream modules (`data_format_changer`, `aws_mailer`, `file_remover`, ...) accept `city_name` / `city_slug`
+
+**Verification helper (Item 10):**
+```bash
+make verify-scrape CITY=jurmala
+make verify-scrape-all
+# or
+./scripts/verify_city_scrape.sh ogre
+```
+
+**Adding a new city with many pages (Item 11):**
+1. Add entry to `config/cities.yaml`
+2. Create `.env.<city>` with `CITY_MAIN_URL=...` and `EMAIL_CITY_TITLE=...`
+3. Deploy with `./deploy-multi-city-ws.sh` (or `make up` with the env file)
+4. Trigger: `curl http://localhost:8000/run-task/<city>`
+5. The scraper will automatically discover the correct number of pages.
+
+See `m6-dynamic-page-count-action-plan.md` for the full phased plan.
     	- bad module doc string  - to many Fixme	
     	<- Reads file: cleaned-sorted-df.csv
     	-> Creates file: basic_price_stats.txt

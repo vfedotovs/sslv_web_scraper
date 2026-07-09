@@ -135,6 +135,10 @@ def scrape_website(main_url: str = None, report_file: str = None, city_slug: str
 
     logger.info("--- Starting web_scraper module ---")
     logger.info("Using listing URL: %s", main_url)
+
+    city_display = city_slug or derive_city_slug(main_url)
+    display_name = get_display_name(city_display, city_display)
+
     logger.info("Using report file: %s (city=%s / %s)", report_file, city_display, display_name)
     logger.info("Extracting BS4 objects")
     remove_old_file(report_file)

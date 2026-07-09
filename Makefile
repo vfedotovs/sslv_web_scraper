@@ -530,3 +530,12 @@ test_cov: precheck ## Runs pytest coverage (Not implemented)
 	pytest --cov=.
 
 
+verify-scrape: ## Phase 3 Item 10 - verify dynamic page count + city naming for CITY (default jurmala)
+	@CITY=$${CITY:-jurmala} ./scripts/verify_city_scrape.sh $${CITY}
+
+verify-scrape-all: ## Run verification for several cities (jurmala, ogre, sigulda)
+	@for c in jurmala ogre sigulda; do \
+	  echo "=== Verifying $$c ==="; \
+	  CITY=$$c ./scripts/verify_city_scrape.sh $$c || true; \
+	  echo; \
+	done

@@ -112,3 +112,27 @@ See also `M6_MVP_problem_list.md` for full risks.
 ## Worok in progress:
 - [ ] Add Streamlit web service to CICD 
 - [ ] Add doc and doc coverage step in CICD and in README.md
+
+## Dynamic Page Count & Multi-City (M6)
+
+The scraper no longer hard-codes "first page only".
+
+- `scrape_website(city_slug="jurmala")` automatically discovers the number of pages (e.g. 6 for Jūrmala).
+- Uses `get_total_pages()` (parses ss.lv pager) + `get_page_url()`.
+- City-prefixed report files: `jurmala-raw-data-report.txt`, `data/jurmala-raw-data-report-YYYY-MM-DD.txt`
+- All pipeline steps (`data_format_changer`, mailers, etc.) accept a city parameter.
+- Dev control: `SCRAPE_URL_LIMIT=0` to process all ads.
+
+### Verification (Item 10)
+```bash
+make verify-scrape CITY=jurmala
+make verify-scrape-all
+```
+
+### Adding a city with many pages (Item 11)
+1. Add to `config/cities.yaml`
+2. Create `.env.<city>` with `CITY_MAIN_URL` and `EMAIL_CITY_TITLE`
+3. Run `make up` (or the multi-city deploy script)
+4. `curl http://localhost:8000/run-task/<city>`
+
+See `m6-dynamic-page-count-action-plan.md` for the full plan.
