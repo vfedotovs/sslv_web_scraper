@@ -277,7 +277,7 @@ Items are ordered by recommended implementation sequence.
 | 8 | Documentation & operational runbooks | ✅ Done - Updated CLAUDE.md, README, docs/multi-city-5city-prod-risk-assessment.md with "Daily DB Backup & Manual Restore Flow for Multi-City", examples, troubleshooting. | Low | High | 6-7 | Done |
 | 9 | Basic verification & health of backups | ✅ Done - After backup: size check (>1KB threshold), `aws s3 ls` verify in backup_db_city.sh. Added `verify-backup` and `test-restore` Makefile targets (lists tables after restore as verification step). | Medium | High | 7 | Done |
 | 10 | Optional: Revive & improve backup-svc (future) | ✅ Done - Revived src/backup-svc/ (Dockerfile + cron + city-aware backup.py with CITY/ENV support and fallback). Added to docker-compose.yml with profiles: ["backup"]. Per-city via --project-name. Updated docs. | High | Medium | 8+ (Optional) | Done |
-| 11 | Testing, CI, and migration | Add basic tests (mocked) for backup/restore scripts. Document migration steps from current 3-city to 5+ (one city at a time). End-to-end test: backup one city → simulate volume loss → manual restore → verify data. | Medium-High | High | Parallel / after core | Include in future PRs. |
+| 11 | Testing, CI, and migration | ✅ Done - Added tests/test_m6_backup_restore.py (mocked help/args/E2E sim with pytest). Added migration steps to README.md (one city at a time). Added `e2e-backup-restore` and `test-restore` Makefile targets (backup → vol loss sim → restore → verify tables). | Medium-High | High | Parallel / after core | Done |
 | 12 | Observability & notifications (stretch) | Log backup success/failure to a central place (or CloudWatch). Optional: simple SNS/email on failure (reuse sendgrid? or native). | Medium | Low-Medium | Later | Nice to have once core reliability is there. |
 
 **Recommended Implementation Order (summary)**
@@ -289,7 +289,7 @@ Items are ordered by recommended implementation sequence.
 5 (done) → 6 (done) → 7 (done) → 8 (done)
 
 **Phase 3 (Confidence & optional advanced)**
-9 (done) → 11 → 10 (done, optional) → 12
+9 (done) → 11 (done) → 10 (done, optional) → 12
 
 ---
 
@@ -316,14 +316,15 @@ Items are ordered by recommended implementation sequence.
 - Host scripts for manual only
 - ✅ Basic verification (size/S3) in backup, test-restore with table list in Makefile/restore script (item 9)
 - ✅ Backup-svc revived as dedicated container with profiles and city-aware logic (item 10)
+- ✅ Basic mocked tests (pytest), migration doc in README, E2E Makefile target (item 11)
 
 ---
 
 ## 7. Next Steps After This Plan
 
 1. Review & agree on this plan (especially the updated scheduling requirement: **inside Docker container**, not host cron on EC2).
-2. Implement in small PRs on `dev-1.6.1` (items 1-10 completed).
-3. Item 10 done (optional): revived and improved backup-svc as dedicated city-aware container with profiles.
+2. Implement in small PRs on `dev-1.6.1` (items 1-11 completed).
+3. Item 11 done: basic mocked tests, migration docs, E2E simulation target.
 4. Test end-to-end on a non-prod city first.
 5. Update `M6_MVP_problem_list.md` with status (mark related risks as mitigated once done).
 

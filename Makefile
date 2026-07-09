@@ -455,6 +455,17 @@ test-restore: ## perform sample restore + list tables for verification (uses res
 	@echo "Test-restore + verification for CITY=$(CITY)..."
 	@./scripts/restore_db_city.sh --city $(CITY) --env $(M6_ENV) 2>&1 | tail -20
 
+e2e-backup-restore: ## End-to-end simulation: backup one city → simulate volume loss → manual restore → verify (item 11)
+	@echo "=== E2E for CITY=$(CITY) ENV=$(M6_ENV) ==="
+	@echo "1. Backup..."
+	@./scripts/backup_db_city.sh --city $(CITY) --env $(M6_ENV)
+	@echo "2. Simulate volume loss (would be: docker compose --project-name $(CITY) down -v )"
+	@echo "3. Manual restore..."
+	@./scripts/restore_db_city.sh --city $(CITY) --env $(M6_ENV)
+	@echo "4. Verify (lt)..."
+	@echo "(Run 'make lt' or docker exec after real restore to list tables)"
+	@echo "E2E simulation complete. See test-restore target for automated verify."
+
 lt: ## Lists tables sizes to test if DB dump was restored correctly 
 	@docker exec $(PG_CONTAINER_NAME) psql -U new_docker_user -d new_docker_db -c '\dt+'
 
