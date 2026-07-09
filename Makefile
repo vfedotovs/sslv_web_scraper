@@ -466,6 +466,60 @@ e2e-backup-restore: ## End-to-end simulation: backup one city → simulate volum
 	@echo "(Run 'make lt' or docker exec after real restore to list tables)"
 	@echo "E2E simulation complete. See test-restore target for automated verify."
 
+# M6 Multi-city deployment targets
+_deploy-precheck:
+	@printf "$(call log_step,Running pre-flight checks for multi-city deploy...)\n"
+	@bucket="$${CICD_FILES_BUCKET}"; \
+	if [ -z "$$bucket" ]; then bucket="sslv-staging-m6-cicd-files"; fi; \
+	if [ ! -f deploy-multi-city-ws.sh ]; then \
+		printf "$(call log_error,deploy-multi-city-ws.sh not found)\n"; \
+		exit 1; \
+	fi; \
+	if [ ! -x deploy-multi-city-ws.sh ]; then \
+		printf "$(call log_warning,Making deploy-multi-city-ws.sh executable...)\n"; \
+		chmod +x deploy-multi-city-ws.sh; \
+	fi; \
+	if ! command -v aws >/dev/null 2>&1; then \
+		printf "$(call log_error,AWS CLI is required (to fetch .env.* files from CICD bucket))\n"; \
+		exit 1; \
+	fi; \
+	if ! command -v docker >/dev/null 2>&1; then \
+		printf "$(call log_error,Docker is required)\n"; \
+		exit 1; \
+	fi; \
+	if ! docker compose version >/dev/null 2>&1 && ! command -v docker-compose >/dev/null 2>&1; then \
+		printf "$(call log_error,Neither 'docker compose' nor 'docker-compose' found)\n"; \
+		exit 1; \
+	fi; \
+	if [ ! -f config/cities.yaml ]; then \
+		printf "$(call log_error,config/cities.yaml not found)\n"; \
+		exit 1; \
+	fi; \
+	printf "$(call log_step,Checking access to CICD bucket: $$bucket ...)\n"; \
+	if aws s3 ls "s3://$$bucket/" --max-items 1 > /dev/null 2>&1; then \
+		printf "$(call log_success,CICD bucket $$bucket is accessible)\n"; \
+	else \
+		printf "$(call log_warning,Cannot access s3://$$bucket/ (this is OK if .env.* files already exist locally))\n"; \
+		if ! ls .env.* 1>/dev/null 2>&1; then \
+			printf "$(call log_error,No local .env.* files found and cannot reach CICD bucket.)\n"; \
+			printf "$(call log_info,Run with AWS credentials that can access the bucket, or place .env.* files locally first.)\n"; \
+			exit 1; \
+		fi; \
+	fi; \
+	printf "$(call log_success,Pre-flight checks passed)\n"
+
+deploy-staging: ## runs ./deploy-multi-city-ws.sh configured for staging
+	@CICD_FILES_BUCKET=sslv-staging-m6-cicd-files M6_ENV=staging $(MAKE) _deploy-precheck
+	@printf "$(call log_step,Deploying all cities to staging...)\n"
+	@printf "$(call log_info,Command: CICD_FILES_BUCKET=sslv-staging-m6-cicd-files M6_ENV=staging ./deploy-multi-city-ws.sh)\n"
+	CICD_FILES_BUCKET=sslv-staging-m6-cicd-files M6_ENV=staging ./deploy-multi-city-ws.sh
+
+deploy-prod: ## runs ./deploy-multi-city-ws.sh configured for production
+	@CICD_FILES_BUCKET=sslv-prod-m6-cicd-files M6_ENV=prod $(MAKE) _deploy-precheck
+	@printf "$(call log_step,Deploying all cities to production...)\n"
+	@printf "$(call log_info,Command: CICD_FILES_BUCKET=sslv-prod-m6-cicd-files M6_ENV=prod ./deploy-multi-city-ws.sh)\n"
+	CICD_FILES_BUCKET=sslv-prod-m6-cicd-files M6_ENV=prod ./deploy-multi-city-ws.sh
+
 lt: ## Lists tables sizes to test if DB dump was restored correctly 
 	@docker exec $(PG_CONTAINER_NAME) psql -U new_docker_user -d new_docker_db -c '\dt+'
 

@@ -50,8 +50,8 @@ All containers use Python's built-in `urllib.request` for health checks (no curl
 
 The application supports parallel deployment for multiple cities using Docker Compose project names:
 - Each city has separate `.env.{city}` file (e.g., `.env.ogre`, `.env.salaspils`)
-- Containers are named: `{city}-db-1`, `{city}-ws-1`, `{city}-ts-1`
-- Deploy all: `./deploy-multi-city-ws.sh` (ogre, sigulda, salaspils)
+- Containers are named: `{city}-db-1`, `{city}-ws-1`, `{city}-ts-1`, `{city}-backup-1`
+- Deploy all: `./deploy-multi-city-ws.sh` (includes db, ws, ts, backup per city)
 - Undeploy all: `./undeploy-multi-city.sh`
 
 **Important:** Do NOT expose ts health check port 8080 to host when running multi-city (causes port conflicts). Health checks work within Docker network.

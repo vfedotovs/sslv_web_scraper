@@ -212,11 +212,16 @@ for city in "${CITIES[@]}"; do
     fi
     ENV_FILE_ARGS+=(--env-file "$env_file")
     
-    log_info "Deploying $city using ${ENV_FILE_ARGS[*]} ..."
+    log_info "Deploying $city using ${ENV_FILE_ARGS[*]} (with backup profile) ..."
     
-    # Run docker compose with project name
-    if $COMPOSE_CMD --project-name "$city" "${ENV_FILE_ARGS[@]}" up -d; then
-        log_info "Successfully deployed $city"
+    # Include the "backup" profile so the dedicated per-city backup container
+    # (e.g. jurmala-backup-1) is started. The backup service is defined with
+    # profiles: ["backup"] in docker-compose.yml.
+    # The "curl" debug service is behind profiles: ["debug"] so it is not started.
+    PROFILE_ARGS=(--profile backup)
+    
+    if $COMPOSE_CMD --project-name "$city" "${ENV_FILE_ARGS[@]}" "${PROFILE_ARGS[@]}" up -d; then
+        log_info "Successfully deployed $city (including backup container)"
         SUCCESS_COUNT=$((SUCCESS_COUNT + 1))
     else
         log_error "Failed to deploy $city"
