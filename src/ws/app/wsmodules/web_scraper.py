@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 """
-This is ss.lv parser project web scraper module.
-Module main purpouse is to use ss.lv website as data source and
-using requests and bs4 libraries to extract data (price, URL, sqm, street)
-from Ogre city apartments for sale advertisements and save
-to file Ogre-raw-data-report.txt
+ss.lv web scraper module.
+
+Fetches apartment sale listings for a city (via CITY_MAIN_URL env or param),
+dynamically discovers the number of result pages, extracts ad data,
+and writes a raw report file for the rest of the pipeline.
 """
 
 import re
@@ -50,74 +50,84 @@ URL_LIMIT = 5
 SKIP_LAMBDA_FILE = True
 
 
-def scrape_website():
-    """Main function of module calls all sub-functions"""
+def scrape_website(main_url: str = None, report_file: str = "Ogre-raw-data-report.txt"):
+    """Main function of module calls all sub-functions.
+
+    Dynamically discovers the total number of pages from the ss.lv pager
+    and scrapes all pages (instead of hard-coded first page only).
+
+    Args:
+        main_url: Optional override for the city listing URL.
+                  Falls back to CITY_MAIN_URL environment variable.
+        report_file: Name of the raw report file to write (kept for backward
+                     compatibility with existing pipeline; see plan Item 5/6).
+    """
+    if main_url is None:
+        main_url = CITY_MAIN_URL
+
     logger.info("--- Starting web_scraper module ---")
+    logger.info("Using listing URL: %s", main_url)
     logger.info("Extracting BS4 objects")
-    remove_old_file()
-    # ogre_object = get_bs_object(FLATS_OGRE)
-    # logger.info("Building non-duplicate URL list from BS4 objects")
-    # valid_msg_urls = find_single_page_urls(ogre_object)
-    # Original code with bug
-    # page = requests.get("https://www.ss.lv/lv/real-estate/flats/ogre-and-reg/ogre/sell/")
-    # bs_ogre_object = BeautifulSoup(page.content, "html.parser")
-    # valid_msg_urls = find_single_page_urls(bs_ogre_object)
-    # New static way of extracting data from first three pages
-    # TODO: make page count extraction dynamic
-    page_one = requests.get(CITY_MAIN_URL, timeout=10)
-    # page_two = requests.get(
-    #     "https://www.ss.lv/lv/real-estate/flats/ogre-and-reg/ogre/sell/page2.html", timeout=10)
-    # page_three = requests.get(
-    #     "https://www.ss.lv/lv/real-estate/flats/ogre-and-reg/ogre/sell/page3.html", timeout=10)
-    # Error handling behavior by ss.lv
-    # If non existing page requested for example
-    # https://www.ss.lv/lv/real-estate/flats/ogre-and-reg/ogre/sell/page4.html
-    # it rederacts to first page
-    # https://www.ss.lv/lv/real-estate/flats/ogre-and-reg/ogre/sell/page.html
+    remove_old_file(report_file)
 
-    page_one_bs_obj = BeautifulSoup(page_one.content, "html.parser")
-    # page_two_bs_obj = BeautifulSoup(page_two.content, "html.parser")
-    # page_three_bs_obj = BeautifulSoup(page_three.content, "html.parser")
+    # Fetch first page and determine total pages
+    try:
+        page_one_resp = requests.get(main_url, timeout=10)
+        page_one_resp.raise_for_status()
+    except Exception as exc:
+        logger.error("Failed to fetch first page %s: %s", main_url, exc)
+        return
 
-    page_one_msg_urls = find_single_page_urls(page_one_bs_obj)
-    # page_two_msg_urls = find_single_page_urls(page_two_bs_obj)
-    # page_three_msg_urls = find_single_page_urls(page_three_bs_obj)
-    combined_urls = page_one_msg_urls
-    # + page_two_msg_urls + page_three_msg_urls
-    # Since currently there is no dynamic page cound extraction avilable
-    # curent behavior of ss.lv if you request none existing page it redirects to
-    # first page current quick fix is to remove duplicate entries because of scenario
-    # if page 3 is missing an you have requested it will gra  urls from first page and
-    # it will end up with duplicate entries
-    valid_msg_urls = list(set(combined_urls))
+    page_one_bs_obj = BeautifulSoup(page_one_resp.content, "html.parser")
 
-    logger.info("Found %s parsable message URLs", str(len(valid_msg_urls)))
-    logger.info(
-        "Extracting data for Ogre city apartments "
-        "for sell task and saving as Ogre-raw-data-report.txt"
-    )
-    extract_data_from_url(valid_msg_urls, "Ogre-raw-data-report.txt")
-    logger.info("Creating file Ogre-raw-data-report.txt copy in data folder")
-    create_file_copy()
+    total_pages = get_total_pages(page_one_bs_obj)
+    logger.info("Detected %s page(s) of listings", total_pages)
+
+    # Collect ad URLs from all pages
+    all_msg_urls: list[str] = []
+    for page_num in range(1, total_pages + 1):
+        page_url = get_page_url(main_url, page_num)
+        logger.info("Fetching page %s/%s: %s", page_num, total_pages, page_url)
+        try:
+            resp = requests.get(page_url, timeout=10)
+            resp.raise_for_status()
+            bs = BeautifulSoup(resp.content, "html.parser")
+            page_urls = find_single_page_urls(bs)
+            all_msg_urls.extend(page_urls)
+            # Be polite between list pages
+            if page_num < total_pages:
+                time.sleep(1)
+        except Exception as exc:
+            logger.warning("Failed to fetch page %s (%s): %s", page_num, page_url, exc)
+            # Continue with what we have
+
+    valid_msg_urls = list(dict.fromkeys(all_msg_urls))  # preserve order, remove dups
+
+    logger.info("Found %s parsable message URLs across %s page(s)", len(valid_msg_urls), total_pages)
+
+    logger.info("Extracting data for city apartments for sell task")
+    extract_data_from_url(valid_msg_urls, report_file)
+
+    logger.info("Creating file copy in data folder")
+    create_file_copy(report_file)
     logger.info("--- Finished web_scraper module ---")
 
 
-def remove_old_file() -> None:
+def remove_old_file(filename: str = "Ogre-raw-data-report.txt") -> None:
     """
-    Remove the 'Ogre-raw-data-report.txt' file in the current
-    directory if it is older than a certain number of days.
+    Remove the given report file in the current directory if it is older
+    than a certain number of days.
     """
     days_old = 1
-    filename = "Ogre-raw-data-report.txt"
     file_path = os.path.join(os.getcwd(), filename)
-    logger.info("Removing file %s  as if oloder than %s  day(s)", filename, days_old)
+    logger.info("Removing file %s if older than %s day(s)", filename, days_old)
     if os.path.isfile(file_path):
         file_time = datetime.fromtimestamp(os.path.getmtime(file_path))
         now = datetime.now()
 
         if (now - file_time).days > days_old:
             os.remove(file_path)
-            logger.info("Removed %s  with sucess", file_path)
+            logger.info("Removed %s with success", file_path)
         else:
             logger.info(
                 "The file %s is not older than %s day(s) and was not removed.",
@@ -228,6 +238,49 @@ def find_single_page_urls(bs_object) -> list:
     return valid_urls
 
 
+def get_page_url(base_url: str, page_num: int) -> str:
+    """Build URL for a given page number on an ss.lv listing.
+
+    ss.lv uses the pattern: <base>/pageN.html for N >= 2
+    Page 1 is the base URL itself.
+    """
+    if not base_url:
+        return base_url
+    if page_num <= 1:
+        return base_url
+    # Ensure trailing slash for clean concatenation
+    base = base_url.rstrip("/")
+    return f"{base}/page{page_num}.html"
+
+
+def get_total_pages(bs_object: BeautifulSoup, default: int = 1) -> int:
+    """Extract the total number of result pages from the ss.lv pager.
+
+    Looks for <button class=navia> and <a class="navi"> elements that contain
+    numeric page labels (as observed on ss.lv listing pages).
+    Returns the highest page number found, or `default` (usually 1).
+    """
+    if bs_object is None:
+        return default
+
+    page_nums: set[int] = set()
+
+    # Prefer searching inside the known pager container
+    pager = bs_object.find("div", class_="td2")
+    elements = pager.find_all(["a", "button"]) if pager else bs_object.find_all(["a", "button"])
+
+    for el in elements:
+        classes = " ".join(el.get("class", []))
+        if "navi" in classes or "navia" in classes:
+            text = el.get_text(strip=True)
+            if text.isdigit():
+                page_nums.add(int(text))
+
+    if page_nums:
+        return max(page_nums)
+    return default
+
+
 def get_msg_field_info(msg_url: str, span_id: str):
     """Function finds span id in url and return value"""
     response = requests.get(msg_url, timeout=10)
@@ -305,11 +358,14 @@ def write_line(text: str, file_name: str) -> None:
         the_file.write(text)
 
 
-def create_file_copy() -> None:
-    """Creates report file copy in data folder"""
+def create_file_copy(report_file: str = "Ogre-raw-data-report.txt") -> None:
+    """Creates a dated copy of the report file in the data folder."""
     todays_date = datetime.today().strftime("%Y-%m-%d")
-    dest_file = "Ogre-raw-data-report-" + todays_date + ".txt"
-    copy_cmd = "cp Ogre-raw-data-report.txt local_lambda_raw_scraped_data/" + dest_file
+    # Keep legacy "Ogre-" prefix in the archive name for now for compatibility
+    # (full city naming is tracked in plan Item 5/7)
+    base = report_file.replace(".txt", "")
+    dest_file = f"{base}-{todays_date}.txt"
+    copy_cmd = f"cp {report_file} local_lambda_raw_scraped_data/" + dest_file
     if not os.path.exists("local_lambda_raw_scraped_data"):
         os.makedirs("local_lambda_raw_scraped_data")
     os.system(copy_cmd)

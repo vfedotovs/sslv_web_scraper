@@ -6,6 +6,10 @@
 *.png
 *.html
 *.log
+
+# Allow HTML fixtures for scraper pagination tests
+!tests/fixtures/**/*.html
+!tests/fixtures/sslv/*.html
 pg_*.sql
 __init__.pyc
 .coverage

@@ -122,3 +122,94 @@ def test_write_line():
 #     # Test with a bs4 object that contains no URLs
 #     bs_object = create_bs4_object(html_string="<p>No URLs in this object</p>")
 #     assert find_single_page_urls(bs_object) == []
+
+
+# --- New tests for dynamic page count (M6) ---
+
+from src.ws.app.wsmodules.web_scraper import get_total_pages, get_page_url
+
+
+JURMALA_PAGER_HTML = """
+<div align=center class=td2 nowrap>
+  <a name="nav_id" rel="prev" class="navi" href="/lv/real-estate/flats/jurmala/sell/page6.html">Iepriekšējie</a>
+  &nbsp;&nbsp;
+  <button onclick="return false;" class=navia>1</button>
+  <a name="nav_id" rel="next" class="navi" href="/lv/real-estate/flats/jurmala/sell/page2.html">2</a>
+  <a name="nav_id" rel="next" class="navi" href="/lv/real-estate/flats/jurmala/sell/page3.html">3</a>
+  <a name="nav_id" rel="next" class="navi" href="/lv/real-estate/flats/jurmala/sell/page4.html">4</a>
+  <a name="nav_id" rel="next" class="navi" href="/lv/real-estate/flats/jurmala/sell/page5.html">5</a>
+  <a name="nav_id" rel="next" class="navi" href="/lv/real-estate/flats/jurmala/sell/page6.html">6</a>
+  &nbsp;&nbsp;
+  <a name="nav_id" rel="next" class="navi" href="/lv/real-estate/flats/jurmala/sell/page2.html">Nākamie</a>
+</div>
+"""
+
+OGRE_PAGER_HTML = """
+<div align=center class=td2 nowrap>
+  <a name="nav_id" rel="prev" class="navi" href="/lv/real-estate/flats/ogre-and-reg/ogre/sell/page2.html">Iepriekšējie</a>
+  &nbsp;&nbsp;
+  <button onclick="return false;" class=navia>1</button>
+  <a name="nav_id" rel="next" class="navi" href="/lv/real-estate/flats/ogre-and-reg/ogre/sell/page2.html">2</a>
+  &nbsp;&nbsp;
+  <a name="nav_id" rel="next" class="navi" href="/lv/real-estate/flats/ogre-and-reg/ogre/sell/page2.html">Nākamie</a>
+</div>
+"""
+
+SINGLE_PAGE_HTML = """
+<html><body>
+  <div align=center class=td2 nowrap>
+    <button onclick="return false;" class=navia>1</button>
+  </div>
+  <table><a href="/msg/lv/real-estate/flats/ogre/fake1.html">ad1</a></table>
+</body></html>
+"""
+
+NO_PAGER_HTML = """
+<html><body>
+  <table><a href="/msg/lv/real-estate/flats/ogre/fake1.html">ad1</a></table>
+</body></html>
+"""
+
+
+def test_get_page_url():
+    base = "https://www.ss.lv/lv/real-estate/flats/jurmala/sell/"
+    assert get_page_url(base, 1) == base
+    assert get_page_url(base, 2) == "https://www.ss.lv/lv/real-estate/flats/jurmala/sell/page2.html"
+    assert get_page_url(base.rstrip("/"), 6) == "https://www.ss.lv/lv/real-estate/flats/jurmala/sell/page6.html"
+    assert get_page_url(base, 0) == base
+    assert get_page_url("", 3) == "/page3.html"
+
+
+def test_get_total_pages_jurmala():
+    bs = create_bs4_object(JURMALA_PAGER_HTML)
+    assert get_total_pages(bs) == 6
+
+
+def test_get_total_pages_ogre():
+    bs = create_bs4_object(OGRE_PAGER_HTML)
+    assert get_total_pages(bs) == 2
+
+
+def test_get_total_pages_single_page():
+    bs = create_bs4_object(SINGLE_PAGE_HTML)
+    assert get_total_pages(bs) == 1
+
+
+def test_get_total_pages_no_pager():
+    bs = create_bs4_object(NO_PAGER_HTML)
+    assert get_total_pages(bs) == 1
+    assert get_total_pages(bs, default=1) == 1
+
+
+def test_get_total_pages_from_fixture_files():
+    """Use real downloaded fixture files (more realistic)."""
+    for fname, expected in [
+        ("tests/fixtures/sslv/jurmala-page1.html", 6),
+        ("tests/fixtures/sslv/ogre-page1.html", 2),
+    ]:
+        with open(fname, encoding="utf-8", errors="ignore") as f:
+            html = f.read()
+        bs = create_bs4_object(html)
+        got = get_total_pages(bs)
+        assert got == expected, f"{fname} expected {expected} got {got}"
+
