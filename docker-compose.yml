@@ -49,6 +49,7 @@ services:
     restart: always
     environment:
       WS_HOST: ws
+      CITY: ${CITY:-ogre}
     # Health check port is only accessible within Docker network (no external exposure needed)
     # ports:
     #   - "8080:8080"  # Uncomment only if you need external monitoring
