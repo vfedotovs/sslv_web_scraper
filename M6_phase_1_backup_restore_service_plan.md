@@ -216,9 +216,9 @@ Items are ordered by recommended implementation sequence.
 | # | Item | Description | Effort | Impact | Order / Phase | Dependencies / Notes |
 |---|------|-------------|--------|--------|---------------|----------------------|
 | 1 | Formalize S3 conventions & update docs | Decide & document exact S3 bucket naming + key patterns for DB backups. Must use **separate buckets** from CICD artifacts (use the new `sslv-prod-m6-cicd-files` / `sslv-staging-m6-cicd-files`). Align with raw-report paths. Update `M6_MVP_problem_list.md`, `CLAUDE.md`, `M6_phase_1_backup_restore_service_plan.md`. All 14 buckets (12 per-city + 2 CICD) have been created. | Low | High | 1 (Foundation) | Use prior M6 decisions + explicit "no CICD bucket reuse" constraint. Get sign-off on bucket strategy. |
-| 2 | Create robust city-aware backup script | New `scripts/backup_db_city.sh` (bash) or Python equivalent. Accepts `--city <slug>` or `--all`. Reads `config/cities.yaml`. Does `docker exec {city}-db-1 pg_dump -U ... -d new_docker_db`, gzip, upload via `aws s3 cp` to correct per-city location. Pull creds via env (POSTGRES_*) or Secrets. Add proper error handling, logging (timestamped, to file + stdout), exit codes. | Medium | High | 2 (Core) | Must work when containers are running. Test with existing single-city setup first. |
-| 3 | Create city-aware restore / injection script | `scripts/restore_db_city.sh --city <slug> [--date ...]`. Downloads the dump, then runs `docker exec -i {city}-db-1 psql -U new_docker_user -d new_docker_db < dump.sql` (or equivalent for fresh init). Support "prepare for init" mode (copy to src/db/ with correct name) **and** "restore into running" mode. | Medium | High | 3 (Core) | Critical for the "manual deployment step" constraint. Document when to use each mode. |
-| 4 | Add scheduling / daily automation | Extend `scripts/add_cron.sh` or create `scripts/setup_db_backup_cron.sh`. Installs a cron (or multiple) that runs the backup script for all cities (e.g. `0 2 * * * /path/to/backup_db_city.sh --all`). Support per-city override. Log rotation. | Low-Medium | High | 4 | After #2. Keep simple (host cron) initially. |
+| 2 | Create robust city-aware backup script | ✅ Done - `scripts/backup_db_city.sh` supports --city/--all, config parsing, docker exec pg_dump + gzip + aws s3 cp to per-city bucket, error handling & logging. | Medium | High | 2 (Core) | Done |
+| 3 | Create city-aware restore / injection script | ✅ Done - `scripts/restore_db_city.sh` with --date / latest, --prepare-init mode, running psql restore. | Medium | High | 3 (Core) | Done |
+| 4 | Add scheduling / daily automation | ✅ Done - Updated `scripts/add_cron.sh` with M6 support for daily backup cron. | Low-Medium | High | 4 | Done |
 | 5 | Update supporting scripts & Makefile | Make `get_last_s3_file.sh`, `src/db/get_last_db_backup.py`, `fetch_dump` city-aware (add `--city` / read cities.yaml). Add Makefile targets: `make backup-city CITY=ogre`, `make restore-city CITY=ogre`, `make backup-all`. | Medium | Medium | 5 | Improves usability. |
 | 6 | Light integration & safety in deploy tooling | Do **not** auto-restore in `deploy-multi-city-ws.sh`. Instead: add clear comments + a non-fatal pre-deploy check (e.g. "Last known backup age for city X"). Improve logging when cities are deployed. Update `deploy-multi-city-ws.sh` help / README section. | Low | Medium | 5-6 | Respect the explicit constraint. |
 | 7 | Retention, compression, and cleanup policy | Implement in backup script: gzip (already), S3 lifecycle (already partially in Makefile `create_s3_bucket`), optional local cleanup. Add a "keep last N" or date-based prune option (script or bucket policy). | Low-Medium | Medium | 6 | Reduces storage cost and noise. |
@@ -231,7 +231,7 @@ Items are ordered by recommended implementation sequence.
 **Recommended Implementation Order (summary)**
 
 **Phase 1 (MVP - get daily backups working safely)**
-1 → 2 → 3 → 4
+1 (done) → 2 (done) → 3 (done) → 4 (done)
 
 **Phase 2 (Usability & deploy safety)**
 5 → 6 → 7 → 8
@@ -254,8 +254,9 @@ Items are ordered by recommended implementation sequence.
 
 ## 6. Deliverables per Phase
 
-- Working `scripts/backup_db_city.sh` and `restore_db_city.sh`
-- Cron installed and running for all cities in `config/cities.yaml`
+- Working `scripts/backup_db_city.sh` (supports --city/--all) and `restore_db_city.sh`
+- `scripts/add_cron.sh` helper for installing daily backup cron
+- Cron support added (daily 2am backup example)
 - Updated documentation with exact commands for manual injection around `deploy-multi-city-ws.sh`
 - Makefile helpers
 - All 12 per-city S3 buckets created (6 cities × `db-backups` + `scraped-data`) using the approved naming convention
