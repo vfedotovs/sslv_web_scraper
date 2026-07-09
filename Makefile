@@ -414,17 +414,37 @@ create_all_m6_buckets: ## creates ALL M6 buckets for ENV (default prod). WARNING
 	done
 	@echo "Done (some may have been skipped if already existed)."
 
-fetch_dump_example: # Example of fetch specific date DB dump file form S3 bucket
-	@echo "make fetch_dump DB_BACKUP_DATE=2022_11_05"
+fetch_dump_example: # Example of fetch specific date DB dump file from S3 bucket
+	@echo "make fetch_dump DB_BACKUP_DATE=2026_07_08"
+	@echo "make fetch_dump DB_BACKUP_DATE=2026_07_08 CITY=ogre"
 
 fetch_dump: DB_BACKUP_DATE ?= 2022_11_01
-fetch_dump: # Fetches DB dump file from S3 bucket
-	@aws s3 cp s3://$(S3_BUCKET)/pg_backup_$(DB_BACKUP_DATE).sql .
-	@cp pg_backup_$(DB_BACKUP_DATE).sql src/db/pg_backup.sql
+fetch_dump: # Fetches DB dump file from S3 bucket. Supports CITY= (e.g. make fetch_dump CITY=ogre)
+	@if [ -n "$(CITY)" ]; then \
+		city_slug=$$(echo $(CITY) | sed 's/_/-/g'); \
+		bucket="sslv-$(M6_ENV)-$$city_slug-db-backups"; \
+	else \
+		bucket="$(S3_BUCKET)"; \
+	fi; \
+	echo "Fetching from bucket: $$bucket"; \
+	aws s3 cp s3://$$bucket/pg_backup_$(DB_BACKUP_DATE).sql . ; \
+	cp pg_backup_$(DB_BACKUP_DATE).sql src/db/ || true
 
-fetch_last_db_dump: # Fetches last Postgres DB dump from AWS S3 bucket
-	@python3 src/db/get_last_db_backup.py
-	@cp *.sql src/db/
+fetch_last_db_dump: # Fetches last Postgres DB dump. Supports CITY= ENV=
+	@python3 src/db/get_last_db_backup.py $(if $(CITY),--city $(CITY) --env $(M6_ENV),)
+	@cp *.sql src/db/ || true
+
+backup-city: ## run backup for one city (e.g. make backup-city CITY=ogre ENV=prod)
+	@./scripts/backup_db_city.sh --city $(CITY) --env $(M6_ENV)
+
+restore-city: ## run restore for one city
+	@./scripts/restore_db_city.sh --city $(CITY) --env $(M6_ENV)
+
+backup-all: ## backup all cities for ENV (default prod)
+	@./scripts/backup_db_city.sh --all --env $(M6_ENV)
+
+restore-all: ## restore all cities (latest)
+	@./scripts/restore_db_city.sh --all --env $(M6_ENV)
 
 lt: ## Lists tables sizes to test if DB dump was restored correctly 
 	@docker exec $(PG_CONTAINER_NAME) psql -U new_docker_user -d new_docker_db -c '\dt+'
