@@ -74,6 +74,14 @@ fi
 
 log_info "Found ${#CITIES[@]} cities to deploy: ${CITIES[*]}"
 
+# === Fresh Volume / Backup Enforcement ===
+# By default this script only warns on missing or old backups (non-fatal).
+#
+# To FAIL the deploy for any city that has a fresh volume (no backup found):
+#   FAIL_ON_FRESH_VOLUME=true ./deploy-multi-city-ws.sh
+#
+# See the detailed "DB / FRESH VOLUME GUIDANCE" section below for more context.
+
 # Detect docker compose command
 if docker compose version >/dev/null 2>&1; then
     COMPOSE_CMD="docker compose"
@@ -151,7 +159,8 @@ FAIL_COUNT=0
 FAILED_CITIES=()
 
 # Pre-deploy safety check for backup age (non-fatal warning only)
-# Note: Restore is manual. Use scripts/restore_db_city.sh if needed.
+# This also helps detect "fresh volume" situations (no backup = likely empty DB after deploy).
+# Note: Restore is MANUAL. Use ./scripts/restore_db_city.sh if needed.
 check_backup_age() {
     local city="$1"
     local env="${M6_ENV:-prod}"
@@ -160,8 +169,12 @@ check_backup_age() {
     
     local latest=$(aws s3 ls "s3://${bucket}/db-backups/" --recursive 2>/dev/null | sort | tail -1 | awk '{print $1}')
     if [ -z "$latest" ]; then
-        log_warn "[LOW BACKUP] No backup found for $city in $bucket"
-        return
+        log_warn "[FRESH VOLUME] No backup found for $city in $bucket"
+        log_warn "  This looks like a fresh/empty volume for $city."
+        log_warn "  Tables will be created (empty) by src/db/init.sql on first start."
+        log_warn "  If you need historical data, run restore BEFORE or AFTER this deploy:"
+        log_warn "    ./scripts/restore_db_city.sh --city $city"
+        return 1   # Indicate fresh volume
     fi
     
     # Extract date from path like db-backups/2026/07/09/...
@@ -180,6 +193,7 @@ check_backup_age() {
     else
         log_info "Last backup for $city is $age days old"
     fi
+    return 0
 }
 
 for city in "${CITIES[@]}"; do
@@ -187,12 +201,44 @@ for city in "${CITIES[@]}"; do
     
     log_info "Starting deployment for city: $city"
     
-    # IMPORTANT: DB restore is MANUAL only. Do not auto-restore on deploy.
-    # Use ./scripts/restore_db_city.sh --city $city if needed (e.g. after volume wipe with down -v).
-    # See "Daily DB Backup & Manual Restore Flow for Multi-City" in README.
+    # === DB / FRESH VOLUME GUIDANCE ===
+    # DB restore is MANUAL ONLY — this script does NOT restore data.
+    #
+    # Fresh volume situations (common after first deploy or volume wipe):
+    #   - New city volume (never had data)
+    #   - After `docker compose --project-name $city down -v`
+    #   - Volume was removed or this is a new host
+    #
+    # What happens on a fresh volume:
+    #   - DB starts empty.
+    #   - src/db/init.sql (CREATE TABLE IF NOT EXISTS) creates the tables
+    #     (listed_ads + removed_ads) automatically.
+    #   - No historical data — only data from this point forward will be collected.
+    #
+    # Recommended order when volume is fresh:
+    #   1. (Optional) Restore data first if you have a backup:
+    #      ./scripts/restore_db_city.sh --city $city [--prepare-init]
+    #   2. Deploy:
+    #      ./deploy-multi-city-ws.sh
+    #
+    # To make this script FAIL the entire deploy for any city that has a fresh volume:
+    #   FAIL_ON_FRESH_VOLUME=true ./deploy-multi-city-ws.sh
+    #
+    # See:
+    #   - README.md → "Daily DB Backup & Manual Restore Flow for Multi-City"
+    #   - M6_phase_1_backup_restore_service_plan.md
+    #   - scripts/restore_db_city.sh --help
     
     log_info "Checking backup age for $city (non-fatal pre-deploy check)..."
-    check_backup_age "$city"
+    if ! check_backup_age "$city"; then
+        if [[ "${FAIL_ON_FRESH_VOLUME:-false}" =~ ^(true|1|yes)$ ]]; then
+            log_error "FRESH VOLUME detected for $city and FAIL_ON_FRESH_VOLUME is set."
+            log_error "Aborting deployment for this city (as requested by flag)."
+            FAIL_COUNT=$((FAIL_COUNT + 1))
+            FAILED_CITIES+=("$city")
+            continue
+        fi
+    fi
     
     if ! ensure_env_file "$city"; then
         FAIL_COUNT=$((FAIL_COUNT + 1))

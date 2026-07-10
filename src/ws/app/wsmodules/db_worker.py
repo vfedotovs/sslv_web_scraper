@@ -62,13 +62,16 @@ def db_worker_main() -> None:
     required_data_files = ["cleaned-sorted-df.csv"]
     check_config_files(required_config_files)
     check_data_files(required_data_files)
+
+    # Ensure tables exist (fixes missing table on fresh DB volumes without backup restore)
+    ensure_tables_exist()
+
     df = load_csv_to_df("cleaned-sorted-df.csv")
 
     if df is None or df.empty:
         logger.warning("DataFrame is empty. Skipping processing.")
         return  # Exit gracefully instead of crashing
 
-    df = load_csv_to_df("cleaned-sorted-df.csv")
     # Extract new and still listed message url hashes
     todays_url_hashes = extract_url_hashes_from_df(df)
     still_listed_table_url_hashes = extract_listed_url_hashes_from_db()
@@ -693,6 +696,62 @@ def list_rows_in_removed_table() -> int:
         if conn is not None:
             conn.close()
     return int(cur.rowcount)
+
+
+def ensure_tables_exist() -> None:
+    """Create listed_ads and removed_ads tables if they do not exist.
+    This fixes the 'relation does not exist' error on fresh DB volumes
+    (e.g. new multi-city deploy without prior backup restore).
+    """
+    conn = None
+    try:
+        params = config()
+        conn = psycopg2.connect(**params)
+        cur = conn.cursor()
+
+        # listed_ads (active listings)
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS listed_ads (
+                url_hash text,
+                room_count integer,
+                house_floors integer,
+                apt_floor integer,
+                price integer,
+                sqm integer,
+                sqm_price integer,
+                apt_address text,
+                list_date text,
+                days_listed integer,
+                view_count integer
+            )
+        """)
+
+        # removed_ads (historical)
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS removed_ads (
+                url_hash text,
+                room_count integer,
+                house_floors integer,
+                apt_floor integer,
+                price integer,
+                sqm integer,
+                sqm_price integer,
+                apt_address text,
+                listed_date text,
+                removed_date text,
+                days_listed integer,
+                view_count integer
+            )
+        """)
+
+        conn.commit()
+        cur.close()
+        logger.info("Ensured listed_ads and removed_ads tables exist (CREATE IF NOT EXISTS)")
+    except (Exception, psycopg2.DatabaseError) as error:
+        logger.error(f"Error ensuring tables exist: {error}")
+    finally:
+        if conn is not None:
+            conn.close()
 
 
 if __name__ == "__main__":
