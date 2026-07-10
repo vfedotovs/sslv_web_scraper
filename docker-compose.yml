@@ -27,6 +27,10 @@ services:
       AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY}
       CITY_MAIN_URL: ${CITY_MAIN_URL}
       EMAIL_CITY_TITLE: ${EMAIL_CITY_TITLE}
+      # Scraper control variables (can be set per-city in .env.<city>)
+      SCRAPE_URL_LIMIT: ${SCRAPE_URL_LIMIT:-5}
+      SCRAPE_DELAY_SEC: ${SCRAPE_DELAY_SEC:-5}
+      SCRAPE_LIST_DELAY_SEC: ${SCRAPE_LIST_DELAY_SEC:-1}
       DB_HOST: db
       DB_NAME: new_docker_db
       DB_USER: new_docker_user
