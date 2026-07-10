@@ -1,7 +1,10 @@
-FROM python:3.9
+FROM python:3.9-slim
 
-# Install PostgreSQL client and cron
-RUN apt-get update && apt-get install -y postgresql-client cron && rm -rf /var/lib/apt/lists/*
+# Install PostgreSQL client and cron (minimal install)
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        postgresql-client \
+        cron \
+    && rm -rf /var/lib/apt/lists/*
 
 # Set working directory
 WORKDIR /app
@@ -10,8 +13,8 @@ WORKDIR /app
 COPY backup.py /app/
 COPY cronfile /etc/cron.d/db-backup-cron
 
-# Install Python dependencies
-RUN pip install boto3
+# Install Python dependencies (no cache)
+RUN pip install --no-cache-dir boto3
 
 # Set permissions for cronfile
 RUN chmod 0644 /etc/cron.d/db-backup-cron && crontab /etc/cron.d/db-backup-cron

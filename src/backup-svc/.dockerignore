@@ -1,0 +1,4 @@
+# Ignore everything not needed for build context
+*
+!backup.py
+!cronfile

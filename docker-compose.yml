@@ -17,7 +17,11 @@ services:
     networks:
       - postgresql
   ws:
-    build: ./src/ws
+    build:
+      context: ./src/ws
+      cache_from:
+        - sslv-ws:latest
+    image: sslv-ws:latest
     restart: always
     environment:
       DEST_EMAIL: ${DEST_EMAIL}
@@ -49,7 +53,11 @@ services:
     networks:
       - postgresql
   ts:
-    build: ./src/ts
+    build:
+      context: ./src/ts
+      cache_from:
+        - sslv-ts:latest
+    image: sslv-ts:latest
     restart: always
     environment:
       WS_HOST: ws
@@ -84,13 +92,19 @@ services:
 
   # DB Backup Service (dedicated container for scheduled backups)
   # Runs cron inside the container (src/backup-svc).
-  # Deployed per-city via --project-name <city> (becomes {city}-backup-1).
+  # Uses shared image name "sslv-backup:latest" so only one backup image is built
+  # across all cities (reduces build time and disk usage).
+  # Deployed per-city via --project-name <city> (container name becomes {city}-backup-1).
   # The deploy-multi-city-ws.sh always includes --profile backup.
   # For manual/single-city: docker compose --profile backup up -d
   # Uses S3_BUCKET from .env (set per-city to *-db-backups).
   # CITY/ENV passed for awareness (add CITY=xxx to .env.city if needed for logging/fallback).
   backup:
-    build: ./src/backup-svc
+    build:
+      context: ./src/backup-svc
+      cache_from:
+        - sslv-backup:latest
+    image: sslv-backup:latest
     restart: always
     profiles: ["backup"]
     environment:
