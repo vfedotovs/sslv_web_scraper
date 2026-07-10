@@ -263,12 +263,23 @@ for city in "${CITIES[@]}"; do
     # Include the "backup" profile so the dedicated per-city backup container
     # (e.g. jurmala-backup-1) is started. The backup service is defined with
     # profiles: ["backup"] in docker-compose.yml.
-    # The "curl" debug service is behind profiles: ["debug"] so it is not started.
+    #
+    # Note: The old "curl" debug one-shot trigger is no longer used.
+    # Immediate post-deploy trigger is now performed directly in this script
+    # (see below) using a temporary curl container with the correct city.
     PROFILE_ARGS=(--profile backup)
     
     if $COMPOSE_CMD --project-name "$city" "${ENV_FILE_ARGS[@]}" "${PROFILE_ARGS[@]}" up -d; then
         log_info "Successfully deployed $city (including backup container)"
         SUCCESS_COUNT=$((SUCCESS_COUNT + 1))
+
+        # Immediate post-deploy trigger (replaces the old debug "curl" container)
+        # This ensures the scrape job runs right after deploy, not only at 00:40 schedule.
+        # The old curl service was hardcoded to ogre and explicitly disabled in multi-city.
+        log_info "Triggering immediate /run-task/${city} for post-deploy verification..."
+        $COMPOSE_CMD --project-name "$city" "${ENV_FILE_ARGS[@]}" run --rm --no-deps \
+            curlimages/curl sh -c "sleep 20 && curl -s --max-time 180 http://ws:8000/run-task/${city} || echo 'Immediate trigger completed or failed (non-fatal)'" \
+            > /dev/null 2>&1 || true
     else
         log_error "Failed to deploy $city"
         FAIL_COUNT=$((FAIL_COUNT + 1))

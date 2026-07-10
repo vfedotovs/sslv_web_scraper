@@ -68,9 +68,11 @@ services:
       retries: 3
     networks:
       - postgresql
-  # One-shot debug trigger (hardcoded to ogre, not suitable for multi-city).
-  # The deploy-multi-city-ws.sh explicitly scales it to 0.
-  # To run manually for testing: docker compose --profile debug up -d curl
+  # One-shot debug trigger (kept for manual single-city testing only).
+  # In multi-city deploys, immediate post-deploy trigger is handled inside
+  # deploy-multi-city-ws.sh using a temporary container (with correct CITY).
+  # To run manually: docker compose --profile debug up -d curl
+  # (Note: still hardcoded to ogre in the compose definition)
   curl:
     image: curlimages/curl
     command: sh -c "sleep 30 && curl http://ws:8000/run-task/ogre"
