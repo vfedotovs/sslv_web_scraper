@@ -235,7 +235,7 @@ up:  ## starts all containers
 down:  ## stops all containers
 	docker-compose --env-file .env.prod down -v   # removes volumes (clears old PGDATA)
 
-clean:  ## removes setup and DB files and folders
+clean:  ## removes setup/DB files + project Docker images (including -backup images)
 	@printf "$(call log_step,Cleaning up setup files...)\n"
 	@rm -f .env.prod && printf "$(call log_success,Removed .env.prod)\n" || printf "$(call log_info,.env.prod not found)\n"
 	@rm -f database.ini && printf "$(call log_success,Removed database.ini)\n" || printf "$(call log_info,database.ini not found)\n"
@@ -248,6 +248,8 @@ clean:  ## removes setup and DB files and folders
 	else \
 		printf "$(call log_info,rm_images.sh not found - skipping)\n"; \
 	fi
+	@printf "$(call log_step,Pruning project-specific images (e.g. *-backup) ...)\n"
+	@docker images --format "{{.Repository}}" | grep -E '-(backup|ts|ws|db)$' | xargs -r docker rmi -f 2>/dev/null || true
 	@printf "$(call log_success,Cleanup completed)\n"
 
 BUCKET_NAME ?= sslv-ogre-city-dev-v1-6-db-backups-2025-11
