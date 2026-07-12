@@ -197,11 +197,13 @@ async def run_long_task(city: str):
 
     # Shared downstream stages (data formatting → email), run after either
     # the cloud raw-data file or a local scrape produced today's raw report.
+    # M7 P7: the city is threaded into every stage so all hand-off files
+    # are city-scoped and parallel city runs cannot collide.
     downstream_stages = [
         ("data_format_changer", lambda: cloud_data_formater_main(city)),
-        ("df_cleaner", df_cleaner_main),
-        ("db_worker", db_worker_main),
-        ("analytics", analytics_main),
+        ("df_cleaner", lambda: df_cleaner_main(city)),
+        ("db_worker", lambda: db_worker_main(city)),
+        ("analytics", lambda: analytics_main(city)),
         ("aws_mailer", lambda: aws_mailer_main(city)),
     ]
 

@@ -33,12 +33,20 @@ Mudule creates:
 """
 import os
 import re
+import shutil
 from datetime import datetime
 import logging
 import logging.handlers as handlers
 from logging.handlers import RotatingFileHandler
 import sys
 import pandas as pd
+
+# M7 P7: city-scoped hand-off filenames; fall back for standalone runs.
+try:
+    from app.wsmodules.file_paths import city_file
+except Exception:
+    def city_file(base_name, city=None):
+        return f"{city}-{base_name}" if city else base_name
 
 
 log = logging.getLogger('data_format_changer')
@@ -109,8 +117,10 @@ def get_detailed_file_path(city_name: str = None) -> str:
 
 
 def cloud_data_formater_main(city_name: str = None) -> None:
-    """Read raw data from {city}-raw-data-report.txt (or legacy Ogre) and save to pandas_df.csv"""
+    """Read raw data from {city}-raw-data-report.txt (or legacy Ogre) and
+    save to {city}-pandas_df.csv (M7 P7: city-scoped hand-off file)."""
     log.info(' --- Started data_format_changer module ---')
+    output_csv = city_file("pandas_df.csv", city_name)
     todays_cloud_ws_fp = get_cloud_ws_fp(city_name)
     log.info("Lambda scraped raw-data file path: %s ", todays_cloud_ws_fp)
     todays_local_ws_fp = get_local_ws_fp(city_name)
@@ -122,8 +132,8 @@ def cloud_data_formater_main(city_name: str = None) -> None:
                  "scraped raw-data file: %s", todays_cloud_ws_fp)
         detailed_cws_fp = get_detailed_file_path(city_name)
         df = create_oneline_report(detailed_cws_fp)
-        df.to_csv("pandas_df.csv")
-        create_file_copy()
+        df.to_csv(output_csv)
+        create_file_copy(output_csv)
     elif todays_cloud_ws_file_exist is False:
         log.warning("Lambda scraped raw-data file does not exist, "
                     "falling back to local scraper source file")
@@ -131,14 +141,14 @@ def cloud_data_formater_main(city_name: str = None) -> None:
                  "raw-data file: %s format", todays_local_ws_fp)
         df = create_oneline_report(todays_local_ws_fp)
         if df is not None:
-            log.info("Saving csv format data to DataFrame file pandas_df.csv ")
-            df.to_csv("pandas_df.csv")
+            log.info("Saving csv format data to DataFrame file %s ", output_csv)
+            df.to_csv(output_csv)
             log.info("Saving csv format data file "
-                     "pandas_df.csv completed with success")
-            create_file_copy()
+                     "%s completed with success", output_csv)
+            create_file_copy(output_csv)
         if df is None:
             log.error('data_frame is None')
-            log.error("Saving csv format data file pandas_df.csv has failed")
+            log.error("Saving csv format data file %s has failed", output_csv)
     log.info(' --- Finished data_format_changer module --- ')
 
 
@@ -306,43 +316,33 @@ def trim_lists_to_min_length(list1, list2, list3,
     return trimmed_lists
 
 
-def create_file_copy() -> None:
+def create_file_copy(source_file: str = "pandas_df.csv") -> None:
     """
-    Creates a timestamped backup copy of the file 'pandas_df.csv' in the 'data' directory.
-
-    The function generates a backup of the 'pandas_df.csv' file with the current date appended 
-    to the filename in the format 'pandas_df_YYYY-MM-DD.csv'. The backup file is 
-    saved in the 'data' directory. If the 'data' directory does not exist, it 
-    will be created.
-
-    The process involves:
-    - Checking if the 'data' directory exists; if not, it creates the directory.
-    - Copying the 'pandas_df.csv' file to the 'data' directory with a new name
-      that includes the current date.
-    - Logging the process of file backup creation.
+    Creates a timestamped backup copy of the pandas_df csv in the 'data'
+    directory (e.g. 'jurmala-pandas_df_YYYY-MM-DD.csv'). M7 P7: the source
+    name is city-scoped and the copy uses shutil instead of os.system(cp).
 
     Raises:
         OSError: If the copying of the file fails, although this is not
         explicitly caught in this function.
     """
     todays_date = datetime.today().strftime('%Y-%m-%d')
-    dest_file = 'pandas_df_' + todays_date + '.csv'
-    copy_cmd = 'cp pandas_df.csv data/' + dest_file
+    base_name = source_file[:-len('.csv')] if source_file.endswith('.csv') else source_file
+    dest_file = base_name + '_' + todays_date + '.csv'
     log.info("Creating backup of file: %s into folder 'data/'", dest_file)
 
     if not os.path.exists('data'):
         log.warning("'data' folder does not exist. Creating folder.")
         os.makedirs('data')
 
-    os.system(copy_cmd)
-    # log.info("Completed moving file: %s to folder 'data/' with success", dest_file)
     try:
-        dest_path = './data/' + dest_file
+        dest_path = os.path.join('data', dest_file)
+        shutil.copy2(source_file, dest_path)
         file_size = os.path.getsize(dest_path)
         log.info("Completed moving file: %s to folder 'data/' with success."
                  "File size: %d bytes", dest_file, file_size)
     except OSError as e:
-        log.error("Failed to get file size for %s: %s", dest_file, str(e))
+        log.error("Failed to copy %s to data/: %s", source_file, str(e))
 
 
 if __name__ == "__main__":

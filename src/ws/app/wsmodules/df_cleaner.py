@@ -33,9 +33,17 @@ from datetime import datetime
 import logging
 from logging.handlers import RotatingFileHandler
 import os
+import shutil
 import sys
 # from tabulate import tabulate
 import pandas as pd
+
+# M7 P7: city-scoped hand-off filenames; fall back for standalone runs.
+try:
+    from app.wsmodules.file_paths import city_file
+except Exception:
+    def city_file(base_name, city=None):
+        return f"{city}-{base_name}" if city else base_name
 
 
 log = logging.getLogger(__name__)
@@ -318,12 +326,14 @@ def save_pub_dates_report_to(pubdates_out_file_name: str, month_data: list) -> N
         f"Completed writing {text_line_cnt} lines to {pubdates_out_file_name} file ")
 
 
-def df_cleaner_main():
-    """ Cleans df, sorts df by price in EUR, save to csv file """
+def df_cleaner_main(city_name: str = None):
+    """ Cleans df, sorts df by price in EUR, save to csv file.
+    M7 P7: all hand-off filenames are city-scoped when city_name given."""
     log.info(" --- Started df_cleaner module ---")
-    RAW_DATA_FILE = 'pandas_df.csv'
+    RAW_DATA_FILE = city_file('pandas_df.csv', city_name)
     DEFAULT_DATA_FILE = 'pandas_df_default.csv'
-    EMAIL_BODY_OUTPUT_FILE = 'email_body_txt_m4.txt'
+    CLEANED_CSV_FILE = city_file('cleaned-sorted-df.csv', city_name)
+    EMAIL_BODY_OUTPUT_FILE = city_file('email_body_txt_m4.txt', city_name)
     NEW_EMAIL_BODY_FILE = 'new_email_body.txt'
     try:
         log.info(f'Loading {RAW_DATA_FILE} file.')
@@ -335,22 +345,23 @@ def df_cleaner_main():
             clean_price_col = split_price_column(clean_sqm_col)
             clean_df = clean_sqm_eur_col(clean_price_col)
             sorted_df = clean_df.sort_values(by='Price_in_eur', ascending=True)
-            sorted_df.to_csv("cleaned-sorted-df.csv")
-            all_ads_df = pd.read_csv("cleaned-sorted-df.csv", index_col=False)
-            create_file_copy()
+            sorted_df.to_csv(CLEANED_CSV_FILE)
+            all_ads_df = pd.read_csv(CLEANED_CSV_FILE, index_col=False)
+            create_file_copy(CLEANED_CSV_FILE)
             create_email_body(all_ads_df, EMAIL_BODY_OUTPUT_FILE)
             # TODO: fix bug incorrect room counts in 2 and more room segments
             # tbl_data = gen_email_body(all_ads_df)
             # save_email_body_table(tbl_data, NEW_EMAIL_BODY_FILE)
             log.info(
                 f'Completed write data email template to {NEW_EMAIL_BODY_FILE} file.')
-            create_mb_file_copy()
+            create_mb_file_copy(EMAIL_BODY_OUTPUT_FILE)
             sorted_pub_dates = extract_uniq_date_count(all_ads_df)
             ordered_month_keys = order_keys_by_month(sorted_pub_dates)
             splited_dates = split_pub_dates_by_month(
                 sorted_pub_dates, ordered_month_keys)
             save_pub_dates_report_to(
-                'email_body_add_dates_table.txt', splited_dates)
+                city_file('email_body_add_dates_table.txt', city_name),
+                splited_dates)
 
     except FileNotFoundError:
         log.error(f'File {RAW_DATA_FILE} not found')
@@ -373,30 +384,35 @@ def df_cleaner_main():
     log.info(" --- Completed df_cleaner module ---")
 
 
-def create_file_copy() -> None:
-    """Creates file copy in data folder"""
-    log.info(
-        "Started copy of cleaned-sorted-df-YYYY-MM-DD.csv in data folder")
-    todays_date = datetime.today().strftime('%Y-%m-%d')
-    dest_file = 'cleaned-sorted-df-' + todays_date + '.csv'
-    copy_cmd = 'cp cleaned-sorted-df.csv data/' + dest_file
+def _copy_to_data_folder(source_file: str, dest_file: str) -> None:
+    """Copies a hand-off file into data/ (M7 P7: shutil, not os.system cp)."""
     if not os.path.exists('data'):
         os.makedirs('data')
-    os.system(copy_cmd)
-    log.info(f"Completed creating file copy of {dest_file}")
+    try:
+        shutil.copy2(source_file, os.path.join('data', dest_file))
+        log.info(f"Completed creating file copy of {dest_file}")
+    except OSError as e:
+        log.error(f"Failed to copy {source_file} to data/{dest_file}: {e}")
 
 
-def create_mb_file_copy() -> None:
-    """Creates file copy in data folder"""
+def create_file_copy(source_file: str = 'cleaned-sorted-df.csv') -> None:
+    """Creates dated csv copy in data folder"""
     log.info(
-        "Started copy of email_body_txt_m4-YYYY-MM-DD.txt in data folder")
+        "Started copy of %s (dated) in data folder", source_file)
     todays_date = datetime.today().strftime('%Y-%m-%d')
-    dest_file = 'email_body_txt_m4-' + todays_date + '.txt'
-    copy_cmd = 'cp email_body_txt_m4.txt data/' + dest_file
-    if not os.path.exists('data'):
-        os.makedirs('data')
-    os.system(copy_cmd)
-    log.info("Completed creating file copy of %s ",  dest_file)
+    base_name = source_file[:-len('.csv')] if source_file.endswith('.csv') else source_file
+    dest_file = base_name + '-' + todays_date + '.csv'
+    _copy_to_data_folder(source_file, dest_file)
+
+
+def create_mb_file_copy(source_file: str = 'email_body_txt_m4.txt') -> None:
+    """Creates dated mail-body copy in data folder"""
+    log.info(
+        "Started copy of %s (dated) in data folder", source_file)
+    todays_date = datetime.today().strftime('%Y-%m-%d')
+    base_name = source_file[:-len('.txt')] if source_file.endswith('.txt') else source_file
+    dest_file = base_name + '-' + todays_date + '.txt'
+    _copy_to_data_folder(source_file, dest_file)
 
 
 if __name__ == "__main__":

@@ -70,6 +70,13 @@ except Exception:
     def extract_listed_url_hashes_from_db():
         raise RuntimeError("db_worker unavailable in standalone mode")
 
+# M7 P7: city-scoped hand-off filenames; fall back for standalone runs.
+try:
+    from .file_paths import city_file
+except Exception:
+    def city_file(base_name, city=None):
+        return f"{city}-{base_name}" if city else base_name
+
 
 # Hand-off file for db_worker (M7 P1): today's FULL discovered URL set.
 # The diff must see every URL found on the list pages — not only the new
@@ -224,7 +231,8 @@ def scrape_website(main_url: str = None, report_file: str = None, city_slug: str
 
     # M7 P1: persist today's full URL universe for db_worker's diff before
     # any filtering — this is the "still listed" source of truth.
-    write_discovered_urls(valid_msg_urls)
+    # M7 P7: city-scoped so parallel city runs cannot clobber each other.
+    write_discovered_urls(valid_msg_urls, dest_file=city_file(DISCOVERED_URLS_FILE, city_display))
 
     # M7 P1: fetch details only for ads NOT already in listed_ads. Known
     # ads are diffed/aged purely from the discovered set; re-fetching them

@@ -37,6 +37,7 @@ from datetime import datetime
 import pandas as pd
 import psycopg2
 from app.wsmodules.config import config
+from app.wsmodules.file_paths import city_file
 from app.wsmodules.scrape_runs import record_counts
 # from config import config  # for manual test runs FIXME
 
@@ -54,12 +55,14 @@ fh.setFormatter(log_format)
 logger.addHandler(fh)
 
 
-def db_worker_main() -> None:
-    """db_worker.py module main function"""
+def db_worker_main(city: str = None) -> None:
+    """db_worker.py module main function.
+    M7 P7: input hand-off filenames are city-scoped when city is given."""
     logger.info(" --- Satrting db_worker module ---")
 
+    cleaned_csv = city_file("cleaned-sorted-df.csv", city)
     required_config_files = ["database.ini"]
-    required_data_files = ["cleaned-sorted-df.csv"]
+    required_data_files = [cleaned_csv]
     check_config_files(required_config_files)
     check_data_files(required_data_files)
 
@@ -75,13 +78,15 @@ def db_worker_main() -> None:
         ensure_tables_exist(conn=conn)
         conn.commit()
 
-        df = load_csv_to_df("cleaned-sorted-df.csv")
+        df = load_csv_to_df(cleaned_csv)
 
         # M7 P1: today's URL universe comes from the scraper's discovered-urls
         # file (ALL urls seen on the list pages); the data frame now contains
         # only newly fetched ads. Falls back to deriving the set from the df
         # when the file is absent/stale (cloud-file path, legacy runs).
-        discovered_hashes = load_todays_discovered_hashes()
+        discovered_hashes = load_todays_discovered_hashes(
+            city_file("discovered-urls.txt", city)
+        )
 
         if df is None or df.empty:
             if discovered_hashes is None:
@@ -212,7 +217,7 @@ def check_data_files(required_files: list) -> None:
         if not os.path.exists(file_name):
             logger.warning(f"File '{file_name}' not found! Creating an empty file.")
             ensure_csv_exists(
-                "cleaned-sorted-df.csv",
+                file_name,
                 headers=[
                     "URL",
                     "Room_count",

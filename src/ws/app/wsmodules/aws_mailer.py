@@ -33,6 +33,13 @@ except Exception:
     def format_recent_runs(city=None, limit=7):
         return "Scrape run history unavailable (scrape_runs module not importable)."
 
+# M7 P7: city-scoped hand-off filenames; fall back for standalone runs.
+try:
+    from app.wsmodules.file_paths import city_file
+except Exception:
+    def city_file(base_name, city=None):
+        return f"{city}-{base_name}" if city else base_name
+
 
 log = logging.getLogger("aws_mailer")
 log.setLevel(logging.INFO)
@@ -52,14 +59,16 @@ EMAIL_CITY_TITLE = os.getenv("EMAIL_CITY_TITLE")
 
 
 def get_data_files_to_remove(city_name: str = None) -> list:
-    """City-aware list of temp files for cleanup (Phase 3 hygiene)."""
+    """City-aware list of temp files for cleanup (Phase 3 hygiene).
+    M7 P7: hand-off files are city-scoped, so the cleanup list is too."""
     base = [
-        "email_body_txt_m4.txt",
+        city_file("email_body_txt_m4.txt", city_name),
         "Mailer_report.txt",
-        "cleaned-sorted-df.csv",
-        "pandas_df.csv",
-        "basic_price_stats.txt",
-        "email_body_add_dates_table.txt",
+        city_file("cleaned-sorted-df.csv", city_name),
+        city_file("pandas_df.csv", city_name),
+        city_file("basic_price_stats.txt", city_name),
+        city_file("email_body_add_dates_table.txt", city_name),
+        city_file("discovered-urls.txt", city_name),
         "1_rooms_tmp.txt",
         "mrv2.txt",
     ]
@@ -181,15 +190,15 @@ def aws_mailer_main(city_name: str = None) -> None:
     RECIPIENT = "info@propertydata.lv"
     AWS_REGION = "eu-west-1"  # e.g., Ireland
     SUBJECT = gen_subject_title()
-    # TEXT_SECTION_URLS = extract_file_contents("email_body_txt_m4.txt")
 
-    with open("email_body_txt_m4.txt", "r", encoding="utf-8") as f:
+    # M7 P7: read the city-scoped hand-off files written upstream
+    with open(city_file("email_body_txt_m4.txt", city_name), "r", encoding="utf-8") as f:
         BODY_TEXT = f.read()
 
     # List the files you want to append in order
     extra_files = [
-        "basic_price_stats.txt",
-        "email_body_add_dates_table.txt",
+        city_file("basic_price_stats.txt", city_name),
+        city_file("email_body_add_dates_table.txt", city_name),
     ]
 
     # Append contents of each file

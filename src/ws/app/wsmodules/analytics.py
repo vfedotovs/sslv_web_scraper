@@ -36,6 +36,13 @@ import os
 import pandas as pd
 from tabulate import tabulate
 
+# M7 P7: city-scoped hand-off filenames; fall back for standalone runs.
+try:
+    from app.wsmodules.file_paths import city_file
+except Exception:
+    def city_file(base_name, city=None):
+        return f"{city}-{base_name}" if city else base_name
+
 
 log = logging.getLogger('analytics')
 log.setLevel(logging.INFO)
@@ -58,14 +65,16 @@ TEMP_OUTPUT_FILE = 'basic_price_stats.txt'  # is used by pdf_cretor.py module
 # PRICE_STATS_DATA = 'Price_stats_by_room_segment.txt'
 
 
-def analytics_main() -> None:
-    """Main enrty point in module"""
+def analytics_main(city_name: str = None) -> None:
+    """Main enrty point in module.
+    M7 P7: input/output hand-off filenames are city-scoped when given."""
     log.info(" --- Starting analitics module --- ")
-    # REQUIRED_FILES = ['cleaned-sorted-df.csv']
-    data_frame_file_exists = file_exists(DATA_FRAME_FILE)
+    data_frame_file = city_file(DATA_FRAME_FILE, city_name)
+    output_file = city_file(TEMP_OUTPUT_FILE, city_name)
+    data_frame_file_exists = file_exists(data_frame_file)
     if data_frame_file_exists:
-        log.info(f'Requred input file {DATA_FRAME_FILE} exists.')
-        full_data_frame = pd.read_csv(DATA_FRAME_FILE, index_col=False)
+        log.info(f'Requred input file {data_frame_file} exists.')
+        full_data_frame = pd.read_csv(data_frame_file, index_col=False)
         data_frame_segments = split_dataframe_by_column(
             full_data_frame, ROOM_COUNT_COLUMN)
         price_stats_by_room = extract_data_from(
@@ -73,9 +82,9 @@ def analytics_main() -> None:
         calc_price_data = calculate_price_stats(price_stats_by_room)
         formatted_price_stats = format_price_stats_data(
             calc_price_data)
-        write_report_to(TEMP_OUTPUT_FILE, formatted_price_stats)
+        write_report_to(output_file, formatted_price_stats)
     else:
-        log.error(f'Requred input file {DATA_FRAME_FILE} DOES NOT exist.')
+        log.error(f'Requred input file {data_frame_file} DOES NOT exist.')
     log.info(" --- Ended analitics module --- ")
 
 
