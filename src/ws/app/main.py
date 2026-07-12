@@ -87,6 +87,45 @@ def home():
     return {"FastAPI server is ready !!!"}
 
 
+@app.get("/status")
+def status():
+    """M6 monitoring Item 5: machine-readable run status from scrape_runs.
+
+    Returns the most recent run per city with status, counts, and duration,
+    so the ts scheduler, the host watchdog (Item 6), or an operator can
+    answer "did last night work?" without docker exec:
+        curl http://localhost:8000/status
+    Returns 503 when the DB is unreachable (a probe must not pretend health).
+    """
+    log.info("Received GET request on /status")
+    try:
+        scrape_runs.ensure_scrape_runs_table()
+        last_runs = scrape_runs.get_last_run_per_city()
+    except Exception as exc:
+        log.error("/status failed to read scrape_runs: %s", exc)
+        raise HTTPException(
+            status_code=503, detail=f"scrape_runs table unavailable: {exc}"
+        ) from exc
+    return {
+        "status": "ok",
+        "cities": {run["city"]: _serialize_run(run) for run in last_runs},
+    }
+
+
+def _serialize_run(run: dict) -> dict:
+    """JSON-friendly view of a scrape_runs row (ISO timestamps + duration)."""
+    started = run.get("started_at")
+    finished = run.get("finished_at")
+    duration_seconds = None
+    if started is not None and finished is not None:
+        duration_seconds = int((finished - started).total_seconds())
+    serialized = dict(run)
+    serialized["started_at"] = started.isoformat() if started else None
+    serialized["finished_at"] = finished.isoformat() if finished else None
+    serialized["duration_seconds"] = duration_seconds
+    return serialized
+
+
 @app.get("/run-task/{city}")
 async def run_long_task(city: str):
     """Endpoint to trigger scrape, format and insert data in DB for a specific city.

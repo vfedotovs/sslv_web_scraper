@@ -265,6 +265,36 @@ def get_recent_runs(city: str = None, limit: int = 7) -> list:
             conn.close()
 
 
+def get_last_run_per_city() -> list:
+    """Return the most recent run for each city as a list of dicts.
+
+    Backs the /status endpoint (M6 monitoring Item 5): one row per city,
+    newest run wins, so a watchdog or operator can answer "did last night
+    work?" for the whole deployment in one query.
+    """
+    columns = (
+        "run_id", "city", "started_at", "finished_at", "status",
+        "failed_stage", "error",
+    ) + COUNT_COLUMNS
+    conn = None
+    try:
+        conn = _connect()
+        cur = conn.cursor()
+        cur.execute(
+            f"SELECT DISTINCT ON (city) {', '.join(columns)} FROM scrape_runs"
+            " ORDER BY city, started_at DESC"
+        )
+        rows = cur.fetchall()
+        cur.close()
+        return [dict(zip(columns, row)) for row in rows]
+    except (Exception, psycopg2.DatabaseError) as error:
+        logger.error(f"Failed to fetch last run per city: {error}")
+        raise
+    finally:
+        if conn is not None:
+            conn.close()
+
+
 def format_recent_runs(city: str = None, limit: int = 7) -> str:
     """Human-readable recent-run summary block for the daily report email.
 
