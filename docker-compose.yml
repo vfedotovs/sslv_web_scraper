@@ -65,6 +65,14 @@ services:
     environment:
       WS_HOST: ws
       CITY: ${CITY:-ogre}
+      # Trigger feedback loop (M6 Item 7): SES alerts when the trigger is
+      # refused, the run never started, or the run failed (see ts.py)
+      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID}
+      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY}
+      DEST_EMAIL: ${DEST_EMAIL}
+      SRC_EMAIL: ${SRC_EMAIL}
+      TASK_TIME: ${TASK_TIME:-00:40}
+      VERIFY_TIME: ${VERIFY_TIME:-01:40}
     # Health check port is only accessible within Docker network (no external exposure needed)
     # ports:
     #   - "8080:8080"  # Uncomment only if you need external monitoring
