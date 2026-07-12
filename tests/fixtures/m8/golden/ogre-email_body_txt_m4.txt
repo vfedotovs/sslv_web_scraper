@@ -1,0 +1,16 @@
+1 room apartment segment:
+[Rooms, Floor, Size, Price, SQM Price, Apartment Street, Pub_date,  URL]
+  1     2/5    31   21900    706.45   Skolas iela 12   01.02.2022 https://ss.lv/msg/lv/real-estate/flats/ogre-and-reg/ogre/aaa06.html
+  1     1/5    20   9500    475.0   Mālkalnes prospekts 10   15.03.2026 https://ss.lv/msg/lv/real-estate/flats/ogre-and-reg/ogre/aaa01.html
+2 room apartment segment:
+[Rooms, Floor, Size, Price, SQM Price, Apartment Street, Pub_date,  URL]
+  2     4/5    50   38500    770.0   Parka iela 5   28.06.2026 https://ss.lv/msg/lv/real-estate/flats/ogre-and-reg/ogre/aaa09.html
+  2     5/5    50   45000    900.0   Ausekļa prospekts 3   11.05.2026 https://ss.lv/msg/lv/real-estate/flats/ogre-and-reg/ogre/aaa04.html
+  2     3/9    50   57000    1140.0   Jaunatnes iela 4   01.02.2026 https://ss.lv/msg/lv/real-estate/flats/ogre-and-reg/ogre/aaa03.html
+3 room apartment segment:
+[Rooms, Floor, Size, Price, SQM Price, Apartment Street, Pub_date,  URL]
+  3     2/2    80   100000    1250.0   Zinību iela 6   20.04.2026 https://ss.lv/msg/lv/real-estate/flats/ogre-and-reg/ogre/aaa02.html
+  3     7/9    65   78900    1213.85   Brīvības iela 101   02.07.2026 https://ss.lv/msg/lv/real-estate/flats/ogre-and-reg/ogre/aaa07.html
+4 room apartment segment:
+[Rooms, Floor, Size, Price, SQM Price, Apartment Street, Pub_date,  URL]
+  4     4/9    76   175000    2302.63   Rīgas iela 20   30.06.2026 https://ss.lv/msg/lv/real-estate/flats/ogre-and-reg/ogre/aaa05.html

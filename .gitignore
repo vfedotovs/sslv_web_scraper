@@ -10,6 +10,10 @@
 # Allow HTML fixtures for scraper pagination tests
 !tests/fixtures/**/*.html
 !tests/fixtures/sslv/*.html
+
+# Allow M8 golden-chain fixtures (Phase 1 pandas-removal harness)
+!tests/fixtures/m8/**/*.txt
+!tests/fixtures/m8/**/*.csv
 pg_*.sql
 __init__.pyc
 .coverage
