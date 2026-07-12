@@ -18,7 +18,7 @@ from logging.handlers import RotatingFileHandler
 import os
 import sys
 import uvicorn
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from app.wsmodules.file_downloader import download_latest_lambda_file
 from app.wsmodules.web_scraper import scrape_website
 # Optional city config (Phase 4)
@@ -51,6 +51,33 @@ log.addHandler(fh)
 app = FastAPI()
 
 
+class PipelineStageError(Exception):
+    """Raised when a pipeline stage fails; carries the failed stage name
+    so the endpoint (and later monitoring/alerting) can report it."""
+
+    def __init__(self, stage: str, original: Exception):
+        self.stage = stage
+        self.original = original
+        super().__init__(f"Pipeline stage '{stage}' failed: {original}")
+
+
+def run_pipeline_stages(stages: list) -> None:
+    """Run (stage_name, callable) pairs in order.
+
+    M6 monitoring Item 1: any exception raised inside a stage is no longer
+    swallowed by the wsmodules — it propagates here and is wrapped in
+    PipelineStageError so the run fails loudly with the stage name attached.
+    """
+    for stage_name, stage_func in stages:
+        log.info("Running %s stage", stage_name)
+        try:
+            stage_func()
+        except Exception as exc:
+            log.error("Stage %s FAILED: %s", stage_name, exc)
+            raise PipelineStageError(stage_name, exc) from exc
+        log.info("Completed %s stage", stage_name)
+
+
 @app.get("/")
 def home():
     """Test enpoint to verify if fast-api is live"""
@@ -75,6 +102,16 @@ async def run_long_task(city: str):
     # TODO implement flag skip LAMBDA_FILE
     todays_cloud_data_file_exist = False
 
+    # Shared downstream stages (data formatting → email), run after either
+    # the cloud raw-data file or a local scrape produced today's raw report.
+    downstream_stages = [
+        ("data_format_changer", lambda: cloud_data_formater_main(city)),
+        ("df_cleaner", df_cleaner_main),
+        ("db_worker", db_worker_main),
+        ("analytics", analytics_main),
+        ("aws_mailer", lambda: aws_mailer_main(city)),
+    ]
+
     if todays_cloud_data_file_exist is True:
         last_cloud_file_name = get_todays_cloud_data_file_name()
         log.info(
@@ -83,48 +120,38 @@ async def run_long_task(city: str):
             " data_formater_module ",
             last_cloud_file_name,
         )
-        log.info("Running cloud_data_formater_main task: using cloud ws file")
-        cloud_data_formater_main(city)
-        log.info("Running df_cleaner_main task: using cloud ws file")
-        df_cleaner_main()
-        log.info("Running db_worker_main task: using cloud ws file")
-        db_worker_main()
-        log.info("Running analytics_main task: using cloud ws file")
-        analytics_main()
-        log.info("Running aws_mailer task: using cloud ws file")
-        aws_mailer_main(city)
-        log.info("Completed /run-task/%s using AWS lambda raw-data file", city)
-        return {
-            "message": f"FAST_API: scrape {city} city apartments"
+        stages = downstream_stages
+        source = "cloud ws file"
+        result_message = (
+            f"FAST_API: scrape {city} city apartments"
             " task using cloud ws file run completed"
-        }
-
-    lst_run_state = check_lst_run_state(city)
-    if lst_run_state:
-        log.info("EXIT: will not call ws_worker module because task was run last 24H")
-        return {
-            "message": "Local scraper job already has run,"
-            " in last 24H will not run today again"
-        }
-
-    if todays_cloud_data_file_exist is False:
+        )
+    else:
+        lst_run_state = check_lst_run_state(city)
+        if lst_run_state:
+            log.info("EXIT: will not call ws_worker module because task was run last 24H")
+            return {
+                "message": "Local scraper job already has run,"
+                " in last 24H will not run today again"
+            }
         log.info("Running scrape_website task will create local ws file for %s (%s)", city, display)
-        scrape_website(city_slug=city)
-        log.info("Running data_formater_main task: using locally scraped file")
-        cloud_data_formater_main(city)
-        log.info("Running df_cleaner_main task: using locally scraped file")
-        df_cleaner_main()
-        log.info("Running db_worker_main task: using locally scraped file")
-        db_worker_main()
-        log.info("Running analytics_main task: using locally scraped file")
-        analytics_main()
-        log.info("Running aws_mailer task: using locally scraped file")
-        aws_mailer_main(city)
-
-        return {
-            "message": f"FAST_API: scrape {city} city apartments "
+        stages = [("web_scraper", lambda: scrape_website(city_slug=city))] + downstream_stages
+        source = "locally scraped file"
+        result_message = (
+            f"FAST_API: scrape {city} city apartments "
             "task using local scrape job was completed"
-        }
+        )
+
+    # M6 monitoring Item 1: single pipeline-level catch. A failed stage now
+    # fails the whole run and returns HTTP 500 instead of pretending success.
+    try:
+        run_pipeline_stages(stages)
+    except PipelineStageError as exc:
+        log.exception("Pipeline FAILED for city %s (source: %s): %s", city, source, exc)
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+    log.info("Completed /run-task/%s using %s", city, source)
+    return {"message": result_message}
 
 
 def check_today_cloud_data_file_exist() -> bool:

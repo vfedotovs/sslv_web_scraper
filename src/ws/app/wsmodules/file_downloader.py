@@ -49,8 +49,8 @@ def download_file_from_s3(remote_file_name: str) -> None:
         s3.download_file(S3_LAMBDA_BUCKET_NAME,
                          remote_file_name, local_path_fn)
     except Exception as err:
-        print(f"Error {err}")
         log.error(f"File download failed with : {err}")
+        raise
 
 
 def get_last_file_name(s3_bucket_name: str) -> str:
@@ -76,6 +76,7 @@ def move_file_to(folder: str, src_file_name: str, dst_file_name: str) -> None:
         log.info(f"File {src_file_name} moved to {dst_path}")
     except Exception as e:
         log.error(f"Error moving {src_file_name} to {dst_path}: {e}")
+        raise
 
 
 def download_latest_lambda_file() -> None:

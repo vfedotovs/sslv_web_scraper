@@ -256,18 +256,17 @@ def create_oneline_report(source_file: str) -> pd.DataFrame:
                       'Street': nroom_streets,
                       'Price': nroom_prices,
                       'Pub_date': npublish_dates}
-            try:
-                log.info("Attempting to create the DataFrame ")
-                pandas_df = pd.DataFrame(mydict)
-            except Exception as e:
-                log.error("Failed to create DataFrame: %s", str(e))
+            log.info("Attempting to create the DataFrame ")
+            pandas_df = pd.DataFrame(mydict)
             log.info("DataFrame format was created successfully. ")
             return pandas_df
     except FileNotFoundError:
         log.error("Source raw-data text file: %s does not exist", source_file)
+        raise
     except Exception as e:
         log.error(
             "An error occurred while processing the file %s : %s ", source_file, str(e))
+        raise
 
 
 def validate_list_lengths(lists) -> None:

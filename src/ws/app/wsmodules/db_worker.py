@@ -215,7 +215,8 @@ def extract_listed_url_hashes_from_db() -> list:
             row = cur.fetchone()
         cur.close()
     except (Exception, psycopg2.DatabaseError) as error:
-        logger.error(f"{error}")
+        logger.error(f"Failed to extract url hashes from listed_ads table: {error}")
+        raise
     finally:
         if conn is not None:
             conn.close()
@@ -390,7 +391,8 @@ def insert_data_to_listed_table(data: dict) -> None:
         for k, v in data.items():
             logger.info(f"{k} {v}")
     except (Exception, psycopg2.DatabaseError) as error:
-        print(error)
+        logger.error(f"DB operation failed: {error}")
+        raise
     finally:
         if conn is not None:
             conn.close()
@@ -437,7 +439,8 @@ def extract_to_remove_msg_data(delisted_hashes: list) -> dict:
                     delisted_mesages[curr_row_hash] = data_values
         cur.close()
     except (Exception, psycopg2.DatabaseError) as error:
-        print(error)
+        logger.error(f"DB operation failed: {error}")
+        raise
     finally:
         if conn is not None:
             conn.close()
@@ -487,7 +490,8 @@ def extract_to_increment_msg_data(listed_url_hashes: list) -> list:
         for k, v in to_increment_msg_data.items():
             logger.info(f"{k} {v}")
     except (Exception, psycopg2.DatabaseError) as error:
-        print(error)
+        logger.error(f"DB operation failed: {error}")
+        raise
     finally:
         if conn is not None:
             conn.close()
@@ -548,8 +552,8 @@ def insert_data_to_removed_table(data: dict) -> None:
         for k, v in data.items():
             logger.info(f"{k} {v}")
     except (Exception, psycopg2.DatabaseError) as error:
-        logger.error(error)
-        print(error)
+        logger.error(f"Failed to insert data to removed_ads table: {error}")
+        raise
     finally:
         if conn is not None:
             conn.close()
@@ -574,7 +578,8 @@ def delete_db_listed_table_rows(delisted_hashes: list) -> None:
         cur.close()
         logger.info(f"Deleted ads with hashes: {delisted_hashes} from listed_ads table")
     except (Exception, psycopg2.DatabaseError) as error:
-        print(error)
+        logger.error(f"DB operation failed: {error}")
+        raise
     finally:
         if conn is not None:
             conn.close()
@@ -647,7 +652,8 @@ def update_single_column_value(table_name: str, dlv: int, url_hash: str) -> None
         conn.commit()
         cur.close()
     except (Exception, psycopg2.DatabaseError) as error:
-        print(error)
+        logger.error(f"DB operation failed: {error}")
+        raise
     finally:
         if conn is not None:
             conn.close()
@@ -668,7 +674,8 @@ def list_rows_in_listed_table() -> None:
             row = cur.fetchone()
         cur.close()
     except (Exception, psycopg2.DatabaseError) as error:
-        print(error)
+        logger.error(f"DB operation failed: {error}")
+        raise
     finally:
         if conn is not None:
             conn.close()
@@ -691,7 +698,8 @@ def list_rows_in_removed_table() -> int:
         #     row = cur.fetchone()
         cur.close()
     except (Exception, psycopg2.DatabaseError) as error:
-        print(error)
+        logger.error(f"DB operation failed: {error}")
+        raise
     finally:
         if conn is not None:
             conn.close()
@@ -749,6 +757,7 @@ def ensure_tables_exist() -> None:
         logger.info("Ensured listed_ads and removed_ads tables exist (CREATE IF NOT EXISTS)")
     except (Exception, psycopg2.DatabaseError) as error:
         logger.error(f"Error ensuring tables exist: {error}")
+        raise
     finally:
         if conn is not None:
             conn.close()

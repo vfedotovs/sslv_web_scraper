@@ -154,7 +154,9 @@ def scrape_website(main_url: str = None, report_file: str = None, city_slug: str
     page_one_bs_obj = _fetch_list_page(session, main_url)
     if page_one_bs_obj is None:
         logger.error("Failed to fetch first page %s", main_url)
-        return
+        raise RuntimeError(
+            f"web_scraper: failed to fetch first listing page {main_url} after retries"
+        )
 
     total_pages = get_total_pages(page_one_bs_obj)
     logger.info("Detected %s page(s) of listings", total_pages)

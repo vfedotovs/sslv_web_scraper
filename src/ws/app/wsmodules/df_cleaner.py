@@ -366,8 +366,10 @@ def df_cleaner_main():
                     f'Completed write empty email template to {EMAIL_BODY_OUTPUT_FILE} file.')
         except FileNotFoundError:
             log.error(f'{DEFAULT_DATA_FILE} does not exist.')
+            raise
         except Exception as e:
             log.error(f"An error occurred: {e}")
+            raise
     log.info(" --- Completed df_cleaner module ---")
 
 

@@ -224,8 +224,8 @@ def aws_mailer_main(city_name: str = None) -> None:
             Source=SENDER,
         )
     except ClientError as e:
-        print(f"Failed to send email: {e.response['Error']['Message']}")
         log.error(f"Failed to send email: {e.response['Error']['Message']}")
+        raise
     else:
         print(f"Email sent! Message ID: {response['MessageId']}")
         log.info(f"Email sent! Message ID: {response['MessageId']}")
