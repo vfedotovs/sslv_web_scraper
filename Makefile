@@ -453,6 +453,9 @@ verify-backup: ## verify latest backup for CITY (size check, S3 presence, basic 
 	@./scripts/backup_db_city.sh --city $(CITY) --env $(M6_ENV) 2>&1 | grep -E '(Verifying|size|Verified|Pruned)' || true
 	@echo "For full test-restore: use restore with verification step (lists tables)"
 
+fleet-status: ## M6 Item 6 - fleet watchdog report to terminal (containers, runs, DB rows, backups; no email)
+	@python3 scripts/fleet_watchdog.py --email-mode never --env $(M6_ENV)
+
 test-restore: ## perform sample restore + list tables for verification (uses restore script's built-in verify)
 	@echo "Test-restore + verification for CITY=$(CITY)..."
 	@./scripts/restore_db_city.sh --city $(CITY) --env $(M6_ENV) 2>&1 | tail -20
