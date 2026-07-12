@@ -3,4 +3,11 @@
 # Output is appended to cron.log; Docker CMD tails this + backup.log to container stdout.
 0 2 * * * /usr/local/bin/python -u /app/backup.py >> /var/log/cron.log 2>&1
 
+# Backup staleness check (M6 monitoring Item 4) - runs daily at 14:00 UTC,
+# hours after the backup job, and emails an SES alert if the newest backup
+# in the city's db-backups bucket is older than BACKUP_MAX_AGE_HOURS (~26h).
+# This catches a silently failing/dead backup cron that the in-process
+# post-upload verification cannot see.
+0 14 * * * /usr/local/bin/python -u /app/backup.py --staleness-check >> /var/log/cron.log 2>&1
+
 # Empty line required

@@ -122,6 +122,11 @@ services:
       ENV: ${ENV:-prod}
       # Set to DEBUG for verbose logging (also written to /var/log/backup.log inside container)
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      # Backup alerting (M6 Item 4): SES failure/staleness alert emails
+      DEST_EMAIL: ${DEST_EMAIL}
+      SRC_EMAIL: ${SRC_EMAIL}
+      MIN_BACKUP_SIZE_KB: ${MIN_BACKUP_SIZE_KB:-10}
+      BACKUP_MAX_AGE_HOURS: ${BACKUP_MAX_AGE_HOURS:-26}
     depends_on:
       db:
         condition: service_healthy
