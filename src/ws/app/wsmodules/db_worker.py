@@ -292,32 +292,25 @@ def extract_listed_url_hashes_from_db() -> list:
 
 def compare_df_to_db_hashes(df_hashes: list, db_hashes: list) -> list:
     """This should allow to conclude if hash is new, still seen, to_remove"""
-    hash_categories = []
-    new_ads = []
-    existing_ads = []
-    removed_ads = []
     logger.info(
         f"Comparing {len(df_hashes)} todays scraped data hashes "
         f"with {len(db_hashes)} DB listed_ads table hashes"
     )
-    for df_hash in df_hashes:
-        if df_hash in db_hashes:
-            existing_ads.append(df_hash)
-        if df_hash not in db_hashes:
-            new_ads.append(df_hash)
-    for db_hash in db_hashes:
-        if db_hash not in df_hashes:
-            removed_ads.append(db_hash)
-    hash_categories.append(new_ads)
-    hash_categories.append(existing_ads)
-    hash_categories.append(removed_ads)
+    # M7 P5: membership checks against sets (O(1)) instead of lists (O(N)),
+    # keeping input order in the returned lists.
+    df_hash_set = set(df_hashes)
+    db_hash_set = set(db_hashes)
+    new_ads = [h for h in df_hashes if h not in db_hash_set]
+    existing_ads = [h for h in df_hashes if h in db_hash_set]
+    removed_ads = [h for h in db_hashes if h not in df_hash_set]
+    hash_categories = [new_ads, existing_ads, removed_ads]
     logger.info(
         f"Result {len(new_ads)} new, {len(existing_ads)} still_listed, "
         f"{len(removed_ads)} to_remove hashes "
     )
-    logger.info(f"New todays scraped hashes: {new_ads}")
-    logger.info(f"Hashes from DB listed_ads table: {existing_ads}")
-    logger.info(f"Hashes for DB removed_ads table: {removed_ads}")
+    logger.debug(f"New todays scraped hashes: {new_ads}")
+    logger.debug(f"Hashes from DB listed_ads table: {existing_ads}")
+    logger.debug(f"Hashes for DB removed_ads table: {removed_ads}")
     return hash_categories
 
 
@@ -325,32 +318,35 @@ def extract_new_msg_data(df, new_msg_hashes: list) -> dict:
     """Extract data from df and return as dict hash:
     (list column data for hash row)"""
     data_dict = {}
-    logger.info(f"new_msg_hashes count {len(new_msg_hashes)}, hashes: {new_msg_hashes}")
+    logger.info(f"new_msg_hashes count {len(new_msg_hashes)}")
+    logger.debug(f"new_msg_hashes: {new_msg_hashes}")
     logger.info("Starting extract new ads from todays scraped data farme in memory")
-    for hash_str in new_msg_hashes:
-        for index, row in df.iterrows():
-            url = row["URL"]
-            url_hash = extract_hash(url)
-            row_data = []
-            row_data.append(row["Room_count"])
-            apt_and_house_floor = row["Floor"]  # apt floor and housefloor: 3/4
-            floor_list = apt_and_house_floor.split("/", 1)
-            row_data.append(floor_list[1])
-            row_data.append(floor_list[0])
-            row_data.append(row["Price_in_eur"])
-            row_data.append(row["Size_sqm"])
-            row_data.append(row["SQ_meter_price"])
-            row_data.append(row["Street"])
-            pub_date = row["Pub_date"]
-            rotated_pub_date = rotate_date(pub_date)
-            row_data.append(rotated_pub_date)
-            days_count = get_days_listed_count(pub_date)
-            row_data.append(days_count)
-            if url_hash == hash_str:
-                data_dict[url_hash] = row_data
+    # M7 P5: single pass over the data frame with a hash set lookup instead
+    # of re-iterating the whole frame for every new hash (O(new × N)).
+    new_hash_set = set(new_msg_hashes)
+    for index, row in df.iterrows():
+        url_hash = extract_hash(row["URL"])
+        if url_hash not in new_hash_set:
+            continue
+        row_data = []
+        row_data.append(row["Room_count"])
+        apt_and_house_floor = row["Floor"]  # apt floor and housefloor: 3/4
+        floor_list = apt_and_house_floor.split("/", 1)
+        row_data.append(floor_list[1])
+        row_data.append(floor_list[0])
+        row_data.append(row["Price_in_eur"])
+        row_data.append(row["Size_sqm"])
+        row_data.append(row["SQ_meter_price"])
+        row_data.append(row["Street"])
+        pub_date = row["Pub_date"]
+        rotated_pub_date = rotate_date(pub_date)
+        row_data.append(rotated_pub_date)
+        days_count = get_days_listed_count(pub_date)
+        row_data.append(days_count)
+        data_dict[url_hash] = row_data
     logger.info(f"Extrcted new ad count from todays data frame {len(data_dict)} ")
     for k, v in data_dict.items():
-        logger.info(f"{k} {v}")
+        logger.debug(f"{k} {v}")
     return data_dict
 
 
@@ -457,34 +453,36 @@ def extract_to_remove_msg_data(delisted_hashes: list) -> dict:
         conn = psycopg2.connect(**params)
         cur = conn.cursor()
         cur.execute("SELECT * FROM listed_ads")
-        table_row_count = cur.rowcount
         table_rows = cur.fetchall()
-        for delisted_hash in delisted_hashes:
-            for i in range(table_row_count):
-                curr_row_hash = table_rows[i][0]
-                if delisted_hash == curr_row_hash:
-                    room_count = table_rows[i][1]
-                    house_floor_count = table_rows[i][2]
-                    apt_floor = table_rows[i][3]
-                    price = table_rows[i][4]
-                    sqm = table_rows[i][5]
-                    sqm_price = table_rows[i][6]
-                    apt_address = table_rows[i][7]
-                    list_date = table_rows[i][8]
-                    removed_date = gen_removed_date()
-                    days_listed = table_rows[i][9]
-                    data_values = []
-                    data_values.append(room_count)
-                    data_values.append(house_floor_count)
-                    data_values.append(apt_floor)
-                    data_values.append(price)
-                    data_values.append(sqm)
-                    data_values.append(sqm_price)
-                    data_values.append(apt_address)
-                    data_values.append(list_date)
-                    data_values.append(removed_date)
-                    data_values.append(days_listed)
-                    delisted_mesages[curr_row_hash] = data_values
+        # M7 P5: single pass over table rows with a set lookup instead of
+        # nested O(hashes × rows) matching loops.
+        delisted_hash_set = set(delisted_hashes)
+        for table_row in table_rows:
+            curr_row_hash = table_row[0]
+            if curr_row_hash not in delisted_hash_set:
+                continue
+            room_count = table_row[1]
+            house_floor_count = table_row[2]
+            apt_floor = table_row[3]
+            price = table_row[4]
+            sqm = table_row[5]
+            sqm_price = table_row[6]
+            apt_address = table_row[7]
+            list_date = table_row[8]
+            removed_date = gen_removed_date()
+            days_listed = table_row[9]
+            data_values = []
+            data_values.append(room_count)
+            data_values.append(house_floor_count)
+            data_values.append(apt_floor)
+            data_values.append(price)
+            data_values.append(sqm)
+            data_values.append(sqm_price)
+            data_values.append(apt_address)
+            data_values.append(list_date)
+            data_values.append(removed_date)
+            data_values.append(days_listed)
+            delisted_mesages[curr_row_hash] = data_values
         cur.close()
     except (Exception, psycopg2.DatabaseError) as error:
         logger.error(f"DB operation failed: {error}")
@@ -513,30 +511,31 @@ def extract_to_increment_msg_data(listed_url_hashes: list) -> list:
         conn = psycopg2.connect(**params)
         cur = conn.cursor()
         cur.execute("SELECT * FROM listed_ads")
-        table_row_count = cur.rowcount  # row count from table listed_ads
         table_rows = cur.fetchall()  # list of rows as tuple Datastructure
         # need to handle case when table is empty - row count = 0 aka first run
-        if table_row_count < 1:
+        if len(table_rows) < 1:
             return None
         if len(listed_url_hashes) < 1:
             return None
-        for luh in listed_url_hashes:
-            # iterate listed url shace count over all table rows
-            for i in range(table_row_count):
-                curr_row_hash = table_rows[i][0]
-                if luh == curr_row_hash:
-                    pub_date = table_rows[i][8]
-                    dlv = table_rows[i][9]
-                    data_values = []
-                    data_values.append(pub_date)
-                    data_values.append(dlv)
-                    to_increment_msg_data[curr_row_hash] = data_values
+        # M7 P5: single pass over table rows with a set lookup instead of
+        # nested O(hashes × rows) matching loops.
+        listed_hash_set = set(listed_url_hashes)
+        for table_row in table_rows:
+            curr_row_hash = table_row[0]
+            if curr_row_hash not in listed_hash_set:
+                continue
+            pub_date = table_row[8]
+            dlv = table_row[9]
+            data_values = []
+            data_values.append(pub_date)
+            data_values.append(dlv)
+            to_increment_msg_data[curr_row_hash] = data_values
         cur.close()
         logger.info(
             f"Extracted data from listed_ads table for {len(to_increment_msg_data)} messages"
         )
         for k, v in to_increment_msg_data.items():
-            logger.info(f"{k} {v}")
+            logger.debug(f"{k} {v}")
     except (Exception, psycopg2.DatabaseError) as error:
         logger.error(f"DB operation failed: {error}")
         raise
