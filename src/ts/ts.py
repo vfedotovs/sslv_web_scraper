@@ -158,12 +158,14 @@ def execute_task():
         log.info("FAST_API Response: %s", response.text)
 
     except requests.Timeout:
-        # M6 Item 7: this is EXPECTED — the synchronous /run-task pipeline
-        # runs far longer than the trigger timeout. The run outcome is
-        # verified separately by verify_task at VERIFY_TIME via /status.
-        log.info(
-            "Trigger request timed out after %s seconds — expected, the"
-            " pipeline keeps running in ws. Outcome will be verified at"
+        # M7 P6: /run-task now enqueues and returns immediately, so a
+        # timeout is no longer the normal case — but the run may still
+        # have been accepted before the timeout. The outcome is verified
+        # separately by verify_task at VERIFY_TIME via /status either way.
+        log.warning(
+            "Trigger request timed out after %s seconds — unusual since"
+            " /run-task responds immediately now; the run may still have"
+            " started. Outcome will be verified at"
             " %s UTC via %s", timeout_seconds, VERIFY_TIME, STATUS_URL)
     except requests.RequestException as request_exception:
         # Connection refused/DNS failure: the trigger itself never reached

@@ -4,7 +4,9 @@ This is entry point for module that provides basic API interface which will trig
 
 This module contains functions:
 - home
-- async run_long_task
+- status
+- async run_long_task (M7 P6: enqueues the pipeline and returns immediately)
+- execute_pipeline (runs the pipeline in a background thread)
 - check_today_cloud_data_file_exist
 - get_todays_cloud_data_file_name
 
@@ -16,6 +18,7 @@ import logging.handlers as handlers
 from logging.handlers import RotatingFileHandler
 import os
 import sys
+import threading
 import uvicorn
 from fastapi import FastAPI, HTTPException
 from app.wsmodules.file_downloader import download_latest_lambda_file
@@ -50,6 +53,12 @@ fh.setFormatter(fastapi_log_format)
 log.addHandler(fh)
 
 app = FastAPI()
+
+# M7 P6: one pipeline run at a time per ws container. The endpoint acquires
+# this lock (non-blocking) before spawning the background run; the run
+# releases it when finished. Replaces nothing-but-a-marker-file protection
+# against overlapping runs.
+_pipeline_lock = threading.Lock()
 
 
 class PipelineStageError(Exception):
@@ -126,12 +135,53 @@ def _serialize_run(run: dict) -> dict:
     return serialized
 
 
+def execute_pipeline(city: str, stages: list, source: str) -> None:
+    """M7 P6: run the pipeline stages in a background thread.
+
+    Outcomes are recorded in scrape_runs (already started by the endpoint)
+    and surfaced via /status — a background run has no HTTP response to
+    fail with, so scrape_runs + alert emails are the only truth. Always
+    releases the pipeline lock at the end.
+    """
+    try:
+        run_pipeline_stages(stages)
+        scrape_runs.finish_run("success")
+        # M6 monitoring Item 3: anomaly checks on the finished run's counts
+        # (zero ads discovered, removed-spike, zero new ads streak); emails
+        # an anomaly alert if any trip. Best-effort, never fails the run.
+        alert_mailer.check_and_alert(city)
+        log.info("Completed run-task for %s using %s", city, source)
+    except PipelineStageError as exc:
+        log.exception("Pipeline FAILED for city %s (source: %s): %s", city, source, exc)
+        try:
+            scrape_runs.finish_run("failed", failed_stage=exc.stage, error=str(exc.original))
+        except Exception as record_exc:
+            log.error("Could not record failed run in scrape_runs: %s", record_exc)
+        # M6 monitoring Item 3: failure alert email (best-effort, never raises)
+        alert_mailer.send_pipeline_failure_alert(city, exc.stage, str(exc.original))
+    except Exception as exc:
+        # Safety net (e.g. finish_run itself failed): never exit the thread
+        # leaving a zombie 'running' row unreported.
+        log.exception("Pipeline run for city %s broke outside stages: %s", city, exc)
+        try:
+            scrape_runs.finish_run("failed", failed_stage="post-stages", error=str(exc))
+        except Exception as record_exc:
+            log.error("Could not record failed run in scrape_runs: %s", record_exc)
+        alert_mailer.send_pipeline_failure_alert(city, "post-stages", str(exc))
+    finally:
+        _pipeline_lock.release()
+
+
 @app.get("/run-task/{city}")
 async def run_long_task(city: str):
     """Endpoint to trigger scrape, format and insert data in DB for a specific city.
-    Phase 3: city param fully wired for report naming across pipeline.
-    Example verification (Item 10): curl http://localhost:8000/run-task/jurmala
-    Then check data/jurmala-raw-data-report-*.txt and logs for correct city files.
+
+    M7 P6: enqueue-and-return. The pipeline executes in a background
+    thread; this handler responds immediately so the event loop, health
+    checks and further requests stay alive during the run. Run outcome is
+    tracked in scrape_runs and queried via /status (which the ts
+    scheduler already does at VERIFY_TIME — M6 Item 7).
+    Returns 409 when a run is already in progress in this container.
     """
     log.info("Received GET request to start scraping job for %s city", city)
     if not validate_city_slug(city):
@@ -165,10 +215,6 @@ async def run_long_task(city: str):
         )
         stages = downstream_stages
         source = "cloud ws file"
-        result_message = (
-            f"FAST_API: scrape {city} city apartments"
-            " task using cloud ws file run completed"
-        )
     else:
         # M6 monitoring Item 2: DB-based "already ran today" guard
         # (replaces the filesystem marker file check in check_lst_run_state).
@@ -182,34 +228,44 @@ async def run_long_task(city: str):
         log.info("Running scrape_website task will create local ws file for %s (%s)", city, display)
         stages = [("web_scraper", lambda: scrape_website(city_slug=city))] + downstream_stages
         source = "locally scraped file"
-        result_message = (
-            f"FAST_API: scrape {city} city apartments "
-            "task using local scrape job was completed"
+
+    # M7 P6: overlap guard — one run at a time per container. 409 lets the
+    # caller distinguish "busy" from "accepted".
+    if not _pipeline_lock.acquire(blocking=False):
+        log.warning("Rejected /run-task/%s: another pipeline run is in progress", city)
+        raise HTTPException(
+            status_code=409,
+            detail="A pipeline run is already in progress; check /status",
         )
 
-    # M6 monitoring Items 1+2: single pipeline-level catch, and the run is
-    # recorded in scrape_runs from start to finish. A failed stage fails the
-    # whole run, marks the row 'failed', and returns HTTP 500.
-    scrape_runs.start_run(city)
+    # Record the run before returning so the caller gets a run_id and
+    # /status immediately shows 'running'. If recording fails, the run
+    # must not start silently (M6 Item 1 philosophy).
     try:
-        run_pipeline_stages(stages)
-    except PipelineStageError as exc:
-        log.exception("Pipeline FAILED for city %s (source: %s): %s", city, source, exc)
-        try:
-            scrape_runs.finish_run("failed", failed_stage=exc.stage, error=str(exc.original))
-        except Exception as record_exc:
-            log.error("Could not record failed run in scrape_runs: %s", record_exc)
-        # M6 monitoring Item 3: failure alert email (best-effort, never raises)
-        alert_mailer.send_pipeline_failure_alert(city, exc.stage, str(exc.original))
-        raise HTTPException(status_code=500, detail=str(exc)) from exc
-    scrape_runs.finish_run("success")
-    # M6 monitoring Item 3: anomaly checks on the finished run's counts
-    # (zero ads discovered, removed-spike, zero new ads streak); emails
-    # an anomaly alert if any trip. Best-effort, never fails the run.
-    alert_mailer.check_and_alert(city)
+        run_id = scrape_runs.start_run(city)
+        worker = threading.Thread(
+            target=execute_pipeline,
+            args=(city, stages, source),
+            name=f"pipeline-{city}",
+            daemon=True,
+        )
+        worker.start()
+    except Exception as exc:
+        _pipeline_lock.release()
+        log.error("Failed to start background pipeline for %s: %s", city, exc)
+        raise HTTPException(
+            status_code=500, detail=f"Could not start pipeline run: {exc}"
+        ) from exc
 
-    log.info("Completed /run-task/%s using %s", city, source)
-    return {"message": result_message}
+    log.info("Accepted /run-task/%s (run_id %s, source: %s); running in background", city, run_id, source)
+    return {
+        "message": (
+            f"FAST_API: scrape {city} city apartments task accepted;"
+            f" running in background using {source}"
+        ),
+        "run_id": run_id,
+        "status_url": "/status",
+    }
 
 
 def check_today_cloud_data_file_exist() -> bool:
