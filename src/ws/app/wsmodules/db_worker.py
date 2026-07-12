@@ -273,7 +273,7 @@ def extract_url_hashes_from_df(df_name) -> list:
         url_hash = extract_hash(full_url)
         url_hashes.append(url_hash)
     logger.info(f"Extracted {len(url_hashes)} url hashes from todays scraped data")
-    logger.info(f"Extracted {url_hashes} url hashes from todays scraped data")
+    logger.debug(f"Extracted {url_hashes} url hashes from todays scraped data")
     return url_hashes
 
 
@@ -314,8 +314,7 @@ def extract_listed_url_hashes_from_db(conn=None) -> list:
         clean_hash = clean_element.replace("(", "").replace(",", "")
         clean_hashes.append(clean_hash)
     logger.info(f"Extracted {len(clean_hashes)} hashes from database listed_ads table")
-    logger.info(f"Extracted clean hash count: {len(clean_hashes)}")
-    logger.info(f"Extracted clean hash list: {clean_hashes}")
+    logger.debug(f"Extracted clean hash list: {clean_hashes}")
     return clean_hashes
 
 
@@ -553,7 +552,8 @@ def delete_db_listed_table_rows(delisted_hashes: list, conn=None) -> None:
         if own_conn:
             conn.commit()
         cur.close()
-        logger.info(f"Deleted ads with hashes: {delisted_hashes} from listed_ads table")
+        logger.info(f"Deleted {len(delisted_hashes)} ads from listed_ads table")
+        logger.debug(f"Deleted ad hashes: {delisted_hashes}")
     except (Exception, psycopg2.DatabaseError) as error:
         logger.error(f"DB operation failed: {error}")
         raise

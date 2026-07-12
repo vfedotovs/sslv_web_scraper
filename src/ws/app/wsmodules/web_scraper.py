@@ -349,7 +349,11 @@ def extract_data_from_url(nondup_urls: list, dest_file: str, session: requests.S
     try:
         for i in range(num_to_process):
             msg_url = nondup_urls[i]
-            logger.info("Scraping ad %s/%s: %s", i + 1, num_to_process, msg_url)
+            # M7 P9: per-ad progress at DEBUG; periodic summary at INFO so
+            # a 3000-ad first run doesn't write thousands of INFO lines
+            logger.debug("Scraping ad %s/%s: %s", i + 1, num_to_process, msg_url)
+            if (i + 1) % 25 == 0 or i + 1 == num_to_process:
+                logger.info("Detail fetch progress: %s/%s ads", i + 1, num_to_process)
 
             bs_object = _fetch_page(session, msg_url)
             if bs_object is None:

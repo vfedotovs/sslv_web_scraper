@@ -110,9 +110,11 @@ def extract_data_from(column_name: str, data_frame_segments) -> dict:
         for room_count_value, add_data in data_frame_segments.items():
             curr_room_value_prices = add_data[column_name].tolist()
             stats_data[room_count_value] = curr_room_value_prices
+    # M7 P9: counts at INFO, full price lists only at DEBUG
     for key, value in stats_data.items():
-        log.info(f'Extracted price data for {key} '
-                 f'room segment prices: {value}')
+        log.info(f'Extracted {len(value)} prices for {key} room segment')
+        log.debug(f'Extracted price data for {key} '
+                  f'room segment prices: {value}')
     return stats_data
 
 

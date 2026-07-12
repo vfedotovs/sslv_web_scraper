@@ -310,8 +310,11 @@ def split_pub_dates_by_month(data: dict, months: list) -> list:
         for k, v in sorted_month_dict.items():
             data_line = f"Pub_date: {k} ->  Listed add count: {v} "
             pub_date_report_lines.append(data_line)
+    # M7 P9: the full per-date table goes to the report file; log it only
+    # at DEBUG and keep a count at INFO
+    log.info(f"Built pub-date report with {len(pub_date_report_lines)} lines")
     for line in pub_date_report_lines:
-        log.info(line)
+        log.debug(line)
     return pub_date_report_lines
 
 
