@@ -176,7 +176,7 @@ def scrape_website(main_url: str = None, report_file: str = None, city_slug: str
     })
 
     # Fetch first page and determine total pages
-    page_one_bs_obj = _fetch_list_page(session, main_url)
+    page_one_bs_obj = _fetch_page(session, main_url)
     if page_one_bs_obj is None:
         logger.error("Failed to fetch first page %s", main_url)
         raise RuntimeError(
@@ -203,7 +203,7 @@ def scrape_website(main_url: str = None, report_file: str = None, city_slug: str
         log_msg = f"Scraping page {page_num}/{total_pages} ({city_display})"
         logger.info(log_msg)
 
-        bs = _fetch_list_page(session, page_url)
+        bs = _fetch_page(session, page_url)
         if bs is None:
             logger.warning("Skipping page %s after failures: %s", page_num, page_url)
             continue
@@ -216,8 +216,6 @@ def scrape_website(main_url: str = None, report_file: str = None, city_slug: str
         # Be polite between list pages (configurable)
         if page_num < total_pages:
             time.sleep(SCRAPE_LIST_DELAY_SEC)
-
-    session.close()
 
     valid_msg_urls = list(dict.fromkeys(all_msg_urls))  # preserve order, remove dups
 
@@ -250,7 +248,9 @@ def scrape_website(main_url: str = None, report_file: str = None, city_slug: str
     open(report_file, "a").close()
 
     logger.info("Extracting data for city apartments for sell task")
-    extract_data_from_url(new_urls, report_file)
+    # M7 P2: reuse the same polite session for detail pages
+    extract_data_from_url(new_urls, report_file, session=session)
+    session.close()
 
     logger.info("Creating file copy in data folder")
     create_file_copy(report_file)
@@ -305,8 +305,18 @@ def remove_old_file(filename: str = "Ogre-raw-data-report.txt") -> None:
         logger.info("The file %s does not exist in the current directory.", filename)
 
 
-def extract_data_from_url(nondup_urls: list, dest_file: str) -> None:
-    """Iterate over discovered ad URLs and extract details (respecting URL_LIMIT)."""
+def extract_data_from_url(nondup_urls: list, dest_file: str, session: requests.Session = None) -> None:
+    """Extract ad details, fetching each detail page exactly ONCE (M7 P2).
+
+    Previously every ad page was downloaded 4 times (one request per table
+    section) with ~6s of hardcoded sleeps per ad. Now: one fetch per ad via
+    the shared polite session (timeout + retries + backoff in _fetch_page),
+    all four sections parsed from the same document, and one configurable
+    SCRAPE_DELAY_SEC pause between ads. Respects URL_LIMIT.
+
+    A page that cannot be fetched or parsed is skipped whole (no partial
+    record); the discovery diff (M7 P1) retries it on the next run.
+    """
     if not nondup_urls:
         logger.warning("No ad URLs to process.")
         return
@@ -317,77 +327,60 @@ def extract_data_from_url(nondup_urls: list, dest_file: str) -> None:
     else:
         num_to_process = len(nondup_urls)
 
-    logger.info("Processing %s of %s discovered ads (URL_LIMIT=%s)", 
+    logger.info("Processing %s of %s discovered ads (URL_LIMIT=%s)",
                 num_to_process, len(nondup_urls), URL_LIMIT)
 
-    for i in range(num_to_process):
-        current_msg_url = nondup_urls[i] + "\n"
-        logger.info("Started scraping data from message URL %s", str(i + 1))
-        table_opt_names = get_msg_table_data(nondup_urls[i], "ads_opt_name")
-        if table_opt_names:
-            pass
-        else:
-            logger.warning(
-                f"Skipping {nondup_urls[i]} due to repeated connection failures."
-            )
-        time.sleep(1)
-        table_opt_values = get_msg_table_data(nondup_urls[i], "ads_opt")
-        if table_opt_values:
-            pass
-        else:
-            logger.warning(
-                f"Skipping {nondup_urls[i]} due to repeated connection failures."
-            )
-        time.sleep(1)
-        table_price = get_msg_table_data(nondup_urls[i], "ads_price")
-        if table_price:
-            pass
-        else:
-            logger.warning(
-                f"Skipping {nondup_urls[i]} due to repeated connection failures."
-            )
-        try:
-            write_line(current_msg_url, dest_file)
+    own_session = session is None
+    if own_session:
+        session = requests.Session()
+        session.headers.update({
+            "User-Agent": "Mozilla/5.0 (compatible; SS.LV-Scraper/1.7; +http://propertydata.lv/)",
+            "Accept": "text/html,application/xhtml+xml",
+        })
+
+    try:
+        for i in range(num_to_process):
+            msg_url = nondup_urls[i]
+            logger.info("Scraping ad %s/%s: %s", i + 1, num_to_process, msg_url)
+
+            bs_object = _fetch_page(session, msg_url)
+            if bs_object is None:
+                logger.warning("Skipping %s after repeated fetch failures.", msg_url)
+                continue
+
+            # Single document, four sections (previously 4 separate GETs)
+            table_opt_names = parse_msg_table_fields(bs_object, "ads_opt_name")
+            table_opt_values = parse_msg_table_fields(bs_object, "ads_opt")
+            table_price = parse_msg_table_fields(bs_object, "ads_price")
+            table_date = parse_msg_table_fields(bs_object, "msg_footer")
+
+            if not table_price:
+                logger.error(
+                    "Skipping %s: no price section found (layout change?)", msg_url)
+                continue
+
+            write_line(msg_url + "\n", dest_file)
             for idx in range(len(table_opt_names) - 1):
                 text_line = table_opt_names[idx] + ">" + table_opt_values[idx] + "\n"
                 write_line(text_line, dest_file)
-        except TypeError as e:
-            logger.error(f"Error writing data from {current_msg_url} to file : {e}")
+            write_line("Price:>" + table_price[0] + "\n", dest_file)
 
-        if not table_price:
-            logging.error(
-                f"Error writing data from {current_msg_url} to file: table_price is None or empty"
-            )
-            continue  # Skip further processing for this URL
-        try:
-            # Assuming table_price is a list and we want the first element
-            price_line = "Price:>" + table_price[0] + "\n"
-            write_line(price_line, dest_file)
-        except (TypeError, IndexError) as e:
-            logging.error(f"Error writing data from {current_msg_url} to file: {e}")
+            date_field = None
+            if len(table_date) > 2:
+                date_and_time = table_date[2].replace("Datums:", "")
+                date_clean = date_and_time.split()[0]
+                date_field = "Date:>" + str(date_clean) + "\n"
+            if date_field:
+                write_line(date_field, dest_file)
+            else:
+                logger.error("No listing date found for %s", msg_url)
 
-        price_line = "Price:>" + table_price[0] + "\n"
-
-        time.sleep(1)
-        table_date = get_msg_table_data(nondup_urls[i], "msg_footer")
-        if table_date:
-            pass
-        else:
-            logger.warning(
-                f"Skipping {nondup_urls[i]} due to repeated connection failures."
-            )
-
-        try:
-            for date_idx in range(len(table_date)):
-                if date_idx == 2:
-                    date_str = table_date[date_idx]
-                    date_and_time = date_str.replace("Datums:", "")
-                    date_clean = date_and_time.split()[0]
-                    date_field = "Date:>" + str(date_clean) + "\n"
-            write_line(date_field, dest_file)
-        except TypeError as e:
-            logger.error(f"Error writing data from {current_msg_url} to file : {e}")
-        time.sleep(3)
+            # One polite pause between ads (SCRAPE_DELAY_SEC, finally used)
+            if i + 1 < num_to_process:
+                time.sleep(SCRAPE_DELAY_SEC)
+    finally:
+        if own_session:
+            session.close()
 
 
 def get_bs_object(page_url: str):
@@ -481,10 +474,11 @@ def get_total_pages(bs_object: BeautifulSoup, default: int = 1) -> int:
     return default
 
 
-def _fetch_list_page(session: requests.Session, url: str, retries: int = 3, backoff: float = 0.5):
-    """Fetch a listing page with retries. Returns BeautifulSoup or None on failure.
+def _fetch_page(session: requests.Session, url: str, retries: int = 3, backoff: float = 0.5):
+    """Fetch a page with retries. Returns BeautifulSoup or None on failure.
 
-    This provides resilience for list page fetches (separate from detail page retries).
+    Shared by list-page and (since M7 P2) detail-page fetches: one polite
+    session, real timeout, raise_for_status, exponential backoff.
     """
     for attempt in range(retries):
         try:
@@ -583,43 +577,31 @@ def get_msg_table_info(msg_url: str, td_class: str) -> list:
     return table_fields
 
 
-def get_msg_table_data(msg_url: str, td_class: str, retries=3, backoff_factor=0.3):
+def parse_msg_table_fields(bs_object: BeautifulSoup, td_class: str) -> list:
+    """Extract td fields of the given class from an already-fetched ad page.
+
+    M7 P2: the parsing half of the former get_msg_table_data() — the page
+    is fetched once by the caller (see extract_data_from_url) and all four
+    sections are parsed from the same BeautifulSoup document.
+
+    Returns [] when the page lacks the expected table/fields (layout
+    change or ad removed between discovery and fetch): the caller skips
+    that ad instead of failing the whole run.
     """
-    Fetch data from the given URL with a retry mechanism.
+    table = bs_object.find("table", id="page_main")
+    if table is None:
+        logger.warning("No page_main table found while parsing %s fields", td_class)
+        return []
 
-    :param msg_url: The URL to scrape.
-    :param table_name: The table name to retrieve information from.
-    :param retries: Number of retries in case of a connection error.
-    :param backoff_factor: The factor by which the delay increases after each retry.
-    :return: Response content or None if the request fails.
-    """
-    attempt = 0
-    while attempt < retries:
-        try:
-            logging.info(f"Attempting to fetch data from {msg_url}")
-            page = requests.get(msg_url)
-            soup = BeautifulSoup(page.content, "html.parser")
-            table = soup.find("table", id="page_main")
-
-            table_fields = []
-
-            table_data = table.findAll("td", {"class": td_class})
-            for data in table_data:
-                tostr = str(data)
-                no_front = tostr.split('">', 1)[1]
-                name = no_front.split("</", 1)[0]
-                clean_name = name.replace("\t", "").replace("\r", "").replace("\n", "")
-                table_fields.append(clean_name)
-            return table_fields
-        except ConnectionError as e:
-            logging.error(
-                f"ConnectionError: {e}, retrying in {backoff_factor * (2**attempt)} seconds..."
-            )
-            attempt += 1
-            time.sleep(backoff_factor * (2**attempt))
-
-    logging.error(f"Failed to fetch data from {msg_url} after {retries} attempts.")
-    return None
+    table_fields = []
+    table_data = table.find_all("td", {"class": td_class})
+    for data in table_data:
+        tostr = str(data)
+        no_front = tostr.split('">', 1)[1]
+        name = no_front.split("</", 1)[0]
+        clean_name = name.replace("\t", "").replace("\r", "").replace("\n", "")
+        table_fields.append(clean_name)
+    return table_fields
 
 
 def write_line(text: str, file_name: str) -> None:
