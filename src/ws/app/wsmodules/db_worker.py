@@ -69,12 +69,27 @@ def db_worker_main() -> None:
 
     df = load_csv_to_df("cleaned-sorted-df.csv")
 
+    # M7 P1: today's URL universe comes from the scraper's discovered-urls
+    # file (ALL urls seen on the list pages); the data frame now contains
+    # only newly fetched ads. Falls back to deriving the set from the df
+    # when the file is absent/stale (cloud-file path, legacy runs).
+    discovered_hashes = load_todays_discovered_hashes()
+
     if df is None or df.empty:
-        logger.warning("DataFrame is empty. Skipping processing.")
-        return  # Exit gracefully instead of crashing
+        if discovered_hashes is None:
+            logger.warning("DataFrame is empty. Skipping processing.")
+            return  # Exit gracefully instead of crashing
+        logger.info(
+            "No new ads in todays data frame; continuing diff with %s"
+            " discovered hashes (still/removed detection)",
+            len(discovered_hashes),
+        )
 
     # Extract new and still listed message url hashes
-    todays_url_hashes = extract_url_hashes_from_df(df)
+    if discovered_hashes is not None:
+        todays_url_hashes = discovered_hashes
+    else:
+        todays_url_hashes = extract_url_hashes_from_df(df)
     still_listed_table_url_hashes = extract_listed_url_hashes_from_db()
     # Sorting all hashes to 3 categories (new, still_listed, to_remove)
     hashe_categories = compare_df_to_db_hashes(
@@ -185,6 +200,30 @@ def check_data_files(required_files: list) -> None:
                     "SQ_meter_price",
                 ],
             )
+
+
+def load_todays_discovered_hashes(file_path: str = "discovered-urls.txt"):
+    """M7 P1: read today's full discovered URL set written by web_scraper.
+
+    Returns a list of url hashes, or None when the file is missing or
+    stale (mtime not from today) — callers then fall back to deriving
+    today's set from the scraped data frame (legacy behavior, e.g. the
+    cloud-file path which does not run the local scraper).
+    """
+    if not os.path.exists(file_path):
+        logger.info(f"No {file_path} found — using data frame hashes (legacy mode)")
+        return None
+    mtime = datetime.fromtimestamp(os.path.getmtime(file_path))
+    if mtime.date() != datetime.now().date():
+        logger.warning(
+            f"{file_path} is stale (modified {mtime:%Y-%m-%d}) — ignoring it"
+        )
+        return None
+    with open(file_path) as fh:
+        urls = [line.strip() for line in fh if line.strip()]
+    hashes = [extract_hash(url) for url in urls]
+    logger.info(f"Loaded {len(hashes)} discovered url hashes from {file_path}")
+    return hashes
 
 
 def load_csv_to_df(csv_file_name: str):

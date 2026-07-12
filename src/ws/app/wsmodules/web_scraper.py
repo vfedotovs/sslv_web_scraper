@@ -58,6 +58,24 @@ try:
 except Exception:
     def record_counts(**counts): pass
 
+# M7 P1: skip detail fetches for ads already tracked in listed_ads.
+# extract_hash is the canonical URL-hash extractor shared with db_worker
+# so both sides of the diff agree; fall back for standalone runs.
+try:
+    from .db_worker import extract_hash, extract_listed_url_hashes_from_db
+except Exception:
+    def extract_hash(full_url):
+        chunks = full_url.split("/", 9)
+        return chunks[9].split(".")[0] if len(chunks) > 9 else full_url
+    def extract_listed_url_hashes_from_db():
+        raise RuntimeError("db_worker unavailable in standalone mode")
+
+
+# Hand-off file for db_worker (M7 P1): today's FULL discovered URL set.
+# The diff must see every URL found on the list pages — not only the new
+# ones detail-fetched below — otherwise skipped ads would look removed.
+DISCOVERED_URLS_FILE = "discovered-urls.txt"
+
 
 logger = logging.getLogger("web_scraper")
 logger.setLevel(logging.INFO)
@@ -206,17 +224,60 @@ def scrape_website(main_url: str = None, report_file: str = None, city_slug: str
     logger.info("Found %s parsable message URLs across %s page(s)", len(valid_msg_urls), total_pages)
     record_counts(pages_fetched=total_pages, urls_discovered=len(valid_msg_urls))
 
+    # M7 P1: persist today's full URL universe for db_worker's diff before
+    # any filtering — this is the "still listed" source of truth.
+    write_discovered_urls(valid_msg_urls)
+
+    # M7 P1: fetch details only for ads NOT already in listed_ads. Known
+    # ads are diffed/aged purely from the discovered set; re-fetching them
+    # daily was ~95% of all detail-page traffic.
+    try:
+        known_hashes = set(extract_listed_url_hashes_from_db())
+    except Exception as exc:
+        logger.warning(
+            "Could not load known hashes from DB (%s) — "
+            "falling back to fetching details for ALL discovered ads", exc)
+        known_hashes = set()
+    new_urls = select_new_urls(valid_msg_urls, known_hashes)
+
     if URL_LIMIT > 0:
-        logger.info("Dev limit active: only first %s ads will be processed for details", URL_LIMIT)
+        logger.info("Dev limit active: only first %s new ads will be processed for details", URL_LIMIT)
     else:
-        logger.info("No dev limit: processing all %s ads for details", len(valid_msg_urls))
+        logger.info("No dev limit: processing all %s new ads for details", len(new_urls))
+
+    # Always create the report file, even on zero-new-ads days, so the
+    # downstream formatter gets a (possibly empty) input instead of failing.
+    open(report_file, "a").close()
 
     logger.info("Extracting data for city apartments for sell task")
-    extract_data_from_url(valid_msg_urls, report_file)
+    extract_data_from_url(new_urls, report_file)
 
     logger.info("Creating file copy in data folder")
     create_file_copy(report_file)
     logger.info("--- Finished web_scraper module ---")
+
+
+def write_discovered_urls(urls: list, dest_file: str = DISCOVERED_URLS_FILE) -> None:
+    """M7 P1: write today's full discovered URL set (one URL per line).
+
+    Overwrites on every scrape so db_worker can trust the file's mtime as
+    a same-day freshness signal (see db_worker.load_todays_discovered_hashes).
+    """
+    with open(dest_file, "w") as fh:
+        for url in urls:
+            fh.write(url + "\n")
+    logger.info("Wrote %s discovered URLs to %s", len(urls), dest_file)
+
+
+def select_new_urls(urls: list, known_hashes: set) -> list:
+    """M7 P1: return only URLs whose hash is not yet in listed_ads."""
+    new_urls = [url for url in urls if extract_hash(url) not in known_hashes]
+    skipped = len(urls) - len(new_urls)
+    logger.info(
+        "M7 P1 diff-before-fetch: %s discovered, %s already in listed_ads"
+        " (detail fetch skipped), %s new ads to fetch",
+        len(urls), skipped, len(new_urls))
+    return new_urls
 
 
 def remove_old_file(filename: str = "Ogre-raw-data-report.txt") -> None:
