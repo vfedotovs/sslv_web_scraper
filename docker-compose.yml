@@ -35,6 +35,9 @@ services:
       SCRAPE_URL_LIMIT: ${SCRAPE_URL_LIMIT:-5}
       SCRAPE_DELAY_SEC: ${SCRAPE_DELAY_SEC:-5}
       SCRAPE_LIST_DELAY_SEC: ${SCRAPE_LIST_DELAY_SEC:-1}
+      # Monitoring alert thresholds (M6 Item 3, see alert_mailer.py)
+      ALERT_REMOVED_PCT: ${ALERT_REMOVED_PCT:-30}
+      ALERT_ZERO_NEW_RUNS: ${ALERT_ZERO_NEW_RUNS:-3}
       DB_HOST: db
       DB_NAME: new_docker_db
       DB_USER: new_docker_user

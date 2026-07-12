@@ -32,6 +32,7 @@ from app.wsmodules.db_worker import db_worker_main
 from app.wsmodules.analytics import analytics_main
 from app.wsmodules.aws_mailer import aws_mailer_main
 from app.wsmodules import scrape_runs
+from app.wsmodules import alert_mailer
 
 
 log = logging.getLogger("fastapi")
@@ -159,8 +160,14 @@ async def run_long_task(city: str):
             scrape_runs.finish_run("failed", failed_stage=exc.stage, error=str(exc.original))
         except Exception as record_exc:
             log.error("Could not record failed run in scrape_runs: %s", record_exc)
+        # M6 monitoring Item 3: failure alert email (best-effort, never raises)
+        alert_mailer.send_pipeline_failure_alert(city, exc.stage, str(exc.original))
         raise HTTPException(status_code=500, detail=str(exc)) from exc
     scrape_runs.finish_run("success")
+    # M6 monitoring Item 3: anomaly checks on the finished run's counts
+    # (zero ads discovered, removed-spike, zero new ads streak); emails
+    # an anomaly alert if any trip. Best-effort, never fails the run.
+    alert_mailer.check_and_alert(city)
 
     log.info("Completed /run-task/%s using %s", city, source)
     return {"message": result_message}
