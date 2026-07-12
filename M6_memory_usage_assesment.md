@@ -87,3 +87,58 @@ Ranking is based on typical real-world RSS memory impact when imported in contai
 2. Implement lazy imports for pandas and boto3.
 3. Rebuild and measure memory usage of the `ws` container.
 4. Evaluate moving heavy report generation (if any) into a separate lightweight worker if needed.
+
+---
+
+## Update (2026-07-12, branch dev-1.7.8)
+
+Status re-check of the recommendations above against the current code:
+
+### Requirements as of dev-1.7.8
+
+```txt
+uvicorn
+fastapi
+requests
+bs4
+pandas
+psycopg2-binary
+boto3
+tabulate
+pyyaml
+```
+
+### What has been done since the original assessment
+
+- ✅ **Quick Win 1 completed** (commit `8eea050`): `matplotlib`, `plotly`,
+  `sendgrid` and `fpdf` were removed from `requirements.txt`. The three
+  heaviest unused libraries are gone (~150–250MB image/RSS weight).
+- ✅ `pdf_creator.py` was decommissioned (commit `42c8d3c`) — no live
+  matplotlib/fpdf code paths remain; the module file is dead code.
+- ✅ M7 P1/P5 reduced the *data volume* pandas handles: the scraped
+  DataFrame now contains only newly discovered ads (typically 2–5% of
+  daily volume), not the full listing set, and per-hash full-frame
+  iteration was removed.
+- ➕ `pyyaml` was added (M6 Phase 4 `city_config.py`); it is imported
+  lazily inside a try/except and is Low impact (<10MB).
+
+### Corrections to the original file list
+
+- `pdf_creator.py` and `run_analisys.py` are **not part of the live
+  pipeline** (nothing imports them from `main.py` or the wsmodules used
+  by it). They need no lazy-import work — they are candidates for
+  deletion, not refactoring. Same for `next_features/DataAnalyser.py`
+  and `sendgrid_mailer.py`.
+- Live pandas importers today are exactly four modules:
+  `data_format_changer.py`, `df_cleaner.py`, `db_worker.py`,
+  `analytics.py`.
+
+### Remaining open item
+
+**pandas** is now the single dominant avoidable memory consumer
+(~150–280MB RSS per `ws` container, multiplied by the one-container-per-
+city deployment model). Its actual API usage in the live modules is
+small (read_csv/to_csv, string cleanup, one sort, one group-by-column,
+iterrows) and operates on ≤ a few thousand rows — stdlib `csv` +
+plain dicts cover all of it. The removal is planned as **M8**: see
+`m8_refactor_remove_pandas.md` for the phased action plan.
