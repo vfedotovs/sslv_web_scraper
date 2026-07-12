@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """
 data_format_changer.py module functionality is to convert scraped multiline
-text data per advert entry in to singe line CSV format that later can be loaded
-in to pandas dataftame.
+text data per advert entry in to singe line CSV format consumed by the
+df_cleaner stage. (M8 Phase 2: pandas removed — stdlib csv only; the
+output file keeps its historical pandas_df.csv name and exact format.)
 
 Module functions:
 [x] Reads scraped data from Ogre-raw-data-report-2022-12-03.txt file
@@ -31,6 +32,7 @@ Module requires:
 Mudule creates:
 [x] File pandas_df.csv and makes copy data/pandas_df.csv_2022-12-03.csv
 """
+import csv
 import os
 import re
 import shutil
@@ -39,7 +41,6 @@ import logging
 import logging.handlers as handlers
 from logging.handlers import RotatingFileHandler
 import sys
-import pandas as pd
 
 # M7 P7: city-scoped hand-off filenames; fall back for standalone runs.
 try:
@@ -47,6 +48,13 @@ try:
 except Exception:
     def city_file(base_name, city=None):
         return f"{city}-{base_name}" if city else base_name
+
+
+# M8 Phase 2: column order of the pandas_df.csv hand-off file (identical
+# to the old DataFrame column order — the byte-level contract with
+# df_cleaner and the golden-chain tests).
+CSV_COLUMNS = ["URL", "Room_count", "Size_sq_m", "Floor",
+               "Street", "Price", "Pub_date"]
 
 
 log = logging.getLogger('data_format_changer')
@@ -131,25 +139,39 @@ def cloud_data_formater_main(city_name: str = None) -> None:
         log.info("Creating one-line report from lambda "
                  "scraped raw-data file: %s", todays_cloud_ws_fp)
         detailed_cws_fp = get_detailed_file_path(city_name)
-        df = create_oneline_report(detailed_cws_fp)
-        df.to_csv(output_csv)
+        rows = create_oneline_report(detailed_cws_fp)
+        write_rows_to_csv(rows, output_csv)
         create_file_copy(output_csv)
     elif todays_cloud_ws_file_exist is False:
         log.warning("Lambda scraped raw-data file does not exist, "
                     "falling back to local scraper source file")
         log.info("Converting to csv format from local scraped "
                  "raw-data file: %s format", todays_local_ws_fp)
-        df = create_oneline_report(todays_local_ws_fp)
-        if df is not None:
-            log.info("Saving csv format data to DataFrame file %s ", output_csv)
-            df.to_csv(output_csv)
+        rows = create_oneline_report(todays_local_ws_fp)
+        if rows is not None:
+            log.info("Saving csv format data to file %s ", output_csv)
+            write_rows_to_csv(rows, output_csv)
             log.info("Saving csv format data file "
                      "%s completed with success", output_csv)
             create_file_copy(output_csv)
-        if df is None:
-            log.error('data_frame is None')
+        if rows is None:
+            log.error('row data is None')
             log.error("Saving csv format data file %s has failed", output_csv)
     log.info(' --- Finished data_format_changer module --- ')
+
+
+def write_rows_to_csv(rows: list, dest_file: str) -> None:
+    """M8 Phase 2: write ad row dicts to the pandas_df csv hand-off file.
+
+    Byte-identical to the old DataFrame.to_csv() output: leading unnamed
+    running-index column, CSV_COLUMNS order, '\\n' line endings, utf-8.
+    An empty rows list still writes the header line (zero-new-ads day)."""
+    log.info("Writing %d ad rows to %s", len(rows), dest_file)
+    with open(dest_file, "w", encoding="utf-8", newline="") as fh:
+        writer = csv.writer(fh, lineterminator="\n")
+        writer.writerow([""] + CSV_COLUMNS)
+        for idx, row in enumerate(rows):
+            writer.writerow([idx] + [row[column] for column in CSV_COLUMNS])
 
 
 def get_file_path(city_name: str) -> str:
@@ -164,7 +186,7 @@ def get_file_path(city_name: str) -> str:
         return full_file_path
 
 
-def create_oneline_report(source_file: str) -> pd.DataFrame:
+def create_oneline_report(source_file: str) -> list:
     """Changes text file format(12 lines per ad entry)
     to csv file format (1 line per ad entry)
 
@@ -193,7 +215,8 @@ def create_oneline_report(source_file: str) -> pd.DataFrame:
     Args:
         source_file: text file data/{city}-raw-data-report-YYYY-MM-DD.txt
     Returns:
-       df: pd.DataFrame object
+       list of dicts, one per ad, keyed by CSV_COLUMNS
+       (M8 Phase 2: replaced the pd.DataFrame return)
     """
     urls = []
     room_counts = []
@@ -258,18 +281,16 @@ def create_oneline_report(source_file: str) -> pd.DataFrame:
             validate_list_lengths(trimmed_lists)
             (nurls, nroom_counts, nroom_sizes, nroom_floors,
             nroom_streets, nroom_prices, npublish_dates) = trimmed_lists
-            log.info("Creating dict datastructure from scraped raw data list datastructures")
-            mydict = {'URL': nurls,
-                      'Room_count': nroom_counts,
-                      'Size_sq_m': nroom_sizes,
-                      'Floor': nroom_floors,
-                      'Street': nroom_streets,
-                      'Price': nroom_prices,
-                      'Pub_date': npublish_dates}
-            log.info("Attempting to create the DataFrame ")
-            pandas_df = pd.DataFrame(mydict)
-            log.info("DataFrame format was created successfully. ")
-            return pandas_df
+            log.info("Creating row dicts from scraped raw data list datastructures")
+            # M8 Phase 2: plain row dicts instead of a pandas DataFrame
+            ad_rows = [
+                dict(zip(CSV_COLUMNS, values))
+                for values in zip(nurls, nroom_counts, nroom_sizes,
+                                  nroom_floors, nroom_streets,
+                                  nroom_prices, npublish_dates)
+            ]
+            log.info("Created %d ad row(s) from raw data", len(ad_rows))
+            return ad_rows
     except FileNotFoundError:
         log.error("Source raw-data text file: %s does not exist", source_file)
         raise
