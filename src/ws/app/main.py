@@ -7,7 +7,6 @@ This module contains functions:
 - async run_long_task
 - check_today_cloud_data_file_exist
 - get_todays_cloud_data_file_name
-- check_lst_run_state
 
 """
 
@@ -32,6 +31,7 @@ from app.wsmodules.df_cleaner import df_cleaner_main
 from app.wsmodules.db_worker import db_worker_main
 from app.wsmodules.analytics import analytics_main
 from app.wsmodules.aws_mailer import aws_mailer_main
+from app.wsmodules import scrape_runs
 
 
 log = logging.getLogger("fastapi")
@@ -102,6 +102,9 @@ async def run_long_task(city: str):
     # TODO implement flag skip LAMBDA_FILE
     todays_cloud_data_file_exist = False
 
+    # M6 monitoring Item 2: run bookkeeping table (guard + run status rows)
+    scrape_runs.ensure_scrape_runs_table()
+
     # Shared downstream stages (data formatting → email), run after either
     # the cloud raw-data file or a local scrape produced today's raw report.
     downstream_stages = [
@@ -127,8 +130,10 @@ async def run_long_task(city: str):
             " task using cloud ws file run completed"
         )
     else:
-        lst_run_state = check_lst_run_state(city)
-        if lst_run_state:
+        # M6 monitoring Item 2: DB-based "already ran today" guard
+        # (replaces the filesystem marker file check in check_lst_run_state).
+        # Only successful runs count — a failed run may be retried same day.
+        if scrape_runs.has_succeeded_today(city):
             log.info("EXIT: will not call ws_worker module because task was run last 24H")
             return {
                 "message": "Local scraper job already has run,"
@@ -142,13 +147,20 @@ async def run_long_task(city: str):
             "task using local scrape job was completed"
         )
 
-    # M6 monitoring Item 1: single pipeline-level catch. A failed stage now
-    # fails the whole run and returns HTTP 500 instead of pretending success.
+    # M6 monitoring Items 1+2: single pipeline-level catch, and the run is
+    # recorded in scrape_runs from start to finish. A failed stage fails the
+    # whole run, marks the row 'failed', and returns HTTP 500.
+    scrape_runs.start_run(city)
     try:
         run_pipeline_stages(stages)
     except PipelineStageError as exc:
         log.exception("Pipeline FAILED for city %s (source: %s): %s", city, source, exc)
+        try:
+            scrape_runs.finish_run("failed", failed_stage=exc.stage, error=str(exc.original))
+        except Exception as record_exc:
+            log.error("Could not record failed run in scrape_runs: %s", record_exc)
         raise HTTPException(status_code=500, detail=str(exc)) from exc
+    scrape_runs.finish_run("success")
 
     log.info("Completed /run-task/%s using %s", city, source)
     return {"message": result_message}
@@ -188,25 +200,6 @@ def get_todays_cloud_data_file_name() -> str:
         if todays_date in file_name:
             log.info("File %s containing todays date%s found", file_name, todays_date)
             return file_name
-
-
-def check_lst_run_state(city_name) -> bool:
-    """
-    Returns true if a {city}-raw-data-report-YYYY-MM-DD.txt file
-    with today's date exists in the data/ folder.
-    """
-    todays_date = datetime.today().strftime("%Y-%m-%d")
-    target_filename = city_name + "-raw-data-report-" + todays_date + ".txt"
-    if not os.path.exists("data"):
-        os.makedirs("data")
-    for filename in os.listdir("data"):
-        if filename == target_filename:
-            log.info("File %s found, task for %s has run today", target_filename, city_name)
-            return True
-    log.info(
-        "File %s was not found, running scrape task for %s city", target_filename, city_name
-    )
-    return False
 
 
 if __name__ == "__main__":

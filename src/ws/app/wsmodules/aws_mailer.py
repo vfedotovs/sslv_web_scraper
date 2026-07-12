@@ -25,6 +25,14 @@ import os
 import boto3
 from botocore.exceptions import ClientError
 
+# Recent run history for the email body (M6 monitoring Item 2).
+# Fall back to a stub for standalone runs outside the app package.
+try:
+    from app.wsmodules.scrape_runs import format_recent_runs
+except Exception:
+    def format_recent_runs(city=None, limit=7):
+        return "Scrape run history unavailable (scrape_runs module not importable)."
+
 
 log = logging.getLogger("aws_mailer")
 log.setLevel(logging.INFO)
@@ -150,8 +158,8 @@ def aws_mailer_main(city_name: str = None) -> None:
       - Attempts to append additional content from optional files:
           * basic_price_stats.txt
           * email_body_add_dates_table.txt
-          * scraped_and_removed.txt
         If any of these files are missing, it logs a warning and continues without them.
+      - Appends recent run history from the scrape_runs DB table (M6 Item 2).
       - Generates the email subject dynamically using `gen_subject_title()`.
       - Sends the email via AWS SES with the specified sender and recipient addresses.
       - Logs the success or failure of the send operation.
@@ -182,7 +190,6 @@ def aws_mailer_main(city_name: str = None) -> None:
     extra_files = [
         "basic_price_stats.txt",
         "email_body_add_dates_table.txt",
-        "scraped_and_removed.txt",
     ]
 
     # Append contents of each file
@@ -193,6 +200,15 @@ def aws_mailer_main(city_name: str = None) -> None:
             log.info(f"Appended contents of {filename} to BODY_TXT")
         except FileNotFoundError:
             log.warning(f"Missing file: {filename} — continuing without it.")
+
+    # M6 monitoring Item 2: append recent run history from the scrape_runs
+    # table (replaces the old scraped_and_removed.txt section). Best-effort:
+    # the report email must still go out if the summary query fails.
+    try:
+        BODY_TEXT += "\n\n" + format_recent_runs(city_name)
+        log.info("Appended scrape_runs history to BODY_TXT")
+    except Exception as e:
+        log.warning(f"Could not append scrape_runs history: {e}")
 
     log.info(f"--- Final email body length: {len(BODY_TEXT)} ")
 

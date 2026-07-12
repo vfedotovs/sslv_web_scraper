@@ -38,6 +38,7 @@ from datetime import datetime
 import pandas as pd
 import psycopg2
 from app.wsmodules.config import config
+from app.wsmodules.scrape_runs import record_counts
 # from config import config  # for manual test runs FIXME
 
 
@@ -75,7 +76,6 @@ def db_worker_main() -> None:
     # Extract new and still listed message url hashes
     todays_url_hashes = extract_url_hashes_from_df(df)
     still_listed_table_url_hashes = extract_listed_url_hashes_from_db()
-    save_table_row_counts()
     # Sorting all hashes to 3 categories (new, still_listed, to_remove)
     hashe_categories = compare_df_to_db_hashes(
         todays_url_hashes, still_listed_table_url_hashes
@@ -83,6 +83,12 @@ def db_worker_main() -> None:
     new_msg_hashes = hashe_categories[0]
     still_listed_msg_hashes = hashe_categories[1]
     to_remove_msg_hashes = hashe_categories[2]
+    # M6 monitoring Item 2: record diff counts on the current scrape run
+    record_counts(
+        new_ads=len(new_msg_hashes),
+        still_listed_ads=len(still_listed_msg_hashes),
+        removed_ads=len(to_remove_msg_hashes),
+    )
     # Extract new msg data dict from df
     new_msg_data = extract_new_msg_data(df, new_msg_hashes)
     # Extract to_remove msg data dict from db listed_ads table
@@ -98,20 +104,33 @@ def db_worker_main() -> None:
     # Check and increment/update listed_ads all rows for listed days cnt value
     todays_date = datetime.now()
     update_dlv_in_db_table(to_increment_msg_data, todays_date)
-    save_table_row_counts()
+    # M6 monitoring Item 2: record post-run table totals on the current
+    # scrape run (replaces the scraped_and_removed.txt debug file)
+    listed_rows, removed_rows = get_table_row_counts()
+    record_counts(listed_table_rows=listed_rows, removed_table_rows=removed_rows)
     logger.info(" --- Ended db_worker module ---")
 
 
-def save_table_row_counts() -> None:
-    """Connects to DB tables and gets each table row count
-    and saves to file for debug info"""
-    listed_tbl_hashes = extract_listed_url_hashes_from_db()
-    removed_tbl_row_cnt = list_rows_in_removed_table()
-    db_tbl_row_counts = (
-        f"LA TBL rows: {len(listed_tbl_hashes)} RA TBL rows: {removed_tbl_row_cnt}"
-    )
-    with open("scraped_and_removed.txt", "a") as file:
-        file.write(db_tbl_row_counts + "\n")
+def get_table_row_counts() -> tuple:
+    """Returns (listed_ads, removed_ads) table row counts via COUNT(*)."""
+    conn = None
+    try:
+        params = config()
+        conn = psycopg2.connect(**params)
+        cur = conn.cursor()
+        cur.execute("SELECT COUNT(*) FROM listed_ads")
+        listed_rows = cur.fetchone()[0]
+        cur.execute("SELECT COUNT(*) FROM removed_ads")
+        removed_rows = cur.fetchone()[0]
+        cur.close()
+        logger.info(f"LA TBL rows: {listed_rows} RA TBL rows: {removed_rows}")
+        return listed_rows, removed_rows
+    except (Exception, psycopg2.DatabaseError) as error:
+        logger.error(f"Failed to count table rows: {error}")
+        raise
+    finally:
+        if conn is not None:
+            conn.close()
 
 
 def check_config_files(file_names: list) -> None:
@@ -257,16 +276,6 @@ def compare_df_to_db_hashes(df_hashes: list, db_hashes: list) -> list:
         f"Result {len(new_ads)} new, {len(existing_ads)} still_listed, "
         f"{len(removed_ads)} to_remove hashes "
     )
-    today = datetime.today()
-    formatted_date = today.strftime("%Y-%m-%d")
-    todays_result = (
-        f"{formatted_date} : TSA [A]: {len(df_hashes)} "
-        f"LA TBL [B]: {len(db_hashes)} AinB [C]: {len(existing_ads)} KLAT "
-        f"A notin B [D]: {len(new_ads)} NewAds, B notin A [E]: "
-        f"{len(removed_ads)} RM from LAT"
-    )
-    with open("scraped_and_removed.txt", "a") as file:
-        file.write(todays_result + "\n")  # Add a newline for clarity
     logger.info(f"New todays scraped hashes: {new_ads}")
     logger.info(f"Hashes from DB listed_ads table: {existing_ads}")
     logger.info(f"Hashes for DB removed_ads table: {removed_ads}")

@@ -51,6 +51,13 @@ except Exception:
     def validate_city_slug(slug): return True
     def get_city_info(slug): return None
 
+# Optional run bookkeeping (M6 monitoring Item 2). record_counts is
+# best-effort telemetry; fall back to a no-op for standalone runs.
+try:
+    from .scrape_runs import record_counts
+except Exception:
+    def record_counts(**counts): pass
+
 
 logger = logging.getLogger("web_scraper")
 logger.setLevel(logging.INFO)
@@ -197,6 +204,7 @@ def scrape_website(main_url: str = None, report_file: str = None, city_slug: str
     valid_msg_urls = list(dict.fromkeys(all_msg_urls))  # preserve order, remove dups
 
     logger.info("Found %s parsable message URLs across %s page(s)", len(valid_msg_urls), total_pages)
+    record_counts(pages_fetched=total_pages, urls_discovered=len(valid_msg_urls))
 
     if URL_LIMIT > 0:
         logger.info("Dev limit active: only first %s ads will be processed for details", URL_LIMIT)
