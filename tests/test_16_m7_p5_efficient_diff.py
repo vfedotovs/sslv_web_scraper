@@ -9,7 +9,6 @@ Covers the four refactored db_worker functions:
 import os
 import sys
 import time
-from unittest.mock import MagicMock
 
 import pandas as pd
 
@@ -17,6 +16,7 @@ import pandas as pd
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src", "ws"))
 
 from app.wsmodules import db_worker
+from tests.db_mocks import mock_db as _mock_db
 
 
 URL_TEMPLATE = "https://ss.lv/msg/lv/real-estate/flats/ogre-and-reg/ogre/{}.html"
@@ -39,15 +39,8 @@ def make_df(rows):
 
 
 def mock_db(monkeypatch, table_rows):
-    """Patch config + psycopg2.connect so SELECTs return table_rows."""
-    cur = MagicMock()
-    cur.fetchall.return_value = table_rows
-    cur.rowcount = len(table_rows)
-    conn = MagicMock()
-    conn.cursor.return_value = cur
-    monkeypatch.setattr(db_worker, "config", lambda: {})
-    monkeypatch.setattr(db_worker.psycopg2, "connect", lambda **kw: conn)
-    return conn
+    """Patch config + psycopg2.connect with the shared fake DB."""
+    return _mock_db(monkeypatch, db_worker, table_rows)
 
 
 # --- compare_df_to_db_hashes -------------------------------------------------

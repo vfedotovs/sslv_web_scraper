@@ -64,74 +64,102 @@ def db_worker_main() -> None:
     check_config_files(required_config_files)
     check_data_files(required_data_files)
 
-    # Ensure tables exist (fixes missing table on fresh DB volumes without backup restore)
-    ensure_tables_exist()
+    # M7 P4: one shared connection for the whole run and a single
+    # transaction for all writes, instead of a new connection per statement.
+    conn = None
+    try:
+        conn = _get_connection()
 
-    df = load_csv_to_df("cleaned-sorted-df.csv")
+        # Ensure tables exist (fixes missing table on fresh DB volumes
+        # without backup restore); commit DDL right away so it survives
+        # an early exit below.
+        ensure_tables_exist(conn=conn)
+        conn.commit()
 
-    # M7 P1: today's URL universe comes from the scraper's discovered-urls
-    # file (ALL urls seen on the list pages); the data frame now contains
-    # only newly fetched ads. Falls back to deriving the set from the df
-    # when the file is absent/stale (cloud-file path, legacy runs).
-    discovered_hashes = load_todays_discovered_hashes()
+        df = load_csv_to_df("cleaned-sorted-df.csv")
 
-    if df is None or df.empty:
-        if discovered_hashes is None:
-            logger.warning("DataFrame is empty. Skipping processing.")
-            return  # Exit gracefully instead of crashing
-        logger.info(
-            "No new ads in todays data frame; continuing diff with %s"
-            " discovered hashes (still/removed detection)",
-            len(discovered_hashes),
+        # M7 P1: today's URL universe comes from the scraper's discovered-urls
+        # file (ALL urls seen on the list pages); the data frame now contains
+        # only newly fetched ads. Falls back to deriving the set from the df
+        # when the file is absent/stale (cloud-file path, legacy runs).
+        discovered_hashes = load_todays_discovered_hashes()
+
+        if df is None or df.empty:
+            if discovered_hashes is None:
+                logger.warning("DataFrame is empty. Skipping processing.")
+                return  # Exit gracefully instead of crashing
+            logger.info(
+                "No new ads in todays data frame; continuing diff with %s"
+                " discovered hashes (still/removed detection)",
+                len(discovered_hashes),
+            )
+
+        # Extract new and still listed message url hashes
+        if discovered_hashes is not None:
+            todays_url_hashes = discovered_hashes
+        else:
+            todays_url_hashes = extract_url_hashes_from_df(df)
+        still_listed_table_url_hashes = extract_listed_url_hashes_from_db(conn=conn)
+        # Sorting all hashes to 3 categories (new, still_listed, to_remove)
+        hashe_categories = compare_df_to_db_hashes(
+            todays_url_hashes, still_listed_table_url_hashes
         )
-
-    # Extract new and still listed message url hashes
-    if discovered_hashes is not None:
-        todays_url_hashes = discovered_hashes
-    else:
-        todays_url_hashes = extract_url_hashes_from_df(df)
-    still_listed_table_url_hashes = extract_listed_url_hashes_from_db()
-    # Sorting all hashes to 3 categories (new, still_listed, to_remove)
-    hashe_categories = compare_df_to_db_hashes(
-        todays_url_hashes, still_listed_table_url_hashes
-    )
-    new_msg_hashes = hashe_categories[0]
-    still_listed_msg_hashes = hashe_categories[1]
-    to_remove_msg_hashes = hashe_categories[2]
-    # M6 monitoring Item 2: record diff counts on the current scrape run
-    record_counts(
-        new_ads=len(new_msg_hashes),
-        still_listed_ads=len(still_listed_msg_hashes),
-        removed_ads=len(to_remove_msg_hashes),
-    )
-    # Extract new msg data dict from df
-    new_msg_data = extract_new_msg_data(df, new_msg_hashes)
-    # Extract to_remove msg data dict from db listed_ads table
-    to_removed_msg_data = extract_to_remove_msg_data(to_remove_msg_hashes)
-    # Extract data for messages that need to increment listed days value in db
-    to_increment_msg_data = extract_to_increment_msg_data(still_listed_msg_hashes)
-    # Insert new msg data dict to listed_ads table
-    insert_data_to_listed_table(new_msg_data)
-    # Insert to_remove msg data dict to removed_ads table
-    insert_data_to_removed_table(to_removed_msg_data)
-    # Remove rows from listed_ads based on  to_remove hashes msg
-    delete_db_listed_table_rows(to_remove_msg_hashes)
-    # Check and increment/update listed_ads all rows for listed days cnt value
-    todays_date = datetime.now()
-    update_dlv_in_db_table(to_increment_msg_data, todays_date)
-    # M6 monitoring Item 2: record post-run table totals on the current
-    # scrape run (replaces the scraped_and_removed.txt debug file)
-    listed_rows, removed_rows = get_table_row_counts()
-    record_counts(listed_table_rows=listed_rows, removed_table_rows=removed_rows)
+        new_msg_hashes = hashe_categories[0]
+        still_listed_msg_hashes = hashe_categories[1]
+        to_remove_msg_hashes = hashe_categories[2]
+        # M6 monitoring Item 2: record diff counts on the current scrape run
+        record_counts(
+            new_ads=len(new_msg_hashes),
+            still_listed_ads=len(still_listed_msg_hashes),
+            removed_ads=len(to_remove_msg_hashes),
+        )
+        # Extract new msg data dict from df
+        new_msg_data = extract_new_msg_data(df, new_msg_hashes)
+        # Extract to_remove msg data dict from db listed_ads table
+        to_removed_msg_data = extract_to_remove_msg_data(to_remove_msg_hashes, conn=conn)
+        # Extract data for messages that need to increment listed days value in db
+        to_increment_msg_data = extract_to_increment_msg_data(
+            still_listed_msg_hashes, conn=conn
+        )
+        # Insert new msg data dict to listed_ads table
+        insert_data_to_listed_table(new_msg_data, conn=conn)
+        # Insert to_remove msg data dict to removed_ads table
+        insert_data_to_removed_table(to_removed_msg_data, conn=conn)
+        # Remove rows from listed_ads based on  to_remove hashes msg
+        delete_db_listed_table_rows(to_remove_msg_hashes, conn=conn)
+        # Check and increment/update listed_ads all rows for listed days cnt value
+        todays_date = datetime.now()
+        update_dlv_in_db_table(to_increment_msg_data, todays_date, conn=conn)
+        # M7 P4: all writes above land atomically in one transaction
+        conn.commit()
+        # M6 monitoring Item 2: record post-run table totals on the current
+        # scrape run (replaces the scraped_and_removed.txt debug file)
+        listed_rows, removed_rows = get_table_row_counts(conn=conn)
+        record_counts(listed_table_rows=listed_rows, removed_table_rows=removed_rows)
+    except Exception:
+        if conn is not None:
+            conn.rollback()
+        raise
+    finally:
+        if conn is not None:
+            conn.close()
     logger.info(" --- Ended db_worker module ---")
 
 
-def get_table_row_counts() -> tuple:
+def _get_connection():
+    """M7 P4: open a DB connection from database.ini params.
+    db_worker_main() shares one connection across the whole run;
+    standalone callers get their own."""
+    params = config()
+    return psycopg2.connect(**params)
+
+
+def get_table_row_counts(conn=None) -> tuple:
     """Returns (listed_ads, removed_ads) table row counts via COUNT(*)."""
-    conn = None
+    own_conn = conn is None
     try:
-        params = config()
-        conn = psycopg2.connect(**params)
+        if own_conn:
+            conn = _get_connection()
         cur = conn.cursor()
         cur.execute("SELECT COUNT(*) FROM listed_ads")
         listed_rows = cur.fetchone()[0]
@@ -144,7 +172,7 @@ def get_table_row_counts() -> tuple:
         logger.error(f"Failed to count table rows: {error}")
         raise
     finally:
-        if conn is not None:
+        if own_conn and conn is not None:
             conn.close()
 
 
@@ -257,14 +285,14 @@ def extract_hash(full_url: str) -> str:
     return url_hash
 
 
-def extract_listed_url_hashes_from_db() -> list:
+def extract_listed_url_hashes_from_db(conn=None) -> list:
     """Iterate over all rows in  listed_ads table and
     extract each url hash column value and return as list of hashes"""
-    conn = None
+    own_conn = conn is None
     listed_db_hashes = []
     try:
-        params = config()
-        conn = psycopg2.connect(**params)
+        if own_conn:
+            conn = _get_connection()
         cur = conn.cursor()
         cur.execute("SELECT url_hash FROM listed_ads ORDER BY url_hash")
         row = cur.fetchone()
@@ -276,7 +304,7 @@ def extract_listed_url_hashes_from_db() -> list:
         logger.error(f"Failed to extract url hashes from listed_ads table: {error}")
         raise
     finally:
-        if conn is not None:
+        if own_conn and conn is not None:
             conn.close()
     clean_hashes = []
     for element in listed_db_hashes:
@@ -385,151 +413,114 @@ def gen_removed_date() -> str:
     return today.split()[0].replace("-", ".")
 
 
-def insert_data_to_listed_table(data: dict) -> None:
+def insert_data_to_listed_table(data: dict, conn=None) -> None:
     """insert data to database table"""
-    conn = None
+    own_conn = conn is None
     try:
         logger.info(f"Inserting {len(data)} messages to listed_ads table")
-        params = config()
-        conn = psycopg2.connect(**params)
+        if own_conn:
+            conn = _get_connection()
         cur = conn.cursor()
-        for k, v in data.items():
-            url_hash = k
-            room_count = v[0]
-            house_floors = v[1]
-            apt_floor = v[2]
-            price = v[3]
-            sqm = v[4]
-            sqm_price = v[5]
-            apt_address = v[6]
-            list_date = v[7]
-            days_listed = v[8]
-            cur.execute(
-                """ INSERT INTO listed_ads
-                  (url_hash,
-                  room_count,
-                  house_floors,
-                  apt_floor,
-                  price,
-                  sqm,
-                  sqm_price,
-                  apt_address,
-                  list_date,
-                  days_listed)
-                  VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s) """,
-                (
-                    url_hash,
-                    room_count,
-                    house_floors,
-                    apt_floor,
-                    price,
-                    sqm,
-                    sqm_price,
-                    apt_address,
-                    list_date,
-                    days_listed,
-                ),
-            )
-        conn.commit()
+        # M7 P4: one batched statement instead of one execute per row
+        rows = [
+            (k, v[0], v[1], v[2], v[3], v[4], v[5], v[6], v[7], v[8])
+            for k, v in data.items()
+        ]
+        cur.executemany(
+            """ INSERT INTO listed_ads
+              (url_hash,
+              room_count,
+              house_floors,
+              apt_floor,
+              price,
+              sqm,
+              sqm_price,
+              apt_address,
+              list_date,
+              days_listed)
+              VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s) """,
+            rows,
+        )
+        if own_conn:
+            conn.commit()
         cur.close()
         for k, v in data.items():
-            logger.info(f"{k} {v}")
+            logger.debug(f"{k} {v}")
     except (Exception, psycopg2.DatabaseError) as error:
         logger.error(f"DB operation failed: {error}")
         raise
     finally:
-        if conn is not None:
+        if own_conn and conn is not None:
             conn.close()
 
 
-def extract_to_remove_msg_data(delisted_hashes: list) -> dict:
+def extract_to_remove_msg_data(delisted_hashes: list, conn=None) -> dict:
     """Filters data base table by delisted hashes column and
     returns dict hash:[delisted message elements] for using
     in to insert to removed_ads table"""
     delisted_mesages = {}
-    conn = None
+    own_conn = conn is None
     try:
-        params = config()
-        conn = psycopg2.connect(**params)
+        if own_conn:
+            conn = _get_connection()
         cur = conn.cursor()
-        cur.execute("SELECT * FROM listed_ads")
-        table_rows = cur.fetchall()
-        # M7 P5: single pass over table rows with a set lookup instead of
-        # nested O(hashes × rows) matching loops.
-        delisted_hash_set = set(delisted_hashes)
-        for table_row in table_rows:
+        # M7 P4: fetch only the delisted rows instead of the whole table
+        cur.execute(
+            "SELECT url_hash, room_count, house_floors, apt_floor, price, "
+            "sqm, sqm_price, apt_address, list_date, days_listed "
+            "FROM listed_ads WHERE url_hash = ANY(%s)",
+            (list(delisted_hashes),),
+        )
+        removed_date = gen_removed_date()
+        for table_row in cur.fetchall():
             curr_row_hash = table_row[0]
-            if curr_row_hash not in delisted_hash_set:
-                continue
-            room_count = table_row[1]
-            house_floor_count = table_row[2]
-            apt_floor = table_row[3]
-            price = table_row[4]
-            sqm = table_row[5]
-            sqm_price = table_row[6]
-            apt_address = table_row[7]
-            list_date = table_row[8]
-            removed_date = gen_removed_date()
-            days_listed = table_row[9]
-            data_values = []
-            data_values.append(room_count)
-            data_values.append(house_floor_count)
-            data_values.append(apt_floor)
-            data_values.append(price)
-            data_values.append(sqm)
-            data_values.append(sqm_price)
-            data_values.append(apt_address)
-            data_values.append(list_date)
+            data_values = list(table_row[1:9])
             data_values.append(removed_date)
-            data_values.append(days_listed)
+            data_values.append(table_row[9])
             delisted_mesages[curr_row_hash] = data_values
         cur.close()
     except (Exception, psycopg2.DatabaseError) as error:
         logger.error(f"DB operation failed: {error}")
         raise
     finally:
-        if conn is not None:
+        if own_conn and conn is not None:
             conn.close()
     return delisted_mesages
 
 
-def extract_to_increment_msg_data(listed_url_hashes: list) -> list:
-    """Connects to db listed_ads table and iterates over table based on hashe
-    list (listed_url_hashes) and extracts data in list of dicts format.
+def extract_to_increment_msg_data(listed_url_hashes: list, conn=None):
+    """Fetches (pub_date, days_listed) from listed_ads for the given hashes.
 
     Args:
         listed_url_hashes: string list of hashes
 
     Returns:
-        list: example data returned [{'gjhdx': ['2021.04.20', 108], 'cecek': ['2021.04.17', 101]}]
+        dict: example {'gjhdx': ['2021.04.20', 108], 'cecek': ['2021.04.17', 101]}
+        None: when the hash list is empty or the table is empty (first run)
     """
-    conn = None
     to_increment_msg_data = {}
+    if listed_url_hashes is None or len(listed_url_hashes) < 1:
+        return None
+    own_conn = conn is None
     try:
-        logger.info(f"Connecting to DB to fetch data from listed_ads table")
-        params = config()
-        conn = psycopg2.connect(**params)
+        logger.info("Connecting to DB to fetch data from listed_ads table")
+        if own_conn:
+            conn = _get_connection()
         cur = conn.cursor()
-        cur.execute("SELECT * FROM listed_ads")
-        table_rows = cur.fetchall()  # list of rows as tuple Datastructure
-        # need to handle case when table is empty - row count = 0 aka first run
+        # M7 P4: fetch only the still-listed rows instead of the whole table
+        cur.execute(
+            "SELECT url_hash, list_date, days_listed "
+            "FROM listed_ads WHERE url_hash = ANY(%s)",
+            (list(listed_url_hashes),),
+        )
+        table_rows = cur.fetchall()
         if len(table_rows) < 1:
-            return None
-        if len(listed_url_hashes) < 1:
-            return None
-        # M7 P5: single pass over table rows with a set lookup instead of
-        # nested O(hashes × rows) matching loops.
-        listed_hash_set = set(listed_url_hashes)
-        for table_row in table_rows:
-            curr_row_hash = table_row[0]
-            if curr_row_hash not in listed_hash_set:
-                continue
-            pub_date = table_row[8]
-            dlv = table_row[9]
-            data_values = []
-            data_values.append(pub_date)
-            data_values.append(dlv)
-            to_increment_msg_data[curr_row_hash] = data_values
+            # need to handle case when table is empty aka first run
+            cur.execute("SELECT 1 FROM listed_ads LIMIT 1")
+            if cur.fetchone() is None:
+                return None
+        for curr_row_hash, pub_date, dlv in table_rows:
+            to_increment_msg_data[curr_row_hash] = [pub_date, dlv]
         cur.close()
         logger.info(
             f"Extracted data from listed_ads table for {len(to_increment_msg_data)} messages"
@@ -540,127 +531,127 @@ def extract_to_increment_msg_data(listed_url_hashes: list) -> list:
         logger.error(f"DB operation failed: {error}")
         raise
     finally:
-        if conn is not None:
+        if own_conn and conn is not None:
             conn.close()
     return to_increment_msg_data
 
 
-def insert_data_to_removed_table(data: dict) -> None:
+def insert_data_to_removed_table(data: dict, conn=None) -> None:
     """function takes as input to_remove_msg_data dict and inserts
     to database removed_ads table"""
-    conn = None
+    own_conn = conn is None
     try:
         logger.info(f"Inserting {len(data)} messages to removed_ads table")
-        params = config()
-        conn = psycopg2.connect(**params)
+        if own_conn:
+            conn = _get_connection()
         cur = conn.cursor()
-        for key, value in data.items():
-            url_hash = key
-            room_count = value[0]
-            house_floors = value[1]
-            apt_floor = value[2]
-            price = value[3]
-            sqm = value[4]
-            sqm_price = value[5]
-            apt_address = value[6]
-            listed_date = value[7]
-            removed_date = value[8]
-            days_listed = value[9]
-            cur.execute(
-                """ INSERT INTO removed_ads
-                  (url_hash,
-                  room_count,
-                  house_floors,
-                  apt_floor,
-                  price,
-                  sqm,
-                  sqm_price,
-                  apt_address,
-                  listed_date,
-                  removed_date,
-                  days_listed)
-                  VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s) """,
-                (
-                    url_hash,
-                    room_count,
-                    house_floors,
-                    apt_floor,
-                    price,
-                    sqm,
-                    sqm_price,
-                    apt_address,
-                    listed_date,
-                    removed_date,
-                    days_listed,
-                ),
-            )
-        conn.commit()
+        # M7 P4: one batched statement instead of one execute per row
+        rows = [
+            (k, v[0], v[1], v[2], v[3], v[4], v[5], v[6], v[7], v[8], v[9])
+            for k, v in data.items()
+        ]
+        cur.executemany(
+            """ INSERT INTO removed_ads
+              (url_hash,
+              room_count,
+              house_floors,
+              apt_floor,
+              price,
+              sqm,
+              sqm_price,
+              apt_address,
+              listed_date,
+              removed_date,
+              days_listed)
+              VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s) """,
+            rows,
+        )
+        if own_conn:
+            conn.commit()
         cur.close()
         for k, v in data.items():
-            logger.info(f"{k} {v}")
+            logger.debug(f"{k} {v}")
     except (Exception, psycopg2.DatabaseError) as error:
         logger.error(f"Failed to insert data to removed_ads table: {error}")
         raise
     finally:
-        if conn is not None:
+        if own_conn and conn is not None:
             conn.close()
 
 
-def delete_db_listed_table_rows(delisted_hashes: list) -> None:
+def delete_db_listed_table_rows(delisted_hashes: list, conn=None) -> None:
     """Deletes rows from listed_ads table based on removed ads hashes"""
-    conn = None
+    logger.info(
+        f"Deleting {len(delisted_hashes)} removed messages from listed_ads table"
+    )
+    if not delisted_hashes:
+        return
+    own_conn = conn is None
     try:
-        logger.info(
-            f"Deleting {len(delisted_hashes)} removed messages from listed_ads table"
-        )
-        params = config()
-        conn = psycopg2.connect(**params)
+        if own_conn:
+            conn = _get_connection()
         cur = conn.cursor()
-        cur.execute("SELECT * FROM listed_ads")
-        for delisted_hash in delisted_hashes:
-            del_row = "DELETE FROM listed_ads WHERE url_hash = "
-            full_cmd = del_row + "'" + delisted_hash + "'"
-            cur.execute(full_cmd)
-        conn.commit()
+        # M7 P4: one parameterized bulk DELETE instead of a string-built
+        # statement per hash (also removes the SQL-injection surface)
+        cur.execute(
+            "DELETE FROM listed_ads WHERE url_hash = ANY(%s)",
+            (list(delisted_hashes),),
+        )
+        if own_conn:
+            conn.commit()
         cur.close()
         logger.info(f"Deleted ads with hashes: {delisted_hashes} from listed_ads table")
     except (Exception, psycopg2.DatabaseError) as error:
         logger.error(f"DB operation failed: {error}")
         raise
     finally:
-        if conn is not None:
+        if own_conn and conn is not None:
             conn.close()
 
 
-def update_dlv_in_db_table(data: dict, todays_date: datetime) -> None:
+def update_dlv_in_db_table(data: dict, todays_date: datetime, conn=None) -> None:
     """Validates if dlv(days_listed value) is not correct then updates
 
-    Iterate over list of dicts and calculate correct dlv
-    and check if dlv is correct in context of todays_date.
-    If dlv in dict is not correct call function
-    update_single_column_value in listed_ads db table"""
-    # TODO: refactor data needs better name like ad_hash_data_attrs
-    # function docstring needs to be better
-    # no need to pass todays_date can be initialized here
-    dlv_count = 0
-    if data is not None:
-        for ad_hash, ad_data in data.items():
-            pub_date, days_listed = ad_data[0], ad_data[1]
-            correct_dlv = calc_valid_dlv(pub_date, todays_date)
-            if correct_dlv > days_listed:
-                update_single_column_value("listed_ads", correct_dlv, ad_hash)
-                dlv_count += 1
-                logger.info(f"Updated dlv value for {ad_hash} {ad_data} item")
-            if correct_dlv == days_listed:
-                pass
-    logger.info(f"Updated days_listed value for {dlv_count} ads in listed_ads table")
-
+    Iterate over the hash:(pub_date, days_listed) dict, calculate the
+    correct dlv for todays_date and batch-update every stale row in
+    listed_ads with a single executemany statement (M7 P4 — previously
+    one connection + UPDATE per ad)."""
     if data is None:
         logger.error(
             "Failed to update dlv values:"
             " possibly listed_ads table is empty"
             " or DB was not imported"
         )
+        return
+
+    updates = []
+    for ad_hash, ad_data in data.items():
+        pub_date, days_listed = ad_data[0], ad_data[1]
+        correct_dlv = calc_valid_dlv(pub_date, todays_date)
+        if correct_dlv > days_listed:
+            updates.append((correct_dlv, ad_hash))
+            logger.debug(f"Updating dlv value for {ad_hash} {ad_data} item")
+
+    if updates:
+        own_conn = conn is None
+        try:
+            if own_conn:
+                conn = _get_connection()
+            cur = conn.cursor()
+            cur.executemany(
+                "UPDATE listed_ads SET days_listed = %s WHERE url_hash = %s",
+                updates,
+            )
+            if own_conn:
+                conn.commit()
+            cur.close()
+        except (Exception, psycopg2.DatabaseError) as error:
+            logger.error(f"DB operation failed: {error}")
+            raise
+        finally:
+            if own_conn and conn is not None:
+                conn.close()
+    logger.info(f"Updated days_listed value for {len(updates)} ads in listed_ads table")
 
 
 def calc_valid_dlv(pub_date: str, todays_date: datetime) -> int:
@@ -680,30 +671,6 @@ def gen_listed_day_obj_new(date: str):
     mm = int(date[5:7])
     dd = int(date[8:10])
     return datetime(yyyy, mm, dd)
-
-
-def update_single_column_value(table_name: str, dlv: int, url_hash: str) -> None:
-    """connect to db and update value for listed_ads column only for
-    row that matched url_hash"""
-    conn = None
-    try:
-        params = config()
-        conn = psycopg2.connect(**params)
-        cur = conn.cursor()
-        sql = (
-            f"UPDATE {table_name} "
-            f"SET days_listed = {dlv} "
-            f"WHERE url_hash = '{url_hash}' ;"
-        )
-        cur.execute(sql)
-        conn.commit()
-        cur.close()
-    except (Exception, psycopg2.DatabaseError) as error:
-        logger.error(f"DB operation failed: {error}")
-        raise
-    finally:
-        if conn is not None:
-            conn.close()
 
 
 def list_rows_in_listed_table() -> None:
@@ -753,15 +720,15 @@ def list_rows_in_removed_table() -> int:
     return int(cur.rowcount)
 
 
-def ensure_tables_exist() -> None:
+def ensure_tables_exist(conn=None) -> None:
     """Create listed_ads and removed_ads tables if they do not exist.
     This fixes the 'relation does not exist' error on fresh DB volumes
     (e.g. new multi-city deploy without prior backup restore).
     """
-    conn = None
+    own_conn = conn is None
     try:
-        params = config()
-        conn = psycopg2.connect(**params)
+        if own_conn:
+            conn = _get_connection()
         cur = conn.cursor()
 
         # listed_ads (active listings)
@@ -799,14 +766,15 @@ def ensure_tables_exist() -> None:
             )
         """)
 
-        conn.commit()
+        if own_conn:
+            conn.commit()
         cur.close()
         logger.info("Ensured listed_ads and removed_ads tables exist (CREATE IF NOT EXISTS)")
     except (Exception, psycopg2.DatabaseError) as error:
         logger.error(f"Error ensuring tables exist: {error}")
         raise
     finally:
-        if conn is not None:
+        if own_conn and conn is not None:
             conn.close()
 
 
