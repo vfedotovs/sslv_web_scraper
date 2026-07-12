@@ -1,10 +1,11 @@
 """Tests for M7 Problem 5: set/dict-based diffing instead of O(N²) loops.
 
-Covers the four refactored db_worker functions:
+Covers the refactored db_worker functions:
 - compare_df_to_db_hashes (three-way diff via sets)
 - extract_new_msg_data (single df pass with hash-set lookup)
 - extract_to_remove_msg_data (single table pass with hash-set lookup)
-- extract_to_increment_msg_data (single table pass with hash-set lookup)
+(extract_to_increment_msg_data was covered here too until M7 P3 deleted
+the daily days_listed increment stage entirely.)
 """
 import os
 import sys
@@ -135,27 +136,10 @@ def test_extract_to_remove_only_matching_hashes(monkeypatch):
     assert row[0] == 3                 # room_count
     assert row[7] == "2021.07.02"      # list_date
     assert row[8] == db_worker.gen_removed_date()
-    assert row[9] == 20                # days_listed carried over
+    # M7 P3: days_listed derived from list_date, not carried from the row
+    assert row[9] == db_worker.calc_days_listed("2021.07.02")
 
 
 def test_extract_to_remove_empty_hashes(monkeypatch):
     mock_db(monkeypatch, [LISTED_ROW_A])
     assert db_worker.extract_to_remove_msg_data([]) == {}
-
-
-# --- extract_to_increment_msg_data --------------------------------------------
-
-def test_extract_to_increment_only_matching_hashes(monkeypatch):
-    mock_db(monkeypatch, [LISTED_ROW_A, LISTED_ROW_B])
-    data = db_worker.extract_to_increment_msg_data(["aaaaa"])
-    assert data == {"aaaaa": ["2021.07.01", 10]}
-
-
-def test_extract_to_increment_empty_table_returns_none(monkeypatch):
-    mock_db(monkeypatch, [])
-    assert db_worker.extract_to_increment_msg_data(["aaaaa"]) is None
-
-
-def test_extract_to_increment_empty_hashes_returns_none(monkeypatch):
-    mock_db(monkeypatch, [LISTED_ROW_A])
-    assert db_worker.extract_to_increment_msg_data([]) is None

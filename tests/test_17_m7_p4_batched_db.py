@@ -3,10 +3,11 @@
 Covers:
 - executemany-batched inserts (listed_ads / removed_ads)
 - single parameterized bulk DELETE (no per-hash string-built statements)
-- batched days_listed UPDATE
 - filtered SELECTs (WHERE url_hash = ANY) instead of full-table fetches
 - shared-connection contract: functions given a conn must not commit/close it
 - db_worker_main: one connection for the whole run, writes committed
+(the batched days_listed UPDATE tests were removed with the whole
+increment stage in M7 P3)
 """
 import os
 import sys
@@ -93,48 +94,6 @@ def test_delete_empty_hash_list_touches_no_db(monkeypatch):
     assert conn.commits == 0
 
 
-# --- batched days_listed update --------------------------------------------------
-
-def test_update_dlv_batches_only_stale_rows(monkeypatch):
-    conn = mock_db(monkeypatch, db_worker, [])
-    data = {
-        "aaaaa": ["2021.07.01", 10],  # stale: correct dlv is 20
-        "bbbbb": ["2021.07.01", 20],  # already correct
-    }
-    db_worker.update_dlv_in_db_table(data, datetime(2021, 7, 21))
-    assert len(conn.cur.executemany_calls) == 1
-    sql, rows = conn.cur.executemany_calls[0]
-    assert sql == "UPDATE listed_ads SET days_listed = %s WHERE url_hash = %s"
-    assert rows == [(20, "aaaaa")]
-    assert conn.commits == 1
-
-
-def test_update_dlv_no_stale_rows_touches_no_db(monkeypatch):
-    conn = mock_db(monkeypatch, db_worker, [])
-    db_worker.update_dlv_in_db_table(
-        {"aaaaa": ["2021.07.01", 20]}, datetime(2021, 7, 21)
-    )
-    assert conn.cur.executemany_calls == []
-    assert conn.commits == 0
-
-
-def test_update_dlv_none_data_touches_no_db(monkeypatch):
-    conn = mock_db(monkeypatch, db_worker, [])
-    db_worker.update_dlv_in_db_table(None, datetime(2021, 7, 21))
-    assert conn.cur.executed == []
-    assert conn.cur.executemany_calls == []
-
-
-def test_update_dlv_with_shared_conn_does_not_commit():
-    conn = FakeConn([])
-    db_worker.update_dlv_in_db_table(
-        {"aaaaa": ["2021.07.01", 10]}, datetime(2021, 7, 21), conn=conn
-    )
-    assert len(conn.cur.executemany_calls) == 1
-    assert conn.commits == 0
-    assert not conn.closed
-
-
 # --- filtered selects -------------------------------------------------------------
 
 def test_extract_to_remove_queries_only_needed_hashes(monkeypatch):
@@ -145,22 +104,6 @@ def test_extract_to_remove_queries_only_needed_hashes(monkeypatch):
     assert "SELECT *" not in sql
     assert params == (["bbbbb"],)
     assert list(data.keys()) == ["bbbbb"]
-
-
-def test_extract_to_increment_queries_only_needed_hashes(monkeypatch):
-    conn = mock_db(monkeypatch, db_worker, [LISTED_ROW_A, LISTED_ROW_B])
-    data = db_worker.extract_to_increment_msg_data(["aaaaa"])
-    sql, params = conn.cur.executed[0]
-    assert "WHERE url_hash = ANY(%s)" in sql
-    assert "SELECT *" not in sql
-    assert params == (["aaaaa"],)
-    assert data == {"aaaaa": ["2021.07.01", 10]}
-
-
-def test_extract_to_increment_empty_hashes_touches_no_db(monkeypatch):
-    conn = mock_db(monkeypatch, db_worker, [LISTED_ROW_A])
-    assert db_worker.extract_to_increment_msg_data([]) is None
-    assert conn.cur.executed == []
 
 
 # --- db_worker_main: one connection, one transaction ------------------------------

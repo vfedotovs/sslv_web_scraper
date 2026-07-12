@@ -20,10 +20,9 @@ Next step extract 2 data dicts from df and one from db
 7.[x] Insert new_msg_data to listed_ads table
 8.[x] Insert to_remove_msg_data to removed_ads table
 9.[x] Delete db rows in listed table based on to_remove_msg_hashes
-10.[x] Update listed table: still_listed_msg_hashed for check and update
-       listed days count every run
-11.[x] Check and update days listed in listed table rows based
-       still_listed_msg_hashes
+10.[x] (removed in M7 P3) days_listed is no longer maintained daily:
+       it is derived from list_date at removal time (and at any read
+       path that needs it) instead of being re-updated in the DB
 TODO:
 12.[] Check if report day by last x days count and  generate report
 13.[] Write tests for db_worker module
@@ -116,20 +115,17 @@ def db_worker_main() -> None:
         # Extract new msg data dict from df
         new_msg_data = extract_new_msg_data(df, new_msg_hashes)
         # Extract to_remove msg data dict from db listed_ads table
+        # (days_listed is derived from list_date at removal time — M7 P3)
         to_removed_msg_data = extract_to_remove_msg_data(to_remove_msg_hashes, conn=conn)
-        # Extract data for messages that need to increment listed days value in db
-        to_increment_msg_data = extract_to_increment_msg_data(
-            still_listed_msg_hashes, conn=conn
-        )
         # Insert new msg data dict to listed_ads table
         insert_data_to_listed_table(new_msg_data, conn=conn)
         # Insert to_remove msg data dict to removed_ads table
         insert_data_to_removed_table(to_removed_msg_data, conn=conn)
         # Remove rows from listed_ads based on  to_remove hashes msg
         delete_db_listed_table_rows(to_remove_msg_hashes, conn=conn)
-        # Check and increment/update listed_ads all rows for listed days cnt value
-        todays_date = datetime.now()
-        update_dlv_in_db_table(to_increment_msg_data, todays_date, conn=conn)
+        # M7 P3: the daily "increment days_listed" stage is gone — the
+        # value is fully derivable from list_date, so nothing needs
+        # updating for still-listed ads.
         # M7 P4: all writes above land atomically in one transaction
         conn.commit()
         # M6 monitoring Item 2: record post-run table totals on the current
@@ -379,15 +375,12 @@ def extract_new_msg_data(df, new_msg_hashes: list) -> dict:
 
 
 def get_days_listed_count(pub_date: str) -> int:
-    """Caclulates messge days listed count based on todays date and pub_date"""
+    """Caclulates messge days listed count based on todays date and pub_date
+    (dd.mm.yyyy). M7 P3: real timedelta math instead of str(timedelta)
+    parsing, which silently broke for ads listed >999 days."""
     today = datetime.now()
     listed = gen_listed_day_obj(pub_date)
-    delta = str(today - listed)
-    days_num = delta.split("days")[0]
-    if len(days_num) > 5:  # should catch case when delta is less that 1 day
-        return 0
-    if len(days_num) < 5:  # assuming that listed day count will not exceed 999 days
-        return int(days_num)
+    return max((today - listed).days, 0)
 
 
 def rotate_date(date: str) -> str:
@@ -467,16 +460,19 @@ def extract_to_remove_msg_data(delisted_hashes: list, conn=None) -> dict:
         # M7 P4: fetch only the delisted rows instead of the whole table
         cur.execute(
             "SELECT url_hash, room_count, house_floors, apt_floor, price, "
-            "sqm, sqm_price, apt_address, list_date, days_listed "
+            "sqm, sqm_price, apt_address, list_date "
             "FROM listed_ads WHERE url_hash = ANY(%s)",
             (list(delisted_hashes),),
         )
         removed_date = gen_removed_date()
         for table_row in cur.fetchall():
             curr_row_hash = table_row[0]
+            list_date = table_row[8]
             data_values = list(table_row[1:9])
             data_values.append(removed_date)
-            data_values.append(table_row[9])
+            # M7 P3: derive days_listed from list_date at removal time
+            # instead of trusting the daily-maintained stored value
+            data_values.append(calc_days_listed(list_date))
             delisted_mesages[curr_row_hash] = data_values
         cur.close()
     except (Exception, psycopg2.DatabaseError) as error:
@@ -486,54 +482,6 @@ def extract_to_remove_msg_data(delisted_hashes: list, conn=None) -> dict:
         if own_conn and conn is not None:
             conn.close()
     return delisted_mesages
-
-
-def extract_to_increment_msg_data(listed_url_hashes: list, conn=None):
-    """Fetches (pub_date, days_listed) from listed_ads for the given hashes.
-
-    Args:
-        listed_url_hashes: string list of hashes
-
-    Returns:
-        dict: example {'gjhdx': ['2021.04.20', 108], 'cecek': ['2021.04.17', 101]}
-        None: when the hash list is empty or the table is empty (first run)
-    """
-    to_increment_msg_data = {}
-    if listed_url_hashes is None or len(listed_url_hashes) < 1:
-        return None
-    own_conn = conn is None
-    try:
-        logger.info("Connecting to DB to fetch data from listed_ads table")
-        if own_conn:
-            conn = _get_connection()
-        cur = conn.cursor()
-        # M7 P4: fetch only the still-listed rows instead of the whole table
-        cur.execute(
-            "SELECT url_hash, list_date, days_listed "
-            "FROM listed_ads WHERE url_hash = ANY(%s)",
-            (list(listed_url_hashes),),
-        )
-        table_rows = cur.fetchall()
-        if len(table_rows) < 1:
-            # need to handle case when table is empty aka first run
-            cur.execute("SELECT 1 FROM listed_ads LIMIT 1")
-            if cur.fetchone() is None:
-                return None
-        for curr_row_hash, pub_date, dlv in table_rows:
-            to_increment_msg_data[curr_row_hash] = [pub_date, dlv]
-        cur.close()
-        logger.info(
-            f"Extracted data from listed_ads table for {len(to_increment_msg_data)} messages"
-        )
-        for k, v in to_increment_msg_data.items():
-            logger.debug(f"{k} {v}")
-    except (Exception, psycopg2.DatabaseError) as error:
-        logger.error(f"DB operation failed: {error}")
-        raise
-    finally:
-        if own_conn and conn is not None:
-            conn.close()
-    return to_increment_msg_data
 
 
 def insert_data_to_removed_table(data: dict, conn=None) -> None:
@@ -609,60 +557,13 @@ def delete_db_listed_table_rows(delisted_hashes: list, conn=None) -> None:
             conn.close()
 
 
-def update_dlv_in_db_table(data: dict, todays_date: datetime, conn=None) -> None:
-    """Validates if dlv(days_listed value) is not correct then updates
-
-    Iterate over the hash:(pub_date, days_listed) dict, calculate the
-    correct dlv for todays_date and batch-update every stale row in
-    listed_ads with a single executemany statement (M7 P4 — previously
-    one connection + UPDATE per ad)."""
-    if data is None:
-        logger.error(
-            "Failed to update dlv values:"
-            " possibly listed_ads table is empty"
-            " or DB was not imported"
-        )
-        return
-
-    updates = []
-    for ad_hash, ad_data in data.items():
-        pub_date, days_listed = ad_data[0], ad_data[1]
-        correct_dlv = calc_valid_dlv(pub_date, todays_date)
-        if correct_dlv > days_listed:
-            updates.append((correct_dlv, ad_hash))
-            logger.debug(f"Updating dlv value for {ad_hash} {ad_data} item")
-
-    if updates:
-        own_conn = conn is None
-        try:
-            if own_conn:
-                conn = _get_connection()
-            cur = conn.cursor()
-            cur.executemany(
-                "UPDATE listed_ads SET days_listed = %s WHERE url_hash = %s",
-                updates,
-            )
-            if own_conn:
-                conn.commit()
-            cur.close()
-        except (Exception, psycopg2.DatabaseError) as error:
-            logger.error(f"DB operation failed: {error}")
-            raise
-        finally:
-            if own_conn and conn is not None:
-                conn.close()
-    logger.info(f"Updated days_listed value for {len(updates)} ads in listed_ads table")
-
-
-def calc_valid_dlv(pub_date: str, todays_date: datetime) -> int:
-    """calculates days_listed value based on pub_date and
-    todays_date and returns days count value"""
-    listed = gen_listed_day_obj_new(pub_date)
-    delta = str(todays_date - listed)
-    days_count = delta.split()[0]
-    if len(days_count) > 3:
-        return 0
-    return int(days_count)
+def calc_days_listed(list_date: str, until: datetime = None) -> int:
+    """M7 P3: derive days_listed from list_date ('YYYY.MM.DD') at read
+    time. Real timedelta math — the old str(timedelta) parsing silently
+    returned 0 for ads listed >999 days."""
+    if until is None:
+        until = datetime.now()
+    return max((until - gen_listed_day_obj_new(list_date)).days, 0)
 
 
 def gen_listed_day_obj_new(date: str):

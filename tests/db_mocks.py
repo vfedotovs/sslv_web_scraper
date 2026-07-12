@@ -36,11 +36,7 @@ class FakeCursor:
         elif s.startswith("SELECT 1 FROM listed_ads"):
             self._result = [(1,)] if self.table else []
         elif "WHERE url_hash = ANY" in s:
-            matching = [r for r in self.table if r[0] in set(params[0])]
-            if s.startswith("SELECT url_hash, list_date, days_listed"):
-                self._result = [(r[0], r[8], r[9]) for r in matching]
-            else:
-                self._result = matching
+            self._result = [r for r in self.table if r[0] in set(params[0])]
         elif s.startswith("SELECT url_hash FROM listed_ads"):
             self._result = [(r[0],) for r in sorted(self.table)]
         else:
