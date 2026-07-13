@@ -117,6 +117,42 @@ fi
 # For M6 staging deployments, default to the dedicated staging CICD bucket
 CICD_FILES_BUCKET=${CICD_FILES_BUCKET:-sslv-staging-m6-cicd-files}
 
+# Generic downloader for any file from the CICD bucket.
+# Returns 0 on success/present, 1 on failure. Logs info on actions.
+# Designed so direct s3 cp works with s3:GetObject only (no ListBucket needed).
+_download_cicd_file() {
+    local filename="$1"
+    if [[ -f "$filename" ]]; then
+        log_info "Using existing $filename on disk"
+        return 0
+    fi
+
+    log_info "Downloading $filename from s3://${CICD_FILES_BUCKET}/ (using IAM)..."
+    if aws s3 cp "s3://${CICD_FILES_BUCKET}/${filename}" "$filename" --quiet 2>&1; then
+        log_info "Downloaded $filename successfully"
+        if [[ "$filename" == .env* ]]; then
+            chmod 600 "$filename" 2>/dev/null || true
+        fi
+        return 0
+    else
+        return 1
+    fi
+}
+
+# Public helper for common artifacts (non-fatal usage).
+ensure_cicd_file() {
+    if ! _download_cicd_file "$1"; then
+        log_warn "Could not download $1 from s3://${CICD_FILES_BUCKET}/"
+        log_warn "  (Check IAM has s3:GetObject on object, file present in bucket, or place locally)"
+        return 1
+    fi
+    return 0
+}
+
+# Attempt to fetch common files early (non-fatal; per-city will still enforce its .env.*)
+ensure_cicd_file ".env.prod" || log_warn ".env.prod not auto-fetched; will use if present locally for compose"
+ensure_cicd_file "database.ini" || log_warn "database.ini not auto-fetched from CICD bucket"
+
 # Ensure database.ini is present in the ws build context.
 # src/ws/Dockerfile does: COPY database.ini /
 # load_secrets.sh downloads it to the project root, matching Makefile setup behavior.
@@ -136,22 +172,13 @@ ensure_env_file() {
     local city="$1"
     local env_file=".env.${city}"
 
-    if [[ -f "$env_file" ]]; then
-        log_info "Using existing $env_file on disk"
+    if _download_cicd_file "$env_file"; then
         return 0
     fi
 
-    log_info "Downloading $env_file from s3://${CICD_FILES_BUCKET}/ (using IAM)..."
-    if aws s3 cp "s3://${CICD_FILES_BUCKET}/${env_file}" "$env_file" --quiet 2>&1; then
-        log_info "Downloaded $env_file successfully"
-        # Protect the file (contains secrets)
-        chmod 600 "$env_file" 2>/dev/null || true
-        return 0
-    else
-        log_error "Failed to download $env_file from s3://${CICD_FILES_BUCKET}/"
-        log_error "Check: file exists in bucket, AWS credentials/IAM role has s3:GetObject, and aws cli is configured."
-        return 1
-    fi
+    log_error "Failed to download $env_file from s3://${CICD_FILES_BUCKET}/"
+    log_error "Check: file exists in bucket, AWS credentials/IAM role has s3:GetObject, and aws cli is configured."
+    return 1
 }
 
 SUCCESS_COUNT=0

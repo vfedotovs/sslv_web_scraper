@@ -501,13 +501,21 @@ _deploy-precheck:
 		exit 1; \
 	fi; \
 	printf "$(call log_step,Checking access to CICD bucket: $$bucket ...)\n"; \
-	if aws s3 ls "s3://$$bucket/" --max-items 1 > /dev/null 2>&1; then \
+	# Probe using direct object fetch first (aws s3 cp of a known key only needs s3:GetObject; \
+	# does not require s3:ListBucket which root 'ls' does). Falls back to ls for compatibility. \
+	if aws s3 cp "s3://$$bucket/.env.prod" /tmp/.probe-env.prod.$$$$ --quiet 2>/dev/null; then \
+		rm -f /tmp/.probe-env.prod.$$$$ 2>/dev/null || true; \
+		printf "$(call log_success,CICD bucket $$bucket is accessible (via GetObject))\n"; \
+	elif aws s3 cp "s3://$$bucket/database.ini" /tmp/.probe-db.$$$$ --quiet 2>/dev/null; then \
+		rm -f /tmp/.probe-db.$$$$ 2>/dev/null || true; \
+		printf "$(call log_success,CICD bucket $$bucket is accessible (via GetObject))\n"; \
+	elif aws s3 ls "s3://$$bucket/" --max-items 1 > /dev/null 2>&1; then \
 		printf "$(call log_success,CICD bucket $$bucket is accessible)\n"; \
 	else \
-		printf "$(call log_warning,Cannot access s3://$$bucket/ (this is OK if .env.* files already exist locally))\n"; \
-		if ! ls .env.* 1>/dev/null 2>&1; then \
-			printf "$(call log_error,No local .env.* files found and cannot reach CICD bucket.)\n"; \
-			printf "$(call log_info,Run with AWS credentials that can access the bucket, or place .env.* files locally first.)\n"; \
+		printf "$(call log_warning,Cannot access s3://$$bucket/ (this is OK if .env.* or .env.prod files already exist locally))\n"; \
+		if ! ls .env.* .env.prod 1>/dev/null 2>&1; then \
+			printf "$(call log_error,No local .env.* / .env.prod files found and cannot reach CICD bucket.)\n"; \
+			printf "$(call log_info,Run with AWS credentials/IAM that can GetObject (or ListBucket) the bucket, or place .env.* + .env.prod locally first.)\n"; \
 			exit 1; \
 		fi; \
 	fi; \
