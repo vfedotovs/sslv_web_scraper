@@ -23,8 +23,9 @@ silently during the refactor — change goldens in a dedicated commit):
 1. cleaned-sorted-df.csv is sorted by Price_in_eur as a STRING —
    lexicographic order (100000 < 21900 < 9500), not numeric.
 2. The leading index column keeps the PRE-SORT row numbers.
-3. df_cleaner CRASHES (KeyError: 0) on an empty pandas_df csv — which
-   since M7 P1 is the normal zero-new-ads day (see Phase 3 note).
+3. (FIXED in M8 Phase 3) df_cleaner used to CRASH (KeyError: 0) on an
+   empty pandas_df csv — the normal zero-new-ads day since M7 P1. It
+   now writes a header-only cleaned csv + the empty email template.
 """
 import os
 import shutil
@@ -106,11 +107,10 @@ def test_sort_is_lexicographic_not_numeric(chain_outputs):
     assert "aaa01" in data_rows[-1]  # 9500  — lexicographically largest
 
 
-def test_empty_raw_report_current_behavior(monkeypatch, tmp_path):
-    """Documents latent behavior #3: the zero-new-ads day (normal since
-    M7 P1) produces a header-only pandas_df csv and then df_cleaner
-    CRASHES with KeyError. The refactor (Phase 3) should fix this and
-    replace this test with a graceful-empty-day assertion."""
+def test_empty_raw_report_graceful_day(monkeypatch, tmp_path):
+    """The zero-new-ads day (normal since M7 P1) must run the whole
+    chain gracefully. Before M8 Phase 3, df_cleaner crashed here with
+    KeyError inside the pandas column splits."""
     monkeypatch.chdir(tmp_path)
     os.makedirs(tmp_path / "data", exist_ok=True)
     os.makedirs(tmp_path / "local_lambda_raw_scraped_data", exist_ok=True)
@@ -122,5 +122,12 @@ def test_empty_raw_report_current_behavior(monkeypatch, tmp_path):
         ",URL,Room_count,Size_sq_m,Floor,Street,Price,Pub_date\n"
     )
 
-    with pytest.raises(KeyError):
-        df_cleaner.df_cleaner_main(CITY)
+    df_cleaner.df_cleaner_main(CITY)
+    assert read(tmp_path / "ogre-cleaned-sorted-df.csv") == (
+        ",URL,Room_count,Floor,Street,Pub_date,Size_sqm,Price_in_eur,SQ_meter_price\n"
+    )
+    assert read(tmp_path / "ogre-email_body_txt_m4.txt") == (
+        "No data was collected during last scraping job."
+    )
+
+    analytics.analytics_main(CITY)  # must also survive the empty csv
