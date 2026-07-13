@@ -8,8 +8,6 @@ import logging
 import os
 import sys
 
-import pandas as pd
-
 # container layout imports (app.wsmodules...)
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src", "ws"))
 
@@ -41,12 +39,12 @@ def test_compare_hashes_logs_counts_not_lists(caplog):
     assert MARKER_HASH in debug_text(caplog)   # full dump available at DEBUG
 
 
-def test_df_hash_extraction_logs_counts_not_lists(caplog):
-    df = pd.DataFrame({
-        "URL": [f"https://ss.lv/msg/lv/real-estate/flats/riga-region/riga/{MARKER_HASH}.html"]
-    })
+def test_row_hash_extraction_logs_counts_not_lists(caplog):
+    rows = [{
+        "URL": f"https://ss.lv/msg/lv/real-estate/flats/riga-region/riga/{MARKER_HASH}.html"
+    }]
     with caplog.at_level(logging.DEBUG, logger="db_worker"):
-        db_worker.extract_url_hashes_from_df(df)
+        db_worker.extract_url_hashes_from_rows(rows)
     assert MARKER_HASH not in info_text(caplog)
     assert MARKER_HASH in debug_text(caplog)
 
@@ -69,11 +67,14 @@ def test_delete_logs_count_not_hashes(monkeypatch, caplog):
     assert MARKER_HASH in debug_text(caplog)
 
 
-def test_analytics_price_extraction_logs_counts_not_prices(caplog):
+def test_analytics_price_grouping_logs_counts_not_prices(caplog):
     marker_price = 987654
-    segments = {2: pd.DataFrame({"Price_in_eur": [marker_price, 50000]})}
+    rows = [
+        {"Room_count": "2", "Price_in_eur": str(marker_price)},
+        {"Room_count": "2", "Price_in_eur": "50000"},
+    ]
     with caplog.at_level(logging.DEBUG, logger="analytics"):
-        analytics.extract_data_from("Price_in_eur", segments)
+        analytics.group_prices_by_room(rows)
     assert str(marker_price) not in info_text(caplog)
     assert str(marker_price) in debug_text(caplog)
 

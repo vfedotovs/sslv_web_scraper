@@ -1,12 +1,13 @@
 #!/usr/bin/env python3
 """ analitics.py module
 This module  main functionality:
-    1. Load pandas data frame from cleaned-sorted-df.csv file
-    2. Split data frame to 4 data frames filtered by room count criteria
+    1. Load ad rows from cleaned-sorted-df.csv file (M8 Phase 4:
+       stdlib csv, pandas removed)
+    2. Group ad prices by room count value
     3. Calculate basic price stats (min/max/average price for each cateogry)
        and save to file  basic_price_stats.txt
-    4. basic_price_stats.txt later is used by pdf_cretor.py module to
-       include in pdf file
+    4. basic_price_stats.txt later is used by aws_mailer.py module to
+       include in the report email
 
 # Functionality that is planned to be implemented
     # - FIXME: need to implement
@@ -28,12 +29,12 @@ This module  main functionality:
     #     - requires correct datapoint fix bug
     # Category 4 advert street location analysis
 """
+import csv
 import logging
 from logging import handlers
 from logging.handlers import RotatingFileHandler
 import sys
 import os
-import pandas as pd
 from tabulate import tabulate
 
 # M7 P7: city-scoped hand-off filenames; fall back for standalone runs.
@@ -67,18 +68,17 @@ TEMP_OUTPUT_FILE = 'basic_price_stats.txt'  # is used by pdf_cretor.py module
 
 def analytics_main(city_name: str = None) -> None:
     """Main enrty point in module.
-    M7 P7: input/output hand-off filenames are city-scoped when given."""
+    M7 P7: input/output hand-off filenames are city-scoped when given.
+    M8 Phase 4: stdlib csv + dict grouping instead of pandas."""
     log.info(" --- Starting analitics module --- ")
     data_frame_file = city_file(DATA_FRAME_FILE, city_name)
     output_file = city_file(TEMP_OUTPUT_FILE, city_name)
     data_frame_file_exists = file_exists(data_frame_file)
     if data_frame_file_exists:
         log.info(f'Requred input file {data_frame_file} exists.')
-        full_data_frame = pd.read_csv(data_frame_file, index_col=False)
-        data_frame_segments = split_dataframe_by_column(
-            full_data_frame, ROOM_COUNT_COLUMN)
-        price_stats_by_room = extract_data_from(
-            PRICE_COLUMN, data_frame_segments)
+        with open(data_frame_file, 'r', encoding='utf-8', newline='') as fh:
+            ad_rows = list(csv.DictReader(fh))
+        price_stats_by_room = group_prices_by_room(ad_rows)
         calc_price_data = calculate_price_stats(price_stats_by_room)
         formatted_price_stats = format_price_stats_data(
             calc_price_data)
@@ -88,28 +88,27 @@ def analytics_main(city_name: str = None) -> None:
     log.info(" --- Ended analitics module --- ")
 
 
-def extract_data_from(column_name: str, data_frame_segments) -> dict:
-    """Extracts price data from specified column for different room
-       count segments.
+def group_prices_by_room(ad_rows: list) -> dict:
+    """Groups ad prices by room count value.
+
+    M8 Phase 4: replaces split_dataframe_by_column + extract_data_from.
+    Casts at read (csv yields strings): Room_count -> int keys so
+    segments sort numerically like the old int64 column, Price_in_eur
+    -> int values so min/max/avg math stays numeric.
 
     Args:
-        column_name (str): The name of the column from which to extract data.
-        data_frame_segments (dict): A dictionary containing room count segments
-            as keys and corresponding DataFrame segments as values.
+        ad_rows: list of cleaned ad row dicts (cleaned-sorted-df.csv)
 
     Returns:
-        dict: A dictionary where keys are room count values, and values are
-        lists containing the extracted price data for each room count segment.
-
-    Note:
-        Function expects that each DataFrame segment in `data_frame_segments`
-        has the specified `column_name`.
+        dict: {room_count (int): [price (int), ...]}
     """
     stats_data = {}
-    if data_frame_segments is not None:
-        for room_count_value, add_data in data_frame_segments.items():
-            curr_room_value_prices = add_data[column_name].tolist()
-            stats_data[room_count_value] = curr_room_value_prices
+    if not ad_rows:
+        log.error('Loaded ad rows list is empty')
+        return stats_data
+    for row in ad_rows:
+        room_count = int(row[ROOM_COUNT_COLUMN])
+        stats_data.setdefault(room_count, []).append(int(row[PRICE_COLUMN]))
     # M7 P9: counts at INFO, full price lists only at DEBUG
     for key, value in stats_data.items():
         log.info(f'Extracted {len(value)} prices for {key} room segment')
@@ -202,60 +201,6 @@ def file_exists(file_name) -> bool:
     - bool: True if the file exists, False otherwise.
     """
     return os.path.exists(file_name)
-
-
-def split_dataframe_by_column(dataframe, column_name: str) -> dict:
-    """
-    Split DataFrame into multiple DataFrames based on unique values
-    in the specified column.
-
-    Parameters:
-    - dataframe (pd.DataFrame): The input DataFrame.
-    - column_name (str): The name of the column for which
-      to split DataFrame.
-
-    - Returns:
-    - dict (vale: pd.DataFrame) or None: The dict of DataFrames
-      if the DataFrame is not empty, otherwise returns None.
-    """
-    if not dataframe.empty:
-        log.info('Loaded DataFrame is not empty')
-        unique_values = dataframe[column_name].unique()
-        log.info(
-            f'Found these {unique_values} values '
-            f'in DataFrame {column_name} column'
-        )
-        dataframes = {
-            value: dataframe[dataframe[column_name] == value]
-            for value in unique_values
-        }
-        return dataframes
-    else:
-        log.error('Loaded DataFrame is empty')
-        return None
-
-
-def get_column_dtype(dataframe, column_name: str) -> str:
-    """
-    Get the data type of a specific column in a DataFrame.
-
-    Parameters:
-    - dataframe (pd.DataFrame): The input DataFrame.
-    - column_name (str): The name of the column for which
-      to retrieve the data type.
-
-    - Returns:
-    - numpy.dtype (str) or None: The data type of the
-      specified column if the DataFrame is not empty,
-      otherwise returns None.
-    """
-    if not dataframe.empty:
-        column_dtype = str(dataframe[column_name].dtype)
-        log.info(f'DataFrame column: {column_name} dtype is : {column_dtype}')
-        return column_dtype
-    else:
-        log.error('Loaded DataFrame is empty')
-        return None
 
 
 if __name__ == "__main__":

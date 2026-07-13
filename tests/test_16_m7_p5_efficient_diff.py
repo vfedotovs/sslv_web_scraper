@@ -2,7 +2,8 @@
 
 Covers the refactored db_worker functions:
 - compare_df_to_db_hashes (three-way diff via sets)
-- extract_new_msg_data (single df pass with hash-set lookup)
+- extract_new_msg_data (single pass with hash-set lookup; M8 Phase 4:
+  takes ad row dicts instead of a DataFrame)
 - extract_to_remove_msg_data (single table pass with hash-set lookup)
 (extract_to_increment_msg_data was covered here too until M7 P3 deleted
 the daily days_listed increment stage entirely.)
@@ -10,8 +11,6 @@ the daily days_listed increment stage entirely.)
 import os
 import sys
 import time
-
-import pandas as pd
 
 # container layout imports (app.wsmodules...)
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src", "ws"))
@@ -23,20 +22,22 @@ from tests.db_mocks import mock_db as _mock_db
 URL_TEMPLATE = "https://ss.lv/msg/lv/real-estate/flats/ogre-and-reg/ogre/{}.html"
 
 
-def make_df(rows):
-    """rows: list of (hash, floor, pub_date) tuples -> minimal scraper df."""
-    return pd.DataFrame(
+def make_rows(rows):
+    """rows: list of (hash, floor, pub_date) tuples -> minimal cleaned
+    ad row dicts (string values, like csv.DictReader yields)."""
+    return [
         {
-            "URL": [URL_TEMPLATE.format(h) for h, _, _ in rows],
-            "Room_count": [2 for _ in rows],
-            "Floor": [floor for _, floor, _ in rows],
-            "Street": ["Brivibas 1" for _ in rows],
-            "Pub_date": [pub for _, _, pub in rows],
-            "Size_sqm": [50 for _ in rows],
-            "Price_in_eur": [50000 for _ in rows],
-            "SQ_meter_price": [1000 for _ in rows],
+            "URL": URL_TEMPLATE.format(h),
+            "Room_count": "2",
+            "Floor": floor,
+            "Street": "Brivibas 1",
+            "Pub_date": pub,
+            "Size_sqm": "50",
+            "Price_in_eur": "50000",
+            "SQ_meter_price": "1000",
         }
-    )
+        for h, floor, pub in rows
+    ]
 
 
 def mock_db(monkeypatch, table_rows):
@@ -93,10 +94,10 @@ def test_three_way_diff_is_fast_at_scale():
 # --- extract_new_msg_data ----------------------------------------------------
 
 def test_extract_new_msg_data_picks_only_new_hashes():
-    df = make_df(
+    rows = make_rows(
         [("aaaaa", "3/5", "01.07.2021"), ("bbbbb", "1/9", "02.07.2021")]
     )
-    data = db_worker.extract_new_msg_data(df, ["bbbbb"])
+    data = db_worker.extract_new_msg_data(rows, ["bbbbb"])
     assert list(data.keys()) == ["bbbbb"]
     row = data["bbbbb"]
     assert row[0] == 2            # Room_count
@@ -107,18 +108,18 @@ def test_extract_new_msg_data_picks_only_new_hashes():
 
 
 def test_extract_new_msg_data_empty_hash_list_returns_empty():
-    df = make_df([("aaaaa", "3/5", "01.07.2021")])
-    assert db_worker.extract_new_msg_data(df, []) == {}
+    rows = make_rows([("aaaaa", "3/5", "01.07.2021")])
+    assert db_worker.extract_new_msg_data(rows, []) == {}
 
 
 def test_extract_new_msg_data_skips_rows_not_in_hash_set():
     """Rows for known ads must not be parsed at all — a malformed Floor
     value on a non-selected row must not break extraction (the old
     per-hash full-frame loop parsed every row every time)."""
-    df = make_df(
+    rows = make_rows(
         [("aaaaa", "no-slash", "01.07.2021"), ("bbbbb", "2/4", "03.07.2021")]
     )
-    data = db_worker.extract_new_msg_data(df, ["bbbbb"])
+    data = db_worker.extract_new_msg_data(rows, ["bbbbb"])
     assert list(data.keys()) == ["bbbbb"]
 
 

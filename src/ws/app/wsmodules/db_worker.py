@@ -6,10 +6,10 @@ tracking how many days they stay in listed state, move ads to delisted_ads
 table after ads are removed from website and reporting capability.
 Todo functionality:
 0.[x] Import modules and set up logging
-1.[x] Load daily csv data to data frame
-2.[x] Extract (todays_url_hashes) from data frame
+1.[x] Load daily csv data to ad row dicts (M8 Phase 4: was pandas df)
+2.[x] Extract (todays_url_hashes) from ad rows
 3.[x] Extract (still_listed_table_hashes) from db listed_ads table
-4.[x] Compared todays df with still listed table hashes, now hashes are sorted:
+4.[x] Compared todays hashes with still listed table hashes, now hashes are sorted:
 -- new_msg_hashes
 -- still_listed_msg_hashes
 -- to_remove_msg_hashes
@@ -34,7 +34,7 @@ import logging
 from logging import handlers
 from logging.handlers import RotatingFileHandler
 from datetime import datetime
-import pandas as pd
+import csv
 import psycopg2
 from app.wsmodules.config import config
 from app.wsmodules.file_paths import city_file
@@ -78,22 +78,22 @@ def db_worker_main(city: str = None) -> None:
         ensure_tables_exist(conn=conn)
         conn.commit()
 
-        df = load_csv_to_df(cleaned_csv)
+        ad_rows = load_csv_rows(cleaned_csv)
 
         # M7 P1: today's URL universe comes from the scraper's discovered-urls
-        # file (ALL urls seen on the list pages); the data frame now contains
-        # only newly fetched ads. Falls back to deriving the set from the df
-        # when the file is absent/stale (cloud-file path, legacy runs).
+        # file (ALL urls seen on the list pages); the ad rows now contain
+        # only newly fetched ads. Falls back to deriving the set from the
+        # rows when the file is absent/stale (cloud-file path, legacy runs).
         discovered_hashes = load_todays_discovered_hashes(
             city_file("discovered-urls.txt", city)
         )
 
-        if df is None or df.empty:
+        if not ad_rows:
             if discovered_hashes is None:
-                logger.warning("DataFrame is empty. Skipping processing.")
+                logger.warning("Todays ad rows list is empty. Skipping processing.")
                 return  # Exit gracefully instead of crashing
             logger.info(
-                "No new ads in todays data frame; continuing diff with %s"
+                "No new ads in todays data; continuing diff with %s"
                 " discovered hashes (still/removed detection)",
                 len(discovered_hashes),
             )
@@ -102,7 +102,7 @@ def db_worker_main(city: str = None) -> None:
         if discovered_hashes is not None:
             todays_url_hashes = discovered_hashes
         else:
-            todays_url_hashes = extract_url_hashes_from_df(df)
+            todays_url_hashes = extract_url_hashes_from_rows(ad_rows)
         still_listed_table_url_hashes = extract_listed_url_hashes_from_db(conn=conn)
         # Sorting all hashes to 3 categories (new, still_listed, to_remove)
         hashe_categories = compare_df_to_db_hashes(
@@ -117,8 +117,8 @@ def db_worker_main(city: str = None) -> None:
             still_listed_ads=len(still_listed_msg_hashes),
             removed_ads=len(to_remove_msg_hashes),
         )
-        # Extract new msg data dict from df
-        new_msg_data = extract_new_msg_data(df, new_msg_hashes)
+        # Extract new msg data dict from todays ad rows
+        new_msg_data = extract_new_msg_data(ad_rows, new_msg_hashes)
         # Extract to_remove msg data dict from db listed_ads table
         # (days_listed is derived from list_date at removal time — M7 P3)
         to_removed_msg_data = extract_to_remove_msg_data(to_remove_msg_hashes, conn=conn)
@@ -204,7 +204,10 @@ def ensure_csv_exists(csv_file_name: str, headers: list) -> None:
         logger.warning(
             f"File '{csv_file_name}' is missing or empty. Creating a new one."
         )
-        pd.DataFrame(columns=headers).to_csv(csv_file_name, index=False)
+        # M8 Phase 4: plain header line (same output as the old
+        # pd.DataFrame(columns=headers).to_csv(index=False))
+        with open(csv_file_name, "w", encoding="utf-8", newline="") as fh:
+            csv.writer(fh, lineterminator="\n").writerow(headers)
 
 
 def check_data_files(required_files: list) -> None:
@@ -255,23 +258,21 @@ def load_todays_discovered_hashes(file_path: str = "discovered-urls.txt"):
     return hashes
 
 
-def load_csv_to_df(csv_file_name: str):
-    """reads csv file and returns pandas data frame"""
+def load_csv_rows(csv_file_name: str) -> list:
+    """M8 Phase 4: reads the cleaned csv into a list of row dicts
+    (replaces load_csv_to_df; an empty or header-only file yields [])."""
     cwd = os.getcwd()
     logger.info(f"Loading {csv_file_name} from directory {cwd}")
-    df = pd.read_csv(csv_file_name)
-    logger.info(f"Loaded {csv_file_name} file to pandas data frame in memory")
-    return df
+    with open(csv_file_name, "r", encoding="utf-8", newline="") as fh:
+        ad_rows = list(csv.DictReader(fh))
+    logger.info(f"Loaded {len(ad_rows)} ad rows from {csv_file_name} in memory")
+    return ad_rows
 
 
-def extract_url_hashes_from_df(df_name) -> list:
-    """exctracts from df url column links from all rows and
-    from each link extracts uniq url hash"""
-    url_hashes = []
-    urls = df_name["URL"].tolist()
-    for full_url in urls:
-        url_hash = extract_hash(full_url)
-        url_hashes.append(url_hash)
+def extract_url_hashes_from_rows(ad_rows: list) -> list:
+    """extracts each row's URL value and returns the list of uniq url
+    hashes (M8 Phase 4: rows are dicts, was a DataFrame column)"""
+    url_hashes = [extract_hash(row["URL"]) for row in ad_rows]
     logger.info(f"Extracted {len(url_hashes)} url hashes from todays scraped data")
     logger.debug(f"Extracted {url_hashes} url hashes from todays scraped data")
     return url_hashes
@@ -342,29 +343,32 @@ def compare_df_to_db_hashes(df_hashes: list, db_hashes: list) -> list:
     return hash_categories
 
 
-def extract_new_msg_data(df, new_msg_hashes: list) -> dict:
-    """Extract data from df and return as dict hash:
+def extract_new_msg_data(ad_rows: list, new_msg_hashes: list) -> dict:
+    """Extract data from ad rows and return as dict hash:
     (list column data for hash row)"""
     data_dict = {}
     logger.info(f"new_msg_hashes count {len(new_msg_hashes)}")
     logger.debug(f"new_msg_hashes: {new_msg_hashes}")
-    logger.info("Starting extract new ads from todays scraped data farme in memory")
-    # M7 P5: single pass over the data frame with a hash set lookup instead
-    # of re-iterating the whole frame for every new hash (O(new × N)).
+    logger.info("Starting extract new ads from todays scraped ad rows in memory")
+    # M7 P5: single pass over the rows with a hash set lookup instead
+    # of re-iterating everything for every new hash (O(new × N)).
     new_hash_set = set(new_msg_hashes)
-    for index, row in df.iterrows():
+    for row in ad_rows:
         url_hash = extract_hash(row["URL"])
         if url_hash not in new_hash_set:
             continue
+        # M8 Phase 4: csv yields strings where pandas auto-coerced to
+        # int64/float64 — cast explicitly so DB values and any numeric
+        # comparisons keep their old types.
         row_data = []
-        row_data.append(row["Room_count"])
+        row_data.append(int(row["Room_count"]))
         apt_and_house_floor = row["Floor"]  # apt floor and housefloor: 3/4
         floor_list = apt_and_house_floor.split("/", 1)
         row_data.append(floor_list[1])
         row_data.append(floor_list[0])
-        row_data.append(row["Price_in_eur"])
-        row_data.append(row["Size_sqm"])
-        row_data.append(row["SQ_meter_price"])
+        row_data.append(int(row["Price_in_eur"]))
+        row_data.append(int(float(row["Size_sqm"])))
+        row_data.append(float(row["SQ_meter_price"]))
         row_data.append(row["Street"])
         pub_date = row["Pub_date"]
         rotated_pub_date = rotate_date(pub_date)
@@ -372,7 +376,7 @@ def extract_new_msg_data(df, new_msg_hashes: list) -> dict:
         days_count = get_days_listed_count(pub_date)
         row_data.append(days_count)
         data_dict[url_hash] = row_data
-    logger.info(f"Extrcted new ad count from todays data frame {len(data_dict)} ")
+    logger.info(f"Extrcted new ad count from todays ad rows {len(data_dict)} ")
     for k, v in data_dict.items():
         logger.debug(f"{k} {v}")
     return data_dict
