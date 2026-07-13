@@ -1,5 +1,9 @@
 # M8 — Action Plan: Remove pandas From the ws Pipeline
 
+**Status: COMPLETED 2026-07-13** — Phase 1 `dev-1.8.1`, Phase 2
+`dev-1.8.2`, Phase 3 `dev-1.8.3`, Phase 4 `dev-1.8.4`, Phase 5 (incl.
+Phase 0 dead-code deletion) `dev-1.8.5`. Results in §7 at the bottom.
+
 **Date:** 2026-07-12 (branch dev-1.7.8)
 **Motivation:** pandas (+ numpy) is the single largest avoidable memory
 consumer in the `ws` container: ~150–280MB RSS at import time, paid by
@@ -164,3 +168,50 @@ Decisions to lock in before coding:
 | 4 | analytics + db_worker | 1 day |
 | 5 | Uninstall pandas, measure, guard | 0.5 day |
 | **Total** | | **~4–4.5 focused days** |
+
+---
+
+## 7. Results (2026-07-13, Phases 1–5 done)
+
+**What shipped, per phase:**
+
+- **Phase 1** (`dev-1.8.1`): golden-chain harness — 10-ad fixture +
+  committed byte-exact snapshots of all five hand-off files
+  (test_22). Surfaced and pinned two latent behaviors: the
+  `Price_in_eur` sort was already *lexicographic* (string dtype), and
+  df_cleaner *crashed* (KeyError) on the zero-new-ads day.
+- **Phase 2** (`dev-1.8.2`): data_format_changer off pandas
+  (row dicts + `csv.writer`), goldens byte-identical.
+- **Phase 3** (`dev-1.8.3`): df_cleaner off pandas — `clean_ad_row()`
+  replaces the four pandas helpers; string sort kept deliberately
+  (goldens pin it); **the zero-new-ads-day KeyError crash was fixed**
+  (header-only csv + empty email template); dead email-body helpers
+  deleted.
+- **Phase 4** (`dev-1.8.4`): analytics (`group_prices_by_room`, int
+  casts at read) + db_worker (`load_csv_rows`, cast-at-insert) off
+  pandas; goldens byte-identical; tests de-pandas-ed (make_rows).
+- **Phase 5** (`dev-1.8.5`): dead modules deleted (`run_analisys.py`,
+  `next_features/`, `pdf_creator.py`, `sendgrid_mailer.py`,
+  `gen_report.py`, commented-out `test_06`); `pandas` removed from
+  `src/ws/requirements.txt`; grep-guard test (test_26) fails the suite
+  if a pandas import or requirement ever comes back.
+
+**Measured impact** (dev machine, macOS / CPython 3.11, importing all
+six live pipeline modules):
+
+| Metric | With pandas | Without | Saved |
+|--------|-------------|---------|-------|
+| Import RSS (live modules) | 83.0 MB | 43.0 MB | **40 MB (-48%) per ws container** |
+| site-packages disk (pandas+numpy) | 73 MB | 0 | **~73 MB smaller image + faster pip install/cold start** |
+
+Notes: the original ~150–280MB estimate reflected older
+pandas/matplotlib-era containers; matplotlib/plotly/sendgrid/fpdf had
+already been dropped earlier (M6, commit `8eea050`). Additional unmeasured
+savings: per-run DataFrame allocations replaced by plain dicts, and one
+fewer heavy C-extension import on every container start. Container-level
+numbers (docker image size / idle RSS) should be re-recorded at the next
+image rebuild+deploy — expected to track the local measurements.
+
+**Follow-up (optional, plan §Phase 5.4):** drop the legacy leading index
+column from both hand-off CSVs, switch the price sort to numeric, and
+regenerate goldens in one dedicated commit.

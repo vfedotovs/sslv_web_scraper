@@ -2,7 +2,6 @@ uvicorn
 fastapi
 requests
 bs4
-pandas 
 psycopg2-binary
 boto3
 tabulate
