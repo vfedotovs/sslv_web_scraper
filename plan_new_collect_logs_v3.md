@@ -1,6 +1,6 @@
 # Plan: `scripts/collect_logs_v3.sh` — multi-city aware log & artifact collector
 
-Status: in progress — Phases 1–7 done, Phases 8–10 pending
+Status: in progress — Phases 1–8 done (script feature-complete, v3.0.0); Phases 9–10 pending
 Branch: `dev-1.7.8.1`
 Supersedes: `scripts/collect_logs_v2.sh`
 Related: `deploy-multi-city-ws.sh`, `undeploy-multi-city.sh`, `scripts/backup_db_city.sh`, `scripts/restore_db_city.sh`, `config/cities.yaml`
@@ -282,12 +282,28 @@ Still open in Phase 7: applying the redactor to *log and artifact content*, and 
 | `--no-redact` | self-test skipped (not failed), exit `0`, secret verbatim, no report written |
 | Temp files | no `.redacting` leftovers |
 
-### Phase 8 — Packaging & summary *(fixes C8)*
+### Phase 8 — Packaging & summary *(fixes C8)* — ✅ DONE
 
-- [ ] **8.1** Write `MANIFEST.txt`: timestamp, host, script version, flags used, per-(city, service) collected/skipped table with reasons, redaction state.
-- [ ] **8.2** Write `SUMMARY.txt`: a health matrix (city × service → state) plus the last 5 `ERROR`/`CRITICAL` lines from each city's ws logs. This is the artifact a human reads first.
-- [ ] **8.3** `tar czf sslv-logs-<ts>.tar.gz`, print the absolute path and human-readable size on exit. `--no-archive` to skip.
-- [ ] **8.4** Exit codes: `0` all requested cities collected; `1` partial; `2` fatal preflight failure; `3` redaction self-test failed (added in Phase 7, already implemented).
+- [x] **8.1** `MANIFEST.txt` carries timestamp, host, script version, every flag, the per-(city, service) table with reasons, the log/artifact/dump/state sources, and the redaction state.
+- [x] **8.2** `SUMMARY.txt`: health matrix (city × service → `state/health`) plus the last 5 error lines per city. **Scans every service's logs, not just ws** — a failed nightly backup surfaces in `backup.log`, and that is precisely what belongs on the first page.
+- [x] **8.3** `tar czf <bundle>.tar.gz` beside the tree, absolute path and size printed on exit; `--no-archive` skips it.
+- [x] **8.4** Exit codes `0` / `1` / `2` / `3`, with the redaction failure outranking a partial collection.
+- [x] **8.6** *(added)* **A failed self-test suppresses the archive.** Refusing to produce the convenient, easily-attached artifact from a bundle known to contain a secret; the unpacked tree is left for inspection.
+
+**Verified:**
+
+| Check | Result |
+|---|---|
+| SUMMARY matrix | `ogre` shows `running/healthy` for ws, `exited` for db; `jurmala` ws only; absent cities marked |
+| Error surfacing | `CRITICAL pg_dump failed` (backup.log) and `ERROR trigger refused` (ts) both surfaced — neither is a ws log |
+| Archive (8.3) | 55 entries, extracts to a single top-level dir, absolute path + size printed |
+| `--no-archive` | no tarball written |
+| Leak → no archive (8.6) | exit `3`, tarball **not** created, unpacked tree retained |
+| Exit `1` | a city failing mid-collection: others still collected, archive still written, trouble named in SUMMARY |
+| Exit `2` | unknown city: no bundle written |
+| Full run | all 6 cities, `--with-data-dirs`, self-test PASS, exit `0` |
+
+**Bug found and fixed while testing:** `city_errors()` piped `grep` into `tail`. grep exits `1` when it matches nothing, and under `set -o pipefail` that propagated out of the command substitution and, with `set -e`, aborted the run just before the summary — so **a city with no errors, the healthy and most common case, killed the script**. The run died silently after writing `MANIFEST.txt`, with exit `1` looking like an ordinary partial collection. Fixed with `{ grep ... || true; } | tail`.
 - [x] **8.5** Add `.gitignore` entries for `log-bundles/` and `sslv-logs-*.tar.gz` — done early as item 1.7.
 
 ### Phase 9 — Integration & docs
@@ -313,3 +329,5 @@ Still open in Phase 7: applying the redactor to *log and artifact content*, and 
 Phases 1 → 2 → 3 give a working, correct multi-city collector and can ship on their own. **Phase 7 (redaction) must land before Phase 6 output is shared anywhere**, since `inspect.json` carries every secret in the compose file. Phases 8–9 are polish. Phases 4, 5 and 10 can proceed in parallel with the rest.
 
 Minimum viable v3: **Phases 1, 2, 3, 8.1–8.3** — that alone fixes every blocking defect in §1.1 and the two worst content gaps (`aws_mailer.log`, `backup` container).
+
+**Reached and passed:** Phases 1–8 are complete, so v3 now covers every defect (D1–D8) and every content gap (C1–C9) identified in §1. What remains is integration, not capability: Phase 9 (Makefile target, README/CLAUDE.md, optional S3 upload) and Phase 10 (verification on the production EC2 host, where the containers are real).

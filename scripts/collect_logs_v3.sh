@@ -15,12 +15,14 @@
 #              Phase 5 — opt-in debug DB dump.
 #              Phase 6 — host + container state capture.
 #              Phase 7 — whole-bundle secret redaction + self-test.
-# PENDING:     Phase 8 (SUMMARY.txt, tar.gz archive).
+#              Phase 8 — SUMMARY.txt, tar.gz archive, exit codes.
+# PENDING:     Phase 9 (Makefile target, README/CLAUDE.md, optional S3 upload),
+#              Phase 10 (verification on the production EC2 host).
 #
-# The script discovers each city's containers and collects their logs, docker
-# logs, pipeline artifacts, host/container state and (opt-in) a debug DB dump
-# into a per-city bundle tree, then redacts the whole tree and verifies that
-# with a self-test. The tar.gz archive lands in Phase 8.
+# Discovers each city's containers by compose label, collects their logs,
+# docker logs, pipeline artifacts, host/container state and (opt-in) a debug DB
+# dump into a per-city bundle tree, redacts the whole tree, verifies that with
+# a self-test, and packs the result into a single tar.gz.
 
 set -euo pipefail
 
@@ -28,7 +30,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 CONFIG_FILE="${REPO_ROOT}/config/cities.yaml"
 
-SCRIPT_VERSION="3.0.0-phase7"
+SCRIPT_VERSION="3.0.0"
 
 # Exit codes (plan item 8.4)
 EXIT_OK=0        # everything requested was collected
@@ -244,6 +246,49 @@ redact_bundle() {
     done < <(find "$dir" -type f ! -name '*.redacting' 2>/dev/null)
 
     printf '%s' "$count"
+}
+
+# --- Summary helpers (plan item 8.2) ----------------------------------------
+
+# status_of <city> <service> — the recorded container state, or "absent".
+status_of() {
+    awk -F'\t' -v c="$1" -v s="$2" '$1==c && $2==s {print $3; exit}' "$STATUS_FILE"
+}
+
+# health_of <city> <service> — healthcheck status, empty when none defined.
+# health.json is the compact {{json .State.Health}}, or the literal "null".
+health_of() {
+    local f="${BUNDLE_DIR}/cities/$1/$2/health.json"
+    [[ -f "$f" ]] || return 0
+    sed -n 's/.*"Status":"\([a-z]*\)".*/\1/p' "$f" | head -n1
+}
+
+# health_cell <city> <service> — one matrix cell, e.g. "running/healthy".
+health_cell() {
+    local state health
+    state="$(status_of "$1" "$2")"
+    [[ -z "$state" ]] && state="-"
+    health="$(health_of "$1" "$2")"
+    if [[ -n "$health" ]]; then
+        printf '%s/%s' "$state" "$health"
+    else
+        printf '%s' "$state"
+    fi
+}
+
+# city_errors <city> — the last few ERROR/CRITICAL/Traceback lines for a city.
+# Scans every collected log including stdout.log, not just ws: a failed nightly
+# backup shows up in backup.log and is exactly what you want surfaced here.
+#
+# The `|| true` is load-bearing. grep exits 1 when it matches nothing, and
+# under `set -o pipefail` that would propagate out of the command substitution
+# and, with `set -e`, abort the whole run — so a city with NO errors, the
+# healthy and most common case, would kill the script just before the summary.
+city_errors() {
+    { grep -rhE '(ERROR|CRITICAL|FATAL|Traceback)' \
+        "${BUNDLE_DIR}/cities/$1" \
+        --include='*.log' --include='*.log.*' 2>/dev/null || true; } \
+        | tail -n 5
 }
 
 # An unmasked secret looks like KEY=<something that is not ***REDACTED***>,
@@ -934,6 +979,10 @@ if [[ ! -w "$OUTPUT_DIR" ]]; then
     exit "$EXIT_FATAL"
 fi
 
+# Resolve to an absolute path so the final "here is your bundle" line can be
+# copy-pasted from anywhere (8.3).
+OUTPUT_DIR="$(cd "$OUTPUT_DIR" && pwd)"
+
 # --- Resolve the city list --------------------------------------------------
 
 ALL_CITIES=()
@@ -1215,14 +1264,71 @@ MANIFEST="${BUNDLE_DIR}/MANIFEST.txt"
     echo "                            TASK_TIME/VERIFY_TIME, env (redacted)"
     echo "  ws/         status.json   GET /status from inside the container"
     echo
-    echo "NOTE: Phases 2-7 implemented (discovery, logs, artifacts, DB dump,"
-    echo "      state, redaction). SUMMARY.txt and the tar.gz archive land in"
-    echo "      Phase 8; see plan_new_collect_logs_v3.md."
+    echo "Read SUMMARY.txt first — it has the health matrix and the last"
+    echo "errors per city. This file is the detailed inventory."
 } > "$MANIFEST"
 
 log_info "Wrote $MANIFEST"
 
-# --- Summary ----------------------------------------------------------------
+# --- SUMMARY.txt (plan item 8.2) --------------------------------------------
+# The one file a human opens first: what is up, what is not, and what broke.
+
+SUMMARY="${BUNDLE_DIR}/SUMMARY.txt"
+{
+    echo "SS.LV multi-city log bundle — SUMMARY"
+    echo "=========================================================="
+    echo "Generated : $(date -u '+%Y-%m-%d %H:%M:%S UTC')"
+    echo "Host      : $(hostname)"
+    echo "Bundle    : ${BUNDLE_NAME}"
+    echo
+    echo "Health matrix"
+    echo "----------------------------------------------------------"
+    echo "state/health per container. 'absent' = not deployed here."
+    echo
+
+    printf '%-14s' "CITY"
+    for _svc in "${SERVICE_LIST[@]}"; do printf '%-18s' "$(echo "$_svc" | tr '[:lower:]' '[:upper:]')"; done
+    echo
+    printf '%-14s' "----"
+    for _svc in "${SERVICE_LIST[@]}"; do printf '%-18s' "-----"; done
+    echo
+
+    for _city in "${CITIES[@]}"; do
+        printf '%-14s' "$_city"
+        for _svc in "${SERVICE_LIST[@]}"; do
+            printf '%-18s' "$(health_cell "$_city" "$_svc")"
+        done
+        echo
+    done
+
+    echo
+    echo "Recent errors (last 5 per city, across all collected logs)"
+    echo "----------------------------------------------------------"
+    for _city in "${CITIES[@]}"; do
+        _errs="$(city_errors "$_city")"
+        echo
+        echo "[$_city]"
+        if [[ -n "$_errs" ]]; then
+            echo "$_errs" | sed 's/^/  /'
+        else
+            echo "  (no ERROR/CRITICAL/Traceback lines found)"
+        fi
+    done
+
+    echo
+    echo "----------------------------------------------------------"
+    if [[ ${#TROUBLED_CITIES[@]} -gt 0 ]]; then
+        echo "Cities with collection trouble: ${TROUBLED_CITIES[*]}"
+        echo "See collect.log for what failed."
+    else
+        echo "All requested cities collected without error."
+    fi
+    echo "Full inventory: MANIFEST.txt   Redaction check: REDACTION-SELF-TEST.txt"
+} > "$SUMMARY"
+
+log_info "Wrote $SUMMARY"
+
+# --- Totals -----------------------------------------------------------------
 
 # awk (not `grep -vc`, which prints 0 *and* exits 1 on an empty file, so the
 # `|| echo 0` fallback would double up).
@@ -1251,13 +1357,43 @@ else
     log_warn "secrets by design — do not share it."
 fi
 
-log_warn "Phases 1-7 done. SUMMARY.txt and the tar.gz archive land in Phase 8."
+# --- Archive (plan item 8.3) ------------------------------------------------
 
-log_info "Done. Bundle at: ${BUNDLE_DIR}"
+ARCHIVE_PATH=""
+if [[ "$ARCHIVE" != true ]]; then
+    log_info "Archive skipped (--no-archive)"
+elif [[ "$SELF_TEST_FAILED" == true ]]; then
+    # Refuse to produce the convenient, easily-attached artifact from a bundle
+    # known to contain a secret. The unpacked tree is left for inspection.
+    log_warn "Archive NOT created — the redaction self-test failed."
+    log_warn "Fix the findings and re-run rather than shipping this bundle."
+else
+    ARCHIVE_PATH="${OUTPUT_DIR}/${BUNDLE_NAME}.tar.gz"
+    if tar czf "$ARCHIVE_PATH" -C "$OUTPUT_DIR" "$BUNDLE_NAME" 2>/dev/null; then
+        log_info "Archive: ${ARCHIVE_PATH} ($(du -h "$ARCHIVE_PATH" | awk '{print $1}'))"
+    else
+        log_warn "Failed to create archive at ${ARCHIVE_PATH}"
+        ARCHIVE_PATH=""
+    fi
+fi
 
+# --- Final report + exit status (plan item 8.4) -----------------------------
+
+echo "" >&2
+log_info "Done."
+log_info "  Bundle:  ${BUNDLE_DIR}"
+[[ -n "$ARCHIVE_PATH" ]] && log_info "  Archive: ${ARCHIVE_PATH}"
+log_info "  Read SUMMARY.txt first."
+
+# A leaked secret outranks a partial collection: only one of the two means the
+# output is unsafe to send anywhere.
 if [[ "$SELF_TEST_FAILED" == true ]]; then
     exit "$EXIT_REDACTION"
 fi
+if [[ ${#TROUBLED_CITIES[@]} -gt 0 ]]; then
+    exit "$EXIT_PARTIAL"
+fi
+exit "$EXIT_OK"
 
 if [[ ${#TROUBLED_CITIES[@]} -gt 0 ]]; then
     log_warn "Cities with collection trouble: ${TROUBLED_CITIES[*]}"
