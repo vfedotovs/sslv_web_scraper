@@ -61,16 +61,8 @@ if [[ -z "$CITY" && "$ALL" == false ]]; then
     exit 1
 fi
 
-parse_cities() {
-    awk '
-        /^cities:/ { in_cities=1; next }
-        in_cities && /^[[:space:]]{2}[a-zA-Z0-9_]+:/ {
-            city = $0; gsub(/^[[:space:]]+/, "", city); sub(/:.*/, "", city);
-            if (city != "") print city
-        }
-        in_cities && /^[^[:space:]][a-zA-Z_]/ && !/^cities:/ { exit }
-    ' "$1"
-}
+# Shared cities.yaml parser (provides parse_cities)
+source "${SCRIPT_DIR}/lib/cities.sh"
 
 get_cities() {
     if [[ "$ALL" == true ]]; then parse_cities "$CONFIG_FILE"; else echo "$CITY"; fi

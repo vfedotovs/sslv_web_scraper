@@ -34,32 +34,8 @@ if [[ ! -f "$CONFIG_FILE" ]]; then
     exit 1
 fi
 
-# Parse city names from YAML
-# Extracts top-level keys directly under the 'cities:' section.
-parse_cities() {
-    local yaml_file="$1"
-    if [[ ! -f "$yaml_file" ]]; then
-        echo ""
-        return 1
-    fi
-
-    # Awk parser for the simple "cities:\n  cityname:\n    ..." YAML.
-    # IMPORTANT: We copy the line into a variable instead of modifying $1/$0.
-    # Modifying awk fields causes it to rebuild $0 (using OFS), which
-    # can falsely trigger the "stop on next top-level key" rule on the
-    # very first city (the root cause of "only 1 city found").
-    awk '
-        /^cities:/ { in_cities=1; next }
-        in_cities && /^[[:space:]]{2}[a-zA-Z0-9_]+:/ {
-            city = $0
-            gsub(/^[[:space:]]+/, "", city)
-            sub(/:.*/, "", city)
-            if (city != "") print city
-        }
-        # Stop when we hit a new top-level key (line does not start with whitespace)
-        in_cities && /^[^[:space:]][a-zA-Z_]/ && !/^cities:/ { exit }
-    ' "$yaml_file"
-}
+# Shared cities.yaml parser (provides parse_cities)
+source "${SCRIPT_DIR}/scripts/lib/cities.sh"
 
 # Get list of cities (portable, works on macOS bash 3.2+)
 CITIES=()

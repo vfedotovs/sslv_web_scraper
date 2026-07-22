@@ -49,6 +49,10 @@ sendgrid.env
 src_email.env
 dest_email.env
 
+# Exclude log collector bundles (scripts/collect_logs_v3.sh)
+log-bundles/
+sslv-logs-*.tar.gz
+
 # Do not exclude
 !requirements.txt
 !project_data.txt

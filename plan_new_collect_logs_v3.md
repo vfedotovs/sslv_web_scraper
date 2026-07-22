@@ -1,6 +1,6 @@
 # Plan: `scripts/collect_logs_v3.sh` — multi-city aware log & artifact collector
 
-Status: proposed
+Status: in progress — Phase 1 done, Phases 2–10 pending
 Branch: `dev-1.7.8.1`
 Supersedes: `scripts/collect_logs_v2.sh`
 Related: `deploy-multi-city-ws.sh`, `undeploy-multi-city.sh`, `scripts/backup_db_city.sh`, `scripts/restore_db_city.sh`, `config/cities.yaml`
@@ -131,14 +131,18 @@ log-bundles/sslv-logs-2026-07-22T10-31-05Z/
 
 ## 4. Actionable item list
 
-### Phase 1 — Foundation
+### Phase 1 — Foundation — ✅ DONE
 
-- [ ] **1.1** Create `scripts/collect_logs_v3.sh`; `set -euo pipefail`; keep `collect_logs_v2.sh` in place until v3 is verified.
-- [ ] **1.2** Add `log_info` / `log_warn` / `log_error` matching the `[ts] [LEVEL] msg` format of `deploy-multi-city-ws.sh:10–29`, teeing to `<bundle>/collect.log`.
-- [ ] **1.3** Copy the `parse_cities()` awk parser from `deploy-multi-city-ws.sh:39–62` (also present in `backup_db_city.sh:77`, `restore_db_city.sh:64`). **Extract it once** into `scripts/lib/cities.sh` and have all four scripts source it — three divergent copies is a latent bug.
-- [ ] **1.4** Implement CLI parsing for every flag in §3, with `--help` in the same style as `restore_db_city.sh:22`.
-- [ ] **1.5** Detect `docker compose` vs `docker-compose` (reuse `deploy-multi-city-ws.sh:86–93`).
-- [ ] **1.6** Preflight: `docker info` reachable; `config/cities.yaml` present; output dir writable. Fail fast with a clear message.
+- [x] **1.1** Create `scripts/collect_logs_v3.sh`; `set -euo pipefail`; keep `collect_logs_v2.sh` in place until v3 is verified.
+- [x] **1.2** Add `log_info` / `log_warn` / `log_error` matching the `[ts] [LEVEL] msg` format of `deploy-multi-city-ws.sh:10–29`, teeing to `<bundle>/collect.log`.
+- [x] **1.3** Extract the `parse_cities()` awk parser into `scripts/lib/cities.sh` and have every caller source it.
+  **Note:** the plan said four copies; there were **five** — `deploy-multi-city-ws.sh`, `undeploy-multi-city.sh`, `scripts/backup_db_city.sh`, `scripts/restore_db_city.sh` and `scripts/get_last_s3_file.sh:32`. All five now source the lib. Two path shapes are in use: root scripts source `${SCRIPT_DIR}/scripts/lib/cities.sh`, scripts in `scripts/` source `${SCRIPT_DIR}/lib/cities.sh`.
+- [x] **1.4** Implement CLI parsing for every flag in §3, with `--help` in the same style as `restore_db_city.sh:22`. Repeated `--city`/`--services` values are de-duplicated; flags that take a value reject a missing/flag-shaped argument.
+- [x] **1.5** Detect `docker compose` vs `docker-compose` (reuse `deploy-multi-city-ws.sh:86–93`).
+- [x] **1.6** Preflight: `docker` on PATH and daemon reachable; `config/cities.yaml` present; output dir creatable and writable. All failures exit `2`.
+- [x] **1.7** *(pulled forward from 8.5)* `.gitignore` entries for `log-bundles/` and `sslv-logs-*.tar.gz` — needed already, since Phase 1 creates the default output dir inside the repo.
+
+**Phase 1 status:** the script validates inputs, resolves the city list, and lays out the bundle tree (`host/`, `cities/<city>/`, `collect.log`), then exits `0` with a notice that collection is pending. `--running-only` is parsed and recorded but is only *applied* in Phase 2, where discovery lands.
 
 ### Phase 2 — Correct multi-city container discovery *(fixes D1, D3)*
 
@@ -212,7 +216,7 @@ log-bundles/sslv-logs-2026-07-22T10-31-05Z/
 - [ ] **8.2** Write `SUMMARY.txt`: a health matrix (city × service → state) plus the last 5 `ERROR`/`CRITICAL` lines from each city's ws logs. This is the artifact a human reads first.
 - [ ] **8.3** `tar czf sslv-logs-<ts>.tar.gz`, print the absolute path and human-readable size on exit. `--no-archive` to skip.
 - [ ] **8.4** Exit codes: `0` all requested cities collected; `1` partial; `2` fatal preflight failure.
-- [ ] **8.5** Add `.gitignore` entries for `log-bundles/` and `sslv-logs-*.tar.gz` — the repo already ignores `*.log`/`*.txt`/`*.csv` broadly, but not the bundle dir or the tarball.
+- [x] **8.5** Add `.gitignore` entries for `log-bundles/` and `sslv-logs-*.tar.gz` — done early as item 1.7.
 
 ### Phase 9 — Integration & docs
 
