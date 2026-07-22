@@ -1,6 +1,6 @@
 # Plan: `scripts/collect_logs_v3.sh` — multi-city aware log & artifact collector
 
-Status: in progress — Phases 1–4 done, Phases 5–10 pending
+Status: in progress — Phases 1–5 done, Phases 6–10 pending
 Branch: `dev-1.7.8.1`
 Supersedes: `scripts/collect_logs_v2.sh`
 Related: `deploy-multi-city-ws.sh`, `undeploy-multi-city.sh`, `scripts/backup_db_city.sh`, `scripts/restore_db_city.sh`, `config/cities.yaml`
@@ -204,13 +204,31 @@ log-bundles/sslv-logs-2026-07-22T10-31-05Z/
 | Legacy fallback (4.1/4.2) | bare `pandas_df.csv` and `Ogre-raw-data-report.txt` collected alongside the city-scoped ones |
 | Temp files | none leaked |
 
-### Phase 5 — DB dump *(fixes D5, D6, D7)*
+### Phase 5 — DB dump *(fixes D5, D6, D7)* — ✅ DONE
 
-- [ ] **5.1** Make the dump **opt-in** via `--with-db-dump`. A log collector should not exfiltrate 6 full databases by default.
-- [ ] **5.2** Drop the `-t` flag — use `docker exec -i` (or no flag). Prevents CRLF corruption.
-- [ ] **5.3** Pipe through `gzip -9`; filename `pg_backup_{city}_YYYY-MM-DDTHHMMSSZ.sql.gz` — **no colons**.
-- [ ] **5.4** Skip cleanly when the db container is not `running`, and log the skip.
-- [ ] **5.5** In `--help` and `MANIFEST.txt`, point at `scripts/backup_db_city.sh` as the correct tool for real backups — this dump is for **debugging only** and does not go to S3.
+- [x] **5.1** Opt-in via `--with-db-dump`; default reports `db-dump=off`.
+- [x] **5.2** No `-t`. Plain `docker exec`, so nothing turns `\n` into `\r\n` in the SQL stream.
+- [x] **5.3** Streamed through `gzip -9` to `pg_backup_{city}_{UTC}.sql.gz`, timestamp `%Y-%m-%dT%H%M%SZ` — no colons.
+- [x] **5.4** Non-running db containers are skipped with the reason recorded in the MANIFEST.
+- [x] **5.5** `--help` and the MANIFEST both state this is a debug dump that never reaches S3, and point at `scripts/backup_db_city.sh` / `scripts/restore_db_city.sh`.
+- [x] **5.6** *(added)* Failure handling: `gzip -t` integrity check, a `MIN_DUMP_BYTES` guard flagging a suspiciously small dump (empty database — same idea as `MIN_BACKUP_SIZE_KB` in `backup.py`), and pg_dump's stderr preserved as `pg_dump-error.txt` when the dump fails, with no truncated `.gz` left behind.
+- [x] **5.7** *(added)* Credentials are expanded by the shell **inside** the container, reading the env postgres already has, so the password never appears in this script's argv, its logs, or the bundle.
+
+**Verified against a real Postgres fixture** (500 `listed_ads` + 200 `removed_ads` rows):
+
+| Check | Result |
+|---|---|
+| Default off (5.1) | `db-dump=off`, only `stdout.log` written |
+| **D5 regression** | v3 dump: **0** carriage returns. The same DB dumped with v2's `docker exec -t`: **861**. The bug is real and fixed. |
+| Restore | v3 dump restored into a clean Postgres — 500 and 200 rows back |
+| Filename (D6) | no colons |
+| Integrity (5.3) | `gzip -t` passes |
+| Stopped db (5.4) | skipped, reason in MANIFEST, no dump file |
+| Empty DB (5.6) | flagged `SUSPICIOUSLY SMALL` at 372 bytes |
+| pg_dump failure (5.6) | error text kept as `pg_dump-error.txt`, no truncated `.gz`, city marked troubled, exit `1` |
+| Password (5.7) | `testpw123` absent from every file in the bundle |
+
+**Bug found and fixed while testing:** `log()` wrote to **stdout**, and several `collect_*` helpers return their MANIFEST detail string on stdout via `$(...)`. A warning raised inside one of them was captured into that string and landed in the MANIFEST's COLLECTED column instead of the console — visible as `db-dump=` being replaced by the warning text. `log()` now writes to stderr, which is where diagnostics belong and makes every helper safe to call in a command substitution.
 
 ### Phase 6 — Environment & state capture *(fixes C6, C7)*
 

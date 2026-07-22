@@ -12,13 +12,14 @@
 #              Phase 2 — label-based container discovery + MANIFEST status table.
 #              Phase 3 — log file + docker logs collection.
 #              Phase 4 — pipeline artifacts + stage hand-off directories.
-# PENDING:     Phase 5 (DB dump), Phase 6 (state capture), Phase 7 (redaction),
-#              Phase 8 (packaging).
+#              Phase 5 — opt-in debug DB dump.
+# PENDING:     Phase 6 (state capture), Phase 7 (redaction), Phase 8 (packaging).
 #
 # The script discovers each city's containers and collects their logs, docker
-# logs and pipeline artifacts into a per-city bundle tree. DB dumps,
-# host/container state, secret redaction and the tar.gz are still to come —
-# until Phase 7 lands, treat a bundle as unredacted and do not share it.
+# logs, pipeline artifacts and (opt-in) a debug DB dump into a per-city bundle
+# tree. Host/container state capture, secret redaction and the tar.gz are still
+# to come — until Phase 7 lands, treat a bundle as unredacted and do not
+# share it.
 
 set -euo pipefail
 
@@ -26,7 +27,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 CONFIG_FILE="${REPO_ROOT}/config/cities.yaml"
 
-SCRIPT_VERSION="3.0.0-phase4"
+SCRIPT_VERSION="3.0.0-phase5"
 
 # Exit codes (plan item 8.4)
 EXIT_OK=0        # everything requested was collected
@@ -38,7 +39,12 @@ source "${SCRIPT_DIR}/lib/cities.sh"
 
 # --- Logging (plan item 1.2) ------------------------------------------------
 # Format matches deploy-multi-city-ws.sh. Tees into the bundle's collect.log
-# once the bundle directory exists; before that, stdout only.
+# once the bundle directory exists; before that, console only.
+#
+# Diagnostics go to STDERR, not stdout. Several collect_* helpers echo a short
+# detail string on stdout that the caller captures with $(...); if log() wrote
+# there too, any warning raised inside one of them would be swallowed into that
+# string and end up in the MANIFEST's COLLECTED column instead of the console.
 
 BUNDLE_LOG=""
 
@@ -49,9 +55,9 @@ log() {
     timestamp=$(date '+%Y-%m-%d %H:%M:%S')
     local line="[$timestamp] [$level] $*"
     if [[ -n "$BUNDLE_LOG" ]]; then
-        echo "$line" | tee -a "$BUNDLE_LOG"
+        echo "$line" | tee -a "$BUNDLE_LOG" >&2
     else
-        echo "$line"
+        echo "$line" >&2
     fi
 }
 
@@ -326,6 +332,83 @@ collect_artifacts() {
         2) echo "artifacts=0" ;;
         *) echo "artifacts=ERROR"; return 1 ;;
     esac
+    return 0
+}
+
+# --- DB dump (plan items 5.1-5.5) -------------------------------------------
+
+# Below this many compressed bytes the dump is almost certainly an empty
+# database rather than real data — same spirit as MIN_BACKUP_SIZE_KB in
+# src/backup-svc/backup.py.
+MIN_DUMP_BYTES=1024
+
+# collect_db_dump <city> <container> <state> <dest_dir>
+# Echoes a detail string for the MANIFEST; returns 1 on error.
+#
+# This is a DEBUG dump: it never goes to S3 and is not a backup. The real
+# nightly backup is src/backup-svc + scripts/backup_db_city.sh (5.5).
+collect_db_dump() {
+    local city="$1"
+    local container="$2"
+    local state="$3"
+    local dest="$4"
+    local ts out err size
+
+    # Opt-in only: dumping six databases on every log collection would be slow,
+    # huge, and a data-exfil footgun for a tool that says "collect logs" (5.1).
+    if [[ "$WITH_DB_DUMP" != true ]]; then
+        echo "db-dump=off"
+        return 0
+    fi
+
+    if [[ "$state" != "running" ]]; then
+        log_warn "  [$city/db] skipping pg_dump — container is ${state}"
+        echo "db-dump=skipped (container ${state})"
+        return 0
+    fi
+
+    ts="$(date -u '+%Y-%m-%dT%H%M%SZ')"     # no colons — see D6
+    out="${dest}/pg_backup_${city}_${ts}.sql.gz"
+    err="$(mktemp "${TMPDIR:-/tmp}/sslv-collect.XXXXXX")"
+    mkdir -p "$dest"
+
+    # No -t. A TTY turns every \n into \r\n inside the SQL stream, producing a
+    # dump that silently fails to restore (D5) — v2's bug.
+    #
+    # Credentials are expanded by the shell *inside* the container, reading the
+    # env postgres already has, so the password never reaches this process,
+    # this script's argv, or the logs.
+    if docker exec "$container" sh -c '
+        PGPASSWORD="$POSTGRES_PASSWORD" exec pg_dump \
+            -U "${POSTGRES_USER:-new_docker_user}" \
+            -d "${POSTGRES_DB:-new_docker_db}"
+    ' 2>"$err" | gzip -9 > "$out"; then
+        :
+    else
+        log_warn "  [$city/db] pg_dump failed: $(head -n1 "$err" 2>/dev/null)"
+        # Keep the error text in the bundle — it is the diagnosis.
+        mv "$err" "${dest}/pg_dump-error.txt" 2>/dev/null || rm -f "$err"
+        rm -f "$out"
+        echo "db-dump=ERROR"
+        return 1
+    fi
+    rm -f "$err"
+
+    if ! gzip -t "$out" 2>/dev/null; then
+        log_warn "  [$city/db] dump failed gzip integrity check — discarding"
+        rm -f "$out"
+        echo "db-dump=ERROR (corrupt)"
+        return 1
+    fi
+
+    size=$(wc -c < "$out" | tr -d ' ')
+    if [[ "$size" -lt "$MIN_DUMP_BYTES" ]]; then
+        log_warn "  [$city/db] dump is only ${size} bytes — empty database?"
+        echo "db-dump=$(du -h "$out" | awk '{print $1}') (SUSPICIOUSLY SMALL)"
+        return 0
+    fi
+
+    echo "db-dump=$(du -h "$out" | awk '{print $1}')"
     return 0
 }
 
@@ -725,7 +808,7 @@ collect_city() {
     local city="$1"
     local city_dir="${BUNDLE_DIR}/cities/${city}"
     local found=0 failures=0
-    local svc container state svc_dir detail stdout_note art_note data_note
+    local svc container state svc_dir detail stdout_note art_note data_note dump_note
 
     for svc in "${SERVICE_LIST[@]}"; do
         container="$(find_container "$city" "$svc")"
@@ -763,6 +846,14 @@ collect_city() {
             fi
             data_note="$(collect_data_dirs "$container" "$state" "$svc_dir")"
             detail="${detail}, ${art_note}, ${data_note}"
+        fi
+
+        # opt-in debug DB dump (5.1-5.4)
+        if [[ "$svc" == "db" ]]; then
+            if ! dump_note="$(collect_db_dump "$city" "$container" "$state" "$svc_dir")"; then
+                failures=$((failures + 1))
+            fi
+            detail="${detail}, ${dump_note}"
         fi
 
         record_status "$city" "$svc" "$state" "$container" "${detail}, ${stdout_note}"
@@ -849,9 +940,24 @@ MANIFEST="${BUNDLE_DIR}/MANIFEST.txt"
         echo "              re-run with --with-data-dirs to copy the contents)"
     fi
     echo
-    echo "NOTE: Phases 2-4 implemented (discovery, logs, artifacts). DB dump,"
-    echo "      state capture, redaction and packaging land in Phases 5-8;"
-    echo "      see plan_new_collect_logs_v3.md."
+    echo "Database dump (db only)"
+    echo "----------------------------------------------------------"
+    if [[ "$WITH_DB_DUMP" == true ]]; then
+        echo "  Included: pg_backup_<city>_<UTC>.sql.gz per running db."
+        echo
+        echo "  THIS IS A DEBUG DUMP, NOT A BACKUP. It is never uploaded to"
+        echo "  S3 and nothing prunes it. The real nightly per-city backup is"
+        echo "  the {city}-backup-1 container (src/backup-svc); use"
+        echo "    scripts/backup_db_city.sh   to take a real backup"
+        echo "    scripts/restore_db_city.sh  to restore one"
+    else
+        echo "  Not included. Re-run with --with-db-dump if a dump is needed."
+        echo "  For real backups use scripts/backup_db_city.sh instead."
+    fi
+    echo
+    echo "NOTE: Phases 2-5 implemented (discovery, logs, artifacts, DB dump)."
+    echo "      Host/container state capture, redaction and packaging land in"
+    echo "      Phases 6-8; see plan_new_collect_logs_v3.md."
 } > "$MANIFEST"
 
 log_info "Wrote $MANIFEST"
