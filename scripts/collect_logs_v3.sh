@@ -11,13 +11,14 @@
 # IMPLEMENTED: Phase 1 — foundation (CLI, logging, preflight, bundle scaffold).
 #              Phase 2 — label-based container discovery + MANIFEST status table.
 #              Phase 3 — log file + docker logs collection.
-# PENDING:     Phase 4 (artifacts), Phase 5 (DB dump), Phase 6 (state capture),
-#              Phase 7 (redaction), Phase 8 (packaging).
+#              Phase 4 — pipeline artifacts + stage hand-off directories.
+# PENDING:     Phase 5 (DB dump), Phase 6 (state capture), Phase 7 (redaction),
+#              Phase 8 (packaging).
 #
-# The script discovers each city's containers and collects their log files and
-# docker logs into a per-city bundle tree. Pipeline artifacts (CSV/TXT), DB
-# dumps, host/container state, secret redaction and the tar.gz are still to
-# come — until Phase 7 lands, treat a bundle as unredacted and do not share it.
+# The script discovers each city's containers and collects their logs, docker
+# logs and pipeline artifacts into a per-city bundle tree. DB dumps,
+# host/container state, secret redaction and the tar.gz are still to come —
+# until Phase 7 lands, treat a bundle as unredacted and do not share it.
 
 set -euo pipefail
 
@@ -25,7 +26,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 CONFIG_FILE="${REPO_ROOT}/config/cities.yaml"
 
-SCRIPT_VERSION="3.0.0-phase3"
+SCRIPT_VERSION="3.0.0-phase4"
 
 # Exit codes (plan item 8.4)
 EXIT_OK=0        # everything requested was collected
@@ -205,6 +206,165 @@ BACKUP_LOGS="backup.log cron.log"
 # Cap on docker logs, so one long-running stack cannot balloon the bundle (3.7)
 DOCKER_LOG_TAIL=50000
 
+# --- Artifact inventory (plan items 4.1, 4.2) -------------------------------
+#
+# The pipeline hands data between stages through files in the ws working
+# directory ("/", since src/ws/Dockerfile sets no WORKDIR). Since M7 P7 those
+# names are city-scoped through city_file() — jurmala-pandas_df.csv, not
+# pandas_df.csv — so v2's hardcoded un-prefixed names matched nothing (C3).
+#
+# Rather than guessing prefixes, the running-container path globs by extension
+# in the ws root. One ws container serves exactly one city, so everything there
+# belongs to that city; this picks up both the city-scoped and the legacy names
+# and keeps working when a new stage file is added.
+WS_ARTIFACT_DIR="/"
+WS_ARTIFACT_GLOB="*.csv *.txt *.png *.pdf"
+
+# Explicit names for the stopped-container fallback, which cannot glob.
+# Mirrors get_data_files_to_remove() in aws_mailer.py and file_remover.py.
+# Each of these is tried both city-scoped and bare (4.1).
+WS_ARTIFACT_BASES="pandas_df.csv cleaned-sorted-df.csv email_body_txt_m4.txt \
+basic_price_stats.txt email_body_add_dates_table.txt discovered-urls.txt \
+raw-data-report.txt"
+
+# Never city-scoped by the pipeline.
+WS_ARTIFACT_PLAIN="Mailer_report.txt 1_rooms_tmp.txt mrv2.txt \
+scraped_and_removed.txt 1-4_rooms.png 1_rooms.png 2_rooms.png test.png"
+
+# Stage hand-off directories. Unbounded growth, so they are opt-in (4.3).
+DATA_DIRS="/data /local_lambda_raw_scraped_data"
+
+# ws_artifact_names <city> — space-separated candidate names for docker cp.
+ws_artifact_names() {
+    local city="$1"
+    local n
+    for n in $WS_ARTIFACT_BASES; do
+        printf '%s-%s %s ' "$city" "$n" "$n"
+    done
+    printf '%s ' $WS_ARTIFACT_PLAIN
+    # Legacy Ogre report name predates city_file() (4.2)
+    printf 'Ogre-raw-data-report.txt %s_city_report.pdf' "$city"
+}
+
+# --- Artifact + data dir collection (plan items 4.3, 4.4) -------------------
+
+# copy_dir <container> <dir_in_container> <dest_dir>
+#   0 = copied, 2 = directory absent/empty, 1 = error
+# Streams the whole directory as tar, rather than globbing `ls` output the way
+# v2 did — no ARG_MAX ceiling and no dependence on bash (fixes D8).
+copy_dir() {
+    local container="$1"
+    local src="$2"
+    local dest="$3"
+    local tmp_tar
+
+    tmp_tar="$(mktemp "${TMPDIR:-/tmp}/sslv-collect.XXXXXX")"
+
+    docker exec "$container" sh -c "
+        cd '${src}' 2>/dev/null || exit 0
+        tar cf - . 2>/dev/null
+    " > "$tmp_tar" 2>/dev/null || true
+
+    if [[ ! -s "$tmp_tar" ]]; then
+        rm -f "$tmp_tar"
+        return 2
+    fi
+
+    mkdir -p "$dest"
+    if ! tar xf "$tmp_tar" -C "$dest" 2>/dev/null; then
+        rm -f "$tmp_tar"
+        return 1
+    fi
+
+    rm -f "$tmp_tar"
+    return 0
+}
+
+# list_dir <container> <dir_in_container> <out_file>
+# Cheap alternative to copying a data dir: file count, size and listing. Enough
+# to diagnose "no input file found" without hauling the contents along (4.4).
+list_dir() {
+    local container="$1"
+    local src="$2"
+    local out="$3"
+
+    docker exec "$container" sh -c "
+        d='${src}'
+        if [ -d \"\$d\" ]; then
+            echo \"# \$d\"
+            echo \"# files: \$(find \"\$d\" -type f 2>/dev/null | wc -l | tr -d ' ')\"
+            echo \"# size:  \$(du -sh \"\$d\" 2>/dev/null | cut -f1)\"
+            echo
+            ls -la \"\$d\"
+        else
+            echo \"# \$d - not present in container\"
+        fi
+    " > "$out" 2>/dev/null || return 1
+    return 0
+}
+
+# collect_artifacts <city> <container> <state> <dest_dir>
+# Echoes a detail string for the MANIFEST; returns 1 on error.
+collect_artifacts() {
+    local city="$1"
+    local container="$2"
+    local state="$3"
+    local dest="$4"
+    local rc=0 names
+
+    if [[ "$state" == "running" ]]; then
+        copy_glob_files "$container" "$WS_ARTIFACT_DIR" "$WS_ARTIFACT_GLOB" \
+            "${dest}/artifacts" || rc=$?
+    else
+        names="$(ws_artifact_names "$city")"
+        copy_named_files "$container" "$WS_ARTIFACT_DIR" "$names" \
+            "${dest}/artifacts" || rc=$?
+    fi
+
+    case "$rc" in
+        0) echo "artifacts=$(count_files "${dest}/artifacts")" ;;
+        2) echo "artifacts=0" ;;
+        *) echo "artifacts=ERROR"; return 1 ;;
+    esac
+    return 0
+}
+
+# collect_data_dirs <container> <state> <dest_dir>
+# Copies /data and /local_lambda_raw_scraped_data under --with-data-dirs,
+# otherwise records only a listing of each.
+collect_data_dirs() {
+    local container="$1"
+    local state="$2"
+    local dest="$3"
+    local dir base rc copied=0
+
+    # Both paths need docker exec, so a stopped container can offer neither.
+    if [[ "$state" != "running" ]]; then
+        echo "data-dirs=skipped (container ${state})"
+        return 0
+    fi
+
+    for dir in $DATA_DIRS; do
+        base="$(basename "$dir")"
+
+        if [[ "$WITH_DATA_DIRS" == true ]]; then
+            rc=0
+            copy_dir "$container" "$dir" "${dest}/data-dirs/${base}" || rc=$?
+            [[ "$rc" -eq 0 ]] && copied=$((copied + 1))
+        else
+            mkdir -p "${dest}/listings"
+            list_dir "$container" "$dir" "${dest}/listings/${base}.txt" || true
+        fi
+    done
+
+    if [[ "$WITH_DATA_DIRS" == true ]]; then
+        echo "data-dirs=$(count_files "${dest}/data-dirs") files"
+    else
+        echo "data-dirs=listed only (--with-data-dirs to copy)"
+    fi
+    return 0
+}
+
 # --- Log collection (plan items 3.2, 3.3, 3.6) ------------------------------
 
 # collect_stdout <container> <dest_dir> — docker logs to stdout.log.
@@ -222,7 +382,7 @@ collect_stdout() {
     return 1
 }
 
-# copy_logs <container> <dir_in_container> <glob> <dest_dir>
+# copy_glob_files <container> <dir_in_container> <glob> <dest_dir>
 #   0 = files collected, 2 = nothing matched, 1 = error
 #
 # One streamed tar per service rather than v2's per-file `docker cp` loop:
@@ -233,7 +393,7 @@ collect_stdout() {
 # and the postgres images are not guaranteed to have bash. It filters the glob
 # down to entries that actually exist, so a partial match (e.g. backup.log
 # present but cron.log absent) still produces a valid archive.
-copy_logs() {
+copy_glob_files() {
     local container="$1"
     local src_dir="$2"
     local glob="$3"
@@ -269,14 +429,14 @@ copy_logs() {
     return 0
 }
 
-# copy_logs_stopped <container> <dir_in_container> <names> <dest_dir>
+# copy_named_files <container> <dir_in_container> <names> <dest_dir>
 #   0 = files collected, 2 = nothing matched, 1 = error
 #
 # docker exec needs a running container, but docker cp does not. For an exited
 # or crashed container — exactly the case `docker ps -a` was used for in
 # Phase 2 — fall back to copying the known log names one by one. Rotations
 # cannot be recovered this way, since docker cp has no globbing.
-copy_logs_stopped() {
+copy_named_files() {
     local container="$1"
     local src_dir="$2"
     local names="$3"
@@ -321,9 +481,9 @@ collect_service_logs() {
 
     rc=0
     if [[ "$state" == "running" ]]; then
-        copy_logs "$container" "$log_dir" "$glob" "${dest}/logs" || rc=$?
+        copy_glob_files "$container" "$log_dir" "$glob" "${dest}/logs" || rc=$?
     else
-        copy_logs_stopped "$container" "$log_dir" "$names" "${dest}/logs" || rc=$?
+        copy_named_files "$container" "$log_dir" "$names" "${dest}/logs" || rc=$?
     fi
 
     case "$rc" in
@@ -565,7 +725,7 @@ collect_city() {
     local city="$1"
     local city_dir="${BUNDLE_DIR}/cities/${city}"
     local found=0 failures=0
-    local svc container state svc_dir detail stdout_note
+    local svc container state svc_dir detail stdout_note art_note data_note
 
     for svc in "${SERVICE_LIST[@]}"; do
         container="$(find_container "$city" "$svc")"
@@ -594,6 +754,15 @@ collect_city() {
         # then the on-disk log files (3.1-3.5)
         if ! detail="$(collect_service_logs "$svc" "$container" "$state" "$svc_dir")"; then
             failures=$((failures + 1))
+        fi
+
+        # pipeline artifacts + stage hand-off dirs live only in ws (4.1-4.4)
+        if [[ "$svc" == "ws" ]]; then
+            if ! art_note="$(collect_artifacts "$city" "$container" "$state" "$svc_dir")"; then
+                failures=$((failures + 1))
+            fi
+            data_note="$(collect_data_dirs "$container" "$state" "$svc_dir")"
+            detail="${detail}, ${art_note}, ${data_note}"
         fi
 
         record_status "$city" "$svc" "$state" "$container" "${detail}, ${stdout_note}"
@@ -668,9 +837,21 @@ MANIFEST="${BUNDLE_DIR}/MANIFEST.txt"
     echo "Stopped containers fall back to docker cp of the known log names;"
     echo "rotations cannot be recovered from a container that is not running."
     echo
-    echo "NOTE: Phases 2-3 implemented (discovery + log collection). Artifacts,"
-    echo "      DB dump, state capture, redaction and packaging land in"
-    echo "      Phases 4-8; see plan_new_collect_logs_v3.md."
+    echo "Artifact sources (ws only)"
+    echo "----------------------------------------------------------"
+    echo "  artifacts/  ${WS_ARTIFACT_DIR}{${WS_ARTIFACT_GLOB// /,}}"
+    echo "              City-scoped via city_file() since M7 P7, e.g."
+    echo "              <city>-pandas_df.csv. Legacy bare names also taken."
+    if [[ "$WITH_DATA_DIRS" == true ]]; then
+        echo "  data-dirs/  ${DATA_DIRS// /, } (copied: --with-data-dirs)"
+    else
+        echo "  listings/   ${DATA_DIRS// /, } (listing only;"
+        echo "              re-run with --with-data-dirs to copy the contents)"
+    fi
+    echo
+    echo "NOTE: Phases 2-4 implemented (discovery, logs, artifacts). DB dump,"
+    echo "      state capture, redaction and packaging land in Phases 5-8;"
+    echo "      see plan_new_collect_logs_v3.md."
 } > "$MANIFEST"
 
 log_info "Wrote $MANIFEST"

@@ -1,6 +1,6 @@
 # Plan: `scripts/collect_logs_v3.sh` — multi-city aware log & artifact collector
 
-Status: in progress — Phases 1–3 done (minimum viable collector, minus packaging), Phases 4–10 pending
+Status: in progress — Phases 1–4 done, Phases 5–10 pending
 Branch: `dev-1.7.8.1`
 Supersedes: `scripts/collect_logs_v2.sh`
 Related: `deploy-multi-city-ws.sh`, `undeploy-multi-city.sh`, `scripts/backup_db_city.sh`, `scripts/restore_db_city.sh`, `config/cities.yaml`
@@ -182,12 +182,27 @@ log-bundles/sslv-logs-2026-07-22T10-31-05Z/
 | Decoy container | ignored — never attributed to any city |
 | Temp files | no `sslv-collect.*` left in `TMPDIR` |
 
-### Phase 4 — Artifacts *(fixes C3, C4)*
+### Phase 4 — Artifacts *(fixes C3, C4)* — ✅ DONE
 
-- [ ] **4.1** Build the artifact list through the `city_file()` convention: try `{city}-{name}` first, fall back to bare `{name}` (legacy `ogre`). Mirror the list in `aws_mailer.py:65–80`.
-- [ ] **4.2** Collect `{city}-raw-data-report.txt` and `Ogre-raw-data-report.txt`.
-- [ ] **4.3** Put `/data/` and `/local_lambda_raw_scraped_data/` behind `--with-data-dirs` (off by default — these grow without bound). When enabled, tar-stream the directory rather than globbing `ls` output *(fixes D8)*.
-- [ ] **4.4** When data dirs are off, still record a **listing** (`ls -la`) of both dirs plus file counts — usually enough to diagnose "no input file found", at ~zero cost.
+- [x] **4.1** Artifacts land in `ws/artifacts/`. **The running-container path globs by extension** (`*.csv *.txt *.png *.pdf`) in the ws root rather than enumerating names: one ws container serves exactly one city, so everything there belongs to that city. This picks up the city-scoped *and* legacy names at once and keeps working when a new stage file appears. The stopped-container path cannot glob, so `ws_artifact_names()` emits both `{city}-{name}` and bare `{name}` for every base, mirroring `get_data_files_to_remove()` in `aws_mailer.py` and `file_remover.py`.
+- [x] **4.2** `{city}-raw-data-report.txt` and legacy `Ogre-raw-data-report.txt` both collected.
+- [x] **4.3** `/data` and `/local_lambda_raw_scraped_data` are copied only under `--with-data-dirs`, tar-streamed via `copy_dir()` rather than globbing `ls` output *(fixes D8)*.
+- [x] **4.4** Without the flag, `ws/listings/{data,local_lambda_raw_scraped_data}.txt` record file count, total size and `ls -la` — enough to diagnose "no input file found" at near-zero cost. Absent directories are reported as such.
+
+**Also:** `copy_logs`/`copy_logs_stopped` were renamed `copy_glob_files`/`copy_named_files`, since they now move artifacts as well as logs.
+
+**Verified against fixtures** (`ogre` ws with M7 P7 city-scoped artifacts + both data dirs, `jurmala` ws with its own):
+
+| Check | Result |
+|---|---|
+| City-scoped names (C3) | all 8 `ogre-*` artifacts collected — the names v2 matched none of |
+| Cross-city isolation | `jurmala/ws/artifacts/` held only its own 2 files |
+| Logs vs artifacts | `ws_main.log` went to `logs/`, never duplicated into `artifacts/` |
+| Listings (4.4) | file count, size and `ls -la`; absent dir reported as "not present" |
+| `--with-data-dirs` (4.3) | all 3 files copied under `data-dirs/`, and `listings/` correctly not written |
+| Stopped container | all 8 city-scoped artifacts recovered via `docker cp`; data dirs skipped with reason |
+| Legacy fallback (4.1/4.2) | bare `pandas_df.csv` and `Ogre-raw-data-report.txt` collected alongside the city-scoped ones |
+| Temp files | none leaked |
 
 ### Phase 5 — DB dump *(fixes D5, D6, D7)*
 
