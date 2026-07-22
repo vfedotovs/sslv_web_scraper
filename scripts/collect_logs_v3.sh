@@ -13,13 +13,16 @@
 #              Phase 3 — log file + docker logs collection.
 #              Phase 4 — pipeline artifacts + stage hand-off directories.
 #              Phase 5 — opt-in debug DB dump.
-# PENDING:     Phase 6 (state capture), Phase 7 (redaction), Phase 8 (packaging).
+#              Phase 6 — host + container state capture, incl. env redaction
+#                        (the masking half of Phase 7, pulled forward because
+#                        inspect.json would otherwise hold every secret).
+# PENDING:     Phase 7 (whole-bundle redaction + self-test), Phase 8 (packaging).
 #
 # The script discovers each city's containers and collects their logs, docker
-# logs, pipeline artifacts and (opt-in) a debug DB dump into a per-city bundle
-# tree. Host/container state capture, secret redaction and the tar.gz are still
-# to come — until Phase 7 lands, treat a bundle as unredacted and do not
-# share it.
+# logs, pipeline artifacts, host/container state and (opt-in) a debug DB dump
+# into a per-city bundle tree. Container env and inspect output are redacted;
+# log and artifact CONTENT is not yet scanned (Phase 7), so review a bundle
+# before sending it outside the team. The tar.gz lands in Phase 8.
 
 set -euo pipefail
 
@@ -27,7 +30,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 CONFIG_FILE="${REPO_ROOT}/config/cities.yaml"
 
-SCRIPT_VERSION="3.0.0-phase5"
+SCRIPT_VERSION="3.0.0-phase6"
 
 # Exit codes (plan item 8.4)
 EXIT_OK=0        # everything requested was collected
@@ -174,6 +177,31 @@ discover_running_projects() {
         --filter "label=com.docker.compose.project" \
         --format '{{.Label "com.docker.compose.project"}}' 2>/dev/null \
         | sort -u
+}
+
+# --- Secret redaction (plan items 7.1, 7.2 — pulled forward) ----------------
+#
+# Phase 6 captures `docker inspect`, whose .Config.Env is a verbatim dump of
+# every secret in docker-compose.yml: AWS keys, POSTGRES_PASSWORD, the lot.
+# Writing that unmasked would produce a bundle that looks shareable and is not,
+# so the masking half of Phase 7 lands here with the capture that needs it.
+#
+# Still pending in Phase 7: applying this across every collected file, the
+# .env/database.ini presence-only rule, and the whole-bundle self-test.
+
+SECRET_KEYS="AWS_SECRET_ACCESS_KEY|AWS_ACCESS_KEY_ID|POSTGRES_PASSWORD|DB_PASSWORD|PGPASSWORD|SENDGRID_API_KEY|SENDGRID_API"
+
+# redact_stream — filter for stdin→stdout. A no-op under --no-redact.
+# Values are terminated by a quote, comma or whitespace, which covers both the
+# JSON of docker inspect and plain KEY=value text.
+redact_stream() {
+    if [[ "$REDACT" != true ]]; then
+        cat
+        return 0
+    fi
+    sed -E \
+        -e "s/((${SECRET_KEYS})=)[^\"',[:space:]]*/\1***REDACTED***/g" \
+        -e 's/AKIA[0-9A-Z]{16}/***REDACTED-AKID***/g'
 }
 
 # --- Log inventory (plan items 3.1, 3.4, 3.5) -------------------------------
@@ -333,6 +361,102 @@ collect_artifacts() {
         *) echo "artifacts=ERROR"; return 1 ;;
     esac
     return 0
+}
+
+# --- Host + container state (plan items 6.1-6.6) ----------------------------
+
+# collect_host_state <dest_dir> — host-wide facts, captured once per run.
+collect_host_state() {
+    local dest="$1"
+    mkdir -p "$dest"
+
+    docker ps -a > "${dest}/docker-ps.txt" 2>&1 || true
+    docker images > "${dest}/docker-images.txt" 2>&1 || true
+    docker system df -v > "${dest}/docker-system-df.txt" 2>&1 || true
+    $COMPOSE_CMD ls --all > "${dest}/docker-compose-ls.txt" 2>&1 || true
+    df -h > "${dest}/df-h.txt" 2>&1 || true
+
+    {
+        uname -a
+        echo
+        echo "# docker"
+        docker version 2>&1 || true
+        echo
+        echo "# compose"
+        $COMPOSE_CMD version 2>&1 || true
+    } > "${dest}/uname.txt" 2>&1 || true
+
+    # The deploy log is the first thing to read when a city never came up (6.2).
+    local f
+    for f in deploy-multi-city.log undeploy-multi-city.log; do
+        if [[ -f "${REPO_ROOT}/${f}" ]]; then
+            redact_stream < "${REPO_ROOT}/${f}" > "${dest}/${f}" 2>/dev/null || true
+        fi
+    done
+
+    # Presence only — never the contents (7.3). Knowing whether .env.<city>
+    # exists and when it changed is usually the whole question.
+    {
+        echo "# Secret files on the host — presence and mtime only, never contents."
+        for f in "${REPO_ROOT}"/.env.* "${REPO_ROOT}"/database.ini; do
+            [[ -e "$f" ]] || continue
+            printf '%s  %s\n' \
+                "$(date -u -r "$f" '+%Y-%m-%dT%H:%M:%SZ' 2>/dev/null || echo '?')" \
+                "$(basename "$f")"
+        done
+    } > "${dest}/secret-files.txt" 2>/dev/null || true
+}
+
+# collect_container_state <container> <dest_dir> — inspect, health, config.
+collect_container_state() {
+    local container="$1"
+    local dest="$2"
+
+    # .Config.Env carries every compose secret, hence redact_stream (6.3, 7.2).
+    docker inspect "$container" 2>/dev/null \
+        | redact_stream > "${dest}/inspect.json" || return 1
+
+    # Health-check failure history is the fastest route to "why is ws
+    # unhealthy". Renders as "null" when the service defines no healthcheck.
+    docker inspect --format '{{json .State.Health}}' "$container" \
+        > "${dest}/health.json" 2>/dev/null || echo 'null' > "${dest}/health.json"
+
+    # Image digest + RELEASE_VERSION correlate a bug with a deployed build
+    # (6.4); the SCRAPE_*/TASK_TIME values are the usual behaviour suspects
+    # (6.5). Dumping the whole env through the redactor beats an allowlist —
+    # it cannot silently miss a variable that was added later.
+    {
+        echo "# container:     ${container}"
+        docker inspect --format '# image:         {{.Config.Image}}' "$container"
+        docker inspect --format '# image_id:      {{.Image}}' "$container"
+        docker inspect --format '# created:       {{.Created}}' "$container"
+        docker inspect --format '# started_at:    {{.State.StartedAt}}' "$container"
+        docker inspect --format '# restart_count: {{.RestartCount}}' "$container"
+        echo
+        echo "# environment (secrets redacted)"
+        docker inspect --format '{{range .Config.Env}}{{println .}}{{end}}' "$container"
+    } 2>/dev/null | redact_stream > "${dest}/config.txt" || true
+
+    return 0
+}
+
+# probe_ws_status <container> <dest_dir> — GET /status from inside the network.
+#
+# The plan suggested a throwaway curlimages/curl container via compose run.
+# Exec'ing the ws container's own Python is better: no image pull, no need for
+# the compose file or per-city .env on this host, and it is exactly what the
+# healthcheck in docker-compose.yml already does.
+probe_ws_status() {
+    local container="$1"
+    local dest="$2"
+
+    docker exec "$container" python -c "
+import urllib.request
+print(urllib.request.urlopen('http://localhost:8000/status', timeout=10).read().decode())
+" > "${dest}/status.json" 2>/dev/null && [[ -s "${dest}/status.json" ]] && return 0
+
+    rm -f "${dest}/status.json"
+    return 1
 }
 
 # --- DB dump (plan items 5.1-5.5) -------------------------------------------
@@ -834,6 +958,12 @@ collect_city() {
             failures=$((failures + 1))
         fi
 
+        # inspect / health / config — also works on a crashed container (6.3-6.5)
+        if ! collect_container_state "$container" "$svc_dir"; then
+            log_warn "  [$city/$svc] could not capture container state"
+            failures=$((failures + 1))
+        fi
+
         # then the on-disk log files (3.1-3.5)
         if ! detail="$(collect_service_logs "$svc" "$container" "$state" "$svc_dir")"; then
             failures=$((failures + 1))
@@ -846,6 +976,15 @@ collect_city() {
             fi
             data_note="$(collect_data_dirs "$container" "$state" "$svc_dir")"
             detail="${detail}, ${art_note}, ${data_note}"
+
+            # live /status probe — best effort, never a failure (6.6)
+            if [[ "$state" == "running" ]]; then
+                if probe_ws_status "$container" "$svc_dir"; then
+                    detail="${detail}, status=ok"
+                else
+                    detail="${detail}, status=unreachable"
+                fi
+            fi
         fi
 
         # opt-in debug DB dump (5.1-5.4)
@@ -869,6 +1008,10 @@ collect_city() {
     [[ $failures -gt 0 ]] && return 1
     return 0
 }
+
+log_info "Capturing host state ..."
+collect_host_state "${BUNDLE_DIR}/host"
+log_info "  host: $(count_files "${BUNDLE_DIR}/host") file(s)"
 
 DISCOVERED_CITIES=0
 TROUBLED_CITIES=()
@@ -895,9 +1038,14 @@ MANIFEST="${BUNDLE_DIR}/MANIFEST.txt"
     echo "Script    : collect_logs_v3.sh ${SCRIPT_VERSION}"
     echo "Bundle    : ${BUNDLE_NAME}"
     if [[ "$REDACT" == true ]]; then
-        echo "Redaction : ON (not yet implemented — Phase 7)"
+        echo "Redaction : ON for container env / inspect.json / deploy logs."
+        echo "            Masked: ${SECRET_KEYS//|/, } and AKIA* key ids."
+        echo "            NOT YET whole-bundle (Phase 7): log and artifact"
+        echo "            content is passed through as-is, so review before"
+        echo "            sharing outside the team."
     else
-        echo "Redaction : DISABLED by --no-redact"
+        echo "Redaction : *** DISABLED by --no-redact *** — this bundle"
+        echo "            contains AWS keys and DB passwords in plaintext."
     fi
     echo
     echo "Options   : since=${SINCE} running_only=${RUNNING_ONLY}"
@@ -955,9 +1103,20 @@ MANIFEST="${BUNDLE_DIR}/MANIFEST.txt"
         echo "  For real backups use scripts/backup_db_city.sh instead."
     fi
     echo
-    echo "NOTE: Phases 2-5 implemented (discovery, logs, artifacts, DB dump)."
-    echo "      Host/container state capture, redaction and packaging land in"
-    echo "      Phases 6-8; see plan_new_collect_logs_v3.md."
+    echo "State capture"
+    echo "----------------------------------------------------------"
+    echo "  host/       docker ps -a, images, system df, compose ls, df -h,"
+    echo "              uname + docker/compose versions, deploy-multi-city.log,"
+    echo "              secret-files.txt (presence + mtime only, never contents)"
+    echo "  <svc>/      inspect.json  full docker inspect, env redacted"
+    echo "              health.json   healthcheck history ('null' = none defined)"
+    echo "              config.txt    image digest, RELEASE_VERSION, SCRAPE_*,"
+    echo "                            TASK_TIME/VERIFY_TIME, env (redacted)"
+    echo "  ws/         status.json   GET /status from inside the container"
+    echo
+    echo "NOTE: Phases 2-6 implemented (discovery, logs, artifacts, DB dump,"
+    echo "      state). Whole-bundle redaction and packaging land in Phases"
+    echo "      7-8; see plan_new_collect_logs_v3.md."
 } > "$MANIFEST"
 
 log_info "Wrote $MANIFEST"

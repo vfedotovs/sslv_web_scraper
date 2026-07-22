@@ -1,6 +1,6 @@
 # Plan: `scripts/collect_logs_v3.sh` — multi-city aware log & artifact collector
 
-Status: in progress — Phases 1–5 done, Phases 6–10 pending
+Status: in progress — Phases 1–6 done (7.1-7.3 pulled forward), Phases 7–10 pending
 Branch: `dev-1.7.8.1`
 Supersedes: `scripts/collect_logs_v2.sh`
 Related: `deploy-multi-city-ws.sh`, `undeploy-multi-city.sh`, `scripts/backup_db_city.sh`, `scripts/restore_db_city.sh`, `config/cities.yaml`
@@ -230,26 +230,40 @@ log-bundles/sslv-logs-2026-07-22T10-31-05Z/
 
 **Bug found and fixed while testing:** `log()` wrote to **stdout**, and several `collect_*` helpers return their MANIFEST detail string on stdout via `$(...)`. A warning raised inside one of them was captured into that string and landed in the MANIFEST's COLLECTED column instead of the console — visible as `db-dump=` being replaced by the warning text. `log()` now writes to stderr, which is where diagnostics belong and makes every helper safe to call in a command substitution.
 
-### Phase 6 — Environment & state capture *(fixes C6, C7)*
+### Phase 6 — Environment & state capture *(fixes C6, C7)* — ✅ DONE
 
-- [ ] **6.1** `host/`: `docker ps -a`, `docker compose ls`, `docker images`, `docker system df`, `df -h`, `uname -a`, docker/compose versions.
-- [ ] **6.2** Copy host-side `deploy-multi-city.log` into `host/` *(fixes C7)*.
-- [ ] **6.3** Per container: `docker inspect` → `inspect.json`, and `.State.Health` → `health.json` (health-check failure history is the fastest route to "why is ws unhealthy").
-- [ ] **6.4** Capture `RELEASE_VERSION` and image digest per city — needed to correlate a bug with a deployed build.
-- [ ] **6.5** Capture the `SCRAPE_URL_LIMIT` / `SCRAPE_DELAY_SEC` / `TASK_TIME` / `VERIFY_TIME` effective values (post-redaction) — these change scraper behaviour and are the usual suspects.
-- [ ] **6.6** Probe `ws:8000/status` from inside the network per city and save the JSON:
-  ```bash
-  $COMPOSE_CMD --project-name "$city" run --rm --no-deps curlimages/curl \
-    -s --max-time 10 http://ws:8000/status
-  ```
-  (`main.py:99` — same pattern as the post-deploy trigger at `deploy-multi-city-ws.sh:307`.)
+- [x] **6.1** `host/`: `docker ps -a`, `docker images`, `docker system df -v`, `compose ls --all`, `df -h`, `uname -a` + docker/compose versions.
+- [x] **6.2** `deploy-multi-city.log` (and `undeploy-multi-city.log` when present) copied into `host/`, passed through the redactor.
+- [x] **6.3** Per container: `inspect.json` (env redacted) and `health.json` from `.State.Health`, which renders `null` when the service defines no healthcheck.
+- [x] **6.4** `config.txt` carries the image digest, image tag, created/started timestamps, restart count and `RELEASE_VERSION`.
+- [x] **6.5** Same file carries `SCRAPE_URL_LIMIT` / `SCRAPE_DELAY_SEC` / `SCRAPE_LIST_DELAY_SEC` / `TASK_TIME` / `VERIFY_TIME`. **The whole env is dumped through the redactor rather than an allowlist** — an allowlist silently misses any variable added later, which is exactly the failure mode that made v2 stale.
+- [x] **6.6** `/status` probed per running ws → `status.json`. **Deviation from the plan:** instead of `compose run --rm curlimages/curl`, it execs the ws container's own Python. No image pull, no dependency on the compose file or per-city `.env` being present on the host, and it is precisely what the healthcheck in `docker-compose.yml` already does.
+
+#### Redaction pulled forward from Phase 7
+
+`docker inspect` prints `.Config.Env` verbatim — every AWS key and DB password in `docker-compose.yml`. Shipping Phase 6 without masking would have produced a bundle that *looks* shareable and is not, so **7.1 (mask), 7.2 (apply to inspect) and 7.3 (secret files: presence only)** landed with the capture that needs them.
+
+Still open in Phase 7: applying the redactor to *log and artifact content*, and the whole-bundle self-test (7.5).
+
+**Verified against fixtures carrying real-shaped secrets** (`AKIAIOSFODNN7EXAMPLE`, an AWS secret key, a DB password, a SendGrid key):
+
+| Check | Result |
+|---|---|
+| Leak scan | all 4 secret values: **0 hits** anywhere in the bundle |
+| `inspect.json` | still **valid JSON** after redaction (parsed with `json.load`) — a broken file would be useless |
+| `config.txt` (6.4/6.5) | image digest, `RELEASE_VERSION=1.7.8.1`, all `SCRAPE_*` present; 4 secrets masked |
+| Health history (6.3) | full `Log` array with per-probe exit codes; `null` where no healthcheck |
+| `/status` (6.6) | live JSON captured from a container actually serving it; `status=unreachable` recorded, not fatal, when not |
+| Deploy log (6.2) | copied **and** redacted — a secret planted in it came out masked |
+| `.env` / `database.ini` (7.3) | listed by name + mtime only; planted password absent from the whole bundle |
+| `--no-redact` | secret present verbatim, MANIFEST stamped `*** DISABLED ***` — the flag is real, not decorative |
 
 ### Phase 7 — Redaction *(fixes C9 — required before Phase 6 output is shareable)*
 
-- [ ] **7.1** Implement `redact()` over all text output, on by default. Mask `AWS_SECRET_ACCESS_KEY`, `AWS_ACCESS_KEY_ID`, `POSTGRES_PASSWORD`, `DB_PASSWORD`, `SENDGRID_API_KEY`, and any `AKIA[0-9A-Z]{16}`.
-- [ ] **7.2** Apply to `inspect.json` specifically — `.Config.Env` is a plaintext dump of every secret in `docker-compose.yml`.
-- [ ] **7.3** Never collect `.env.*` or `database.ini`. Record only *presence* + mtime.
-- [ ] **7.4** `--no-redact` must print a loud warning and stamp `REDACTION: DISABLED` into `MANIFEST.txt`.
+- [x] **7.1** *(done in Phase 6)* Implement `redact()` over all text output, on by default. Mask `AWS_SECRET_ACCESS_KEY`, `AWS_ACCESS_KEY_ID`, `POSTGRES_PASSWORD`, `DB_PASSWORD`, `SENDGRID_API_KEY`, and any `AKIA[0-9A-Z]{16}`.
+- [x] **7.2** *(done in Phase 6)* Apply to `inspect.json` specifically — `.Config.Env` is a plaintext dump of every secret in `docker-compose.yml`.
+- [x] **7.3** *(done in Phase 6)* Never collect `.env.*` or `database.ini`. Record only *presence* + mtime.
+- [x] **7.4** *(done in Phase 6)* `--no-redact` must print a loud warning and stamp `REDACTION: DISABLED` into `MANIFEST.txt`.
 - [ ] **7.5** Add a self-test: grep the finished bundle for the secret patterns; abort with a non-zero exit if any hit survives.
 
 ### Phase 8 — Packaging & summary *(fixes C8)*
