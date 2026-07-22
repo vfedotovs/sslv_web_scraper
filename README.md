@@ -82,6 +82,58 @@ lt                   Lists tables sizes in postgres docker allows to test if DB 
 
 See `M6_phase_1_backup_restore_service_plan.md` for full details.
 
+## Log collection (multi-city)
+
+`scripts/collect_logs_v3.sh` gathers logs, pipeline artifacts and container
+state from every city into one timestamped, redacted bundle.
+
+```bash
+make collect-logs                 # all cities
+make collect-logs CITY=ogre       # one city
+make collect-logs-running         # only cities with containers up
+make collect-logs-full CITY=ogre  # + debug DB dump + data dirs (large)
+```
+
+Or call the script directly for the full option set:
+
+```bash
+./scripts/collect_logs_v3.sh --help
+./scripts/collect_logs_v3.sh --city jurmala --since 24h
+./scripts/collect_logs_v3.sh --city ogre --upload-dry-run   # show destinations
+./scripts/collect_logs_v3.sh --city ogre --upload-s3        # actually upload
+```
+
+`--upload-s3` writes to the **real** `sslv-{env}-{city}-scraped-data` bucket
+under `log-bundles/{date}/`. Check with `--upload-dry-run` first. A multi-city
+bundle is uploaded to each collected city's bucket (the same object more than
+once) — the CICD buckets must never hold scraped data. Upload is refused
+outright with `--no-redact`, and skipped if the self-test failed.
+
+**Output** — `log-bundles/sslv-logs-<UTC>/` plus a matching `.tar.gz`:
+
+| Path | Contents |
+|---|---|
+| `SUMMARY.txt` | **Read this first** — health matrix + last errors per city |
+| `MANIFEST.txt` | Full inventory: what was collected, skipped, and why |
+| `REDACTION-SELF-TEST.txt` | PASS/FAIL proof that no secret survived |
+| `host/` | `docker ps`, images, disk, versions, `deploy-multi-city.log` |
+| `cities/<city>/<svc>/` | `logs/`, `artifacts/`, `stdout.log`, `inspect.json`, `health.json`, `config.txt` |
+
+Containers are matched on the compose labels `com.docker.compose.project`
+(the city) and `com.docker.compose.service` — never on a name substring, so
+cities can never be mixed up. Stopped containers are collected too.
+
+**Secrets.** AWS keys, DB passwords and SendGrid keys are masked throughout,
+and `.env.*` / `database.ini` are recorded by name and mtime only, never read.
+A self-test then re-scans the finished bundle, including inside the `.gz`
+dump. If anything survives, the run exits `3` and **no archive is created**.
+
+Exit codes: `0` complete · `1` partial · `2` fatal · `3` a secret survived
+redaction (do not share the bundle).
+
+> `scripts/collect_logs_v2.sh` is **deprecated** — it predates multi-city and
+> collects every city into the same filenames. Use v3.
+
 ## Migration from 3-city to 6+ cities (one city at a time)
 
 To scale safely:

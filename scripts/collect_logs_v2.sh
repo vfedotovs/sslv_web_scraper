@@ -1,6 +1,25 @@
 #!/usr/bin/env bash
+#
+# DEPRECATED — use scripts/collect_logs_v3.sh instead.
+#
+# This script predates the multi-city deployment and is BROKEN under it:
+#   * `docker ps --filter name=ws` matches every city's ws container at once
+#     and assigns the multi-line result to a scalar, so docker exec then fails
+#     or targets a mangled name.
+#   * Every city is copied into the same CWD under the same filenames, so the
+#     cities overwrite each other.
+#   * pg_dump runs under `docker exec -t`; the TTY injects CRLF into the SQL
+#     stream and the dump can fail to restore.
+#   * It collects the retired sendgrid_mailer.log but not aws_mailer.log, and
+#     ignores the {city}-backup-1 container entirely.
+#
+# Kept only for single-city hosts during the transition. Scheduled for removal
+# after one release cycle — see plan_new_collect_logs_v3.md.
 
 set -e # Exit on error
+
+echo "WARNING: collect_logs_v2.sh is deprecated and is broken under multi-city." >&2
+echo "         Use: ./scripts/collect_logs_v3.sh  (or: make collect-logs)" >&2
 
 ## Log start time
 start_time=$(date "+%Y-%m-%d %H:%M:%S")

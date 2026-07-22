@@ -552,3 +552,22 @@ verify-scrape-all: ## Run verification for several cities (jurmala, ogre, siguld
 	  CITY=$$c ./scripts/verify_city_scrape.sh $$c || true; \
 	  echo; \
 	done
+
+# --- Log collection (multi-city) — plan_new_collect_logs_v3.md ---------------
+
+collect-logs: ## collect logs/artifacts/state from all cities into a bundle (CITY=ogre for one)
+	@if [ -n "$(CITY)" ]; then \
+	  ./scripts/collect_logs_v3.sh --city $(CITY); \
+	else \
+	  ./scripts/collect_logs_v3.sh; \
+	fi
+
+collect-logs-running: ## same, but only cities that currently have containers up
+	@./scripts/collect_logs_v3.sh --running-only
+
+collect-logs-full: ## everything incl. debug DB dump + data dirs (CITY= optional, large)
+	@if [ -n "$(CITY)" ]; then \
+	  ./scripts/collect_logs_v3.sh --city $(CITY) --with-db-dump --with-data-dirs; \
+	else \
+	  ./scripts/collect_logs_v3.sh --with-db-dump --with-data-dirs; \
+	fi

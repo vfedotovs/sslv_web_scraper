@@ -264,6 +264,25 @@ Database credentials (production):
   - Wrong city data: verify per-city .env and S3_BUCKET.
   - Permission: AWS IAM or creds in env.
 
+### Log Collection (Multi-City)
+- Script: `scripts/collect_logs_v3.sh` (v2 is **deprecated** — broken under multi-city)
+- Make targets: `make collect-logs [CITY=ogre]`, `make collect-logs-running`, `make collect-logs-full`
+- Output: `log-bundles/sslv-logs-{UTC}/` + matching `.tar.gz`; read `SUMMARY.txt` first
+- Containers are found by compose label (`com.docker.compose.project` = city,
+  `com.docker.compose.service` = ws|ts|db|backup) — **never** by name substring,
+  which is what makes v2 unusable with 6 cities.
+- Collects: rotated `*.log*`, `docker logs` stdout, city-scoped artifacts
+  (`{city}-pandas_df.csv` etc. via `city_file()`), `inspect.json`/`health.json`/
+  `config.txt`, host state, and optionally a debug `pg_dump` (`--with-db-dump`)
+  and the data dirs (`--with-data-dirs`).
+- Secrets are masked bundle-wide and verified by a self-test; a survivor means
+  exit `3` and **no archive is written**. `.env.*`/`database.ini` are never read.
+- Exit codes: `0` complete, `1` partial, `2` fatal, `3` redaction failure.
+- The `--with-db-dump` output is a DEBUG dump only. Real backups remain
+  `scripts/backup_db_city.sh` / `scripts/restore_db_city.sh`.
+- Shared city parsing lives in `scripts/lib/cities.sh` (sourced by the deploy,
+  undeploy, backup, restore, get_last_s3_file and collect scripts).
+
 ### File Patterns
 - DB backups: `pg_backup_YYYY_MM_DD.sql`
 - Raw scraped data: `{City}-raw-data-report-YYYY-MM-DD.txt`

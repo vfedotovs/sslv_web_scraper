@@ -1,6 +1,6 @@
 # Plan: `scripts/collect_logs_v3.sh` — multi-city aware log & artifact collector
 
-Status: in progress — Phases 1–8 done (script feature-complete, v3.0.0); Phases 9–10 pending
+Status: in progress — Phases 1–9 done (v3.0.0, integrated); Phase 10 (production verification) pending
 Branch: `dev-1.7.8.1`
 Supersedes: `scripts/collect_logs_v2.sh`
 Related: `deploy-multi-city-ws.sh`, `undeploy-multi-city.sh`, `scripts/backup_db_city.sh`, `scripts/restore_db_city.sh`, `config/cities.yaml`
@@ -306,12 +306,17 @@ Still open in Phase 7: applying the redactor to *log and artifact content*, and 
 **Bug found and fixed while testing:** `city_errors()` piped `grep` into `tail`. grep exits `1` when it matches nothing, and under `set -o pipefail` that propagated out of the command substitution and, with `set -e`, aborted the run just before the summary — so **a city with no errors, the healthy and most common case, killed the script**. The run died silently after writing `MANIFEST.txt`, with exit `1` looking like an ordinary partial collection. Fixed with `{ grep ... || true; } | tail`.
 - [x] **8.5** Add `.gitignore` entries for `log-bundles/` and `sslv-logs-*.tar.gz` — done early as item 1.7.
 
-### Phase 9 — Integration & docs
+### Phase 9 — Integration & docs — ✅ DONE
 
-- [ ] **9.1** Add `make collect-logs` (all cities) and `make collect-logs CITY=jurmala`.
-- [ ] **9.2** Document in `README.md` and `CLAUDE.md` under a "Log collection (multi-city)" heading, next to the backup/restore flow.
-- [ ] **9.3** Optional `--upload-s3` writing to `s3://sslv-{env}-{city-slug}-scraped-data/log-bundles/{date}/` — reuse the `${city//_/-}` slug rule from `deploy-multi-city-ws.sh:194`. Keep off by default; redaction self-test (7.5) must pass before any upload.
-- [ ] **9.4** Deprecate `collect_logs_v2.sh`: header comment pointing at v3, remove after one release cycle.
+- [x] **9.1** `make collect-logs [CITY=ogre]`, plus `collect-logs-running` and `collect-logs-full` (db dump + data dirs). All appear in `make help`.
+- [x] **9.2** "Log collection (multi-city)" sections in `README.md` (next to the backup/restore flow) and `CLAUDE.md`.
+- [x] **9.3** `--upload-s3` → `s3://sslv-{env}-{city-slug}-scraped-data/log-bundles/{date}/`, using the `${city//_/-}` slug rule. Off by default. Refused outright under `--no-redact`, skipped when the self-test failed, and requires the archive and the `aws` CLI.
+- [x] **9.4** `collect_logs_v2.sh` carries a deprecation header listing exactly why it is broken under multi-city, and prints a warning to stderr on every run.
+- [x] **9.5** *(added)* `--upload-dry-run` prints the destinations and uploads nothing — see below.
+
+**Design tension in 9.3, resolved deliberately.** Buckets are per-city but a bundle can span cities. A multi-city bundle is therefore uploaded to *each* collected city's bucket — the same object more than once. The alternative was inventing a shared bucket, and `CLAUDE.md` is explicit that the CICD buckets must never hold scraped data. For the common single-city troubleshooting run there is exactly one destination.
+
+**Why 9.5 exists.** While testing 9.3 I ran `--upload-s3` expecting it to fail for lack of credentials. It did not: the host had live AWS credentials and the test bundle was written to the real `sslv-prod-ogre-scraped-data` bucket. The object was deleted immediately and that prefix is empty again, but the lesson stands — a flag that writes to production should have a way to show its intent first. `--upload-dry-run` prints every destination and uploads nothing; the README tells you to use it first.
 
 ### Phase 10 — Verification
 

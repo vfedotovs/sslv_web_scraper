@@ -16,8 +16,8 @@
 #              Phase 6 — host + container state capture.
 #              Phase 7 — whole-bundle secret redaction + self-test.
 #              Phase 8 — SUMMARY.txt, tar.gz archive, exit codes.
-# PENDING:     Phase 9 (Makefile target, README/CLAUDE.md, optional S3 upload),
-#              Phase 10 (verification on the production EC2 host).
+#              Phase 9 — Makefile targets, README/CLAUDE.md, optional S3 upload.
+# PENDING:     Phase 10 (verification on the production EC2 host).
 #
 # Discovers each city's containers by compose label, collects their logs,
 # docker logs, pipeline artifacts, host/container state and (opt-in) a debug DB
@@ -89,6 +89,9 @@ WITH_DATA_DIRS=false
 REDACT=true
 OUTPUT_DIR="$DEFAULT_OUTPUT_DIR"
 ARCHIVE=true
+UPLOAD_S3=false
+UPLOAD_DRY_RUN=false
+M6_ENV="${M6_ENV:-prod}"
 
 # --- Usage (plan item 1.4) --------------------------------------------------
 
@@ -111,6 +114,11 @@ Options:
   --no-redact          Skip secret scrubbing (default: redaction ON)
   --output-dir DIR     Destination root (default: ${DEFAULT_OUTPUT_DIR})
   --no-archive         Leave the bundle unpacked, skip the tar.gz
+  --upload-s3          Upload the archive to each collected city's
+                       scraped-data bucket (default: off). This writes to a
+                       REAL bucket — pair with --upload-dry-run first.
+  --upload-dry-run     Print the S3 destinations and upload nothing
+  --env ENV            Environment for the S3 bucket name (default: ${M6_ENV})
   -h, --help           Show this help
 
 Examples:
@@ -118,6 +126,7 @@ Examples:
   $0 --city jurmala --city ogre        # two cities
   $0 --running-only --since 24h        # whatever is up, last 24h
   $0 --city ogre --with-db-dump        # include a debug DB dump
+  $0 --city ogre --upload-s3           # ship it to ogre's scraped-data bucket
 
 Note: --with-db-dump produces a DEBUG dump only; it is not uploaded to S3.
 For real backups use scripts/backup_db_city.sh, and to restore use
@@ -895,6 +904,20 @@ while [[ $# -gt 0 ]]; do
             ARCHIVE=false
             shift
             ;;
+        --upload-s3)
+            UPLOAD_S3=true
+            shift
+            ;;
+        --upload-dry-run)
+            UPLOAD_S3=true
+            UPLOAD_DRY_RUN=true
+            shift
+            ;;
+        --env)
+            require_value "$1" "${2:-}"
+            M6_ENV="$2"
+            shift 2
+            ;;
         -h|--help)
             usage
             exit "$EXIT_OK"
@@ -933,6 +956,24 @@ fi
 if [[ -z "$SINCE" ]]; then
     log_error "--since must not be empty"
     exit "$EXIT_FATAL"
+fi
+
+# Upload guards. Each of these would otherwise put an unverified or
+# non-existent artifact into a shared bucket.
+if [[ "$UPLOAD_S3" == true ]]; then
+    if [[ "$ARCHIVE" != true ]]; then
+        log_error "--upload-s3 needs the archive; drop --no-archive"
+        exit "$EXIT_FATAL"
+    fi
+    if [[ "$REDACT" != true ]]; then
+        log_error "--upload-s3 refuses to run with --no-redact: that would put"
+        log_error "AWS keys and DB passwords into a shared S3 bucket."
+        exit "$EXIT_FATAL"
+    fi
+    if ! command -v aws >/dev/null 2>&1; then
+        log_error "--upload-s3 requires the aws CLI, which is not on PATH"
+        exit "$EXIT_FATAL"
+    fi
 fi
 
 if [[ "$REDACT" == false ]]; then
@@ -1050,7 +1091,7 @@ log_info "Bundle: ${BUNDLE_DIR}"
 log_info "Compose command: ${COMPOSE_CMD}"
 log_info "Cities (${#CITIES[@]}): ${CITIES[*]}"
 log_info "Services: ${SERVICE_LIST[*]}"
-log_info "Options: since=${SINCE} running_only=${RUNNING_ONLY} db_dump=${WITH_DB_DUMP} data_dirs=${WITH_DATA_DIRS} redact=${REDACT} archive=${ARCHIVE}"
+log_info "Options: since=${SINCE} running_only=${RUNNING_ONLY} db_dump=${WITH_DB_DUMP} data_dirs=${WITH_DATA_DIRS} redact=${REDACT} archive=${ARCHIVE} upload_s3=${UPLOAD_S3}"
 
 # Discovery results, one TSV row per (city, service). Kept on disk rather than
 # in an associative array so this stays bash 3.2 (macOS) compatible, and so
@@ -1374,6 +1415,49 @@ else
     else
         log_warn "Failed to create archive at ${ARCHIVE_PATH}"
         ARCHIVE_PATH=""
+    fi
+fi
+
+# --- Optional S3 upload (plan item 9.3) -------------------------------------
+#
+# Buckets are per-city (sslv-{env}-{city-slug}-scraped-data) but a bundle can
+# span several cities, so a multi-city bundle is uploaded to EACH collected
+# city's bucket — the same object more than once. That duplication is
+# deliberate: the alternative is inventing a new shared bucket, and CLAUDE.md
+# is explicit that the CICD buckets must never hold scraped data. For the
+# common single-city troubleshooting run there is exactly one destination.
+#
+# Never uploads unless the self-test passed; --no-redact is rejected upfront.
+
+if [[ "$UPLOAD_S3" == true ]]; then
+    if [[ "$SELF_TEST_FAILED" == true ]]; then
+        log_error "Upload skipped — the redaction self-test failed."
+    elif [[ -z "$ARCHIVE_PATH" ]]; then
+        log_error "Upload skipped — no archive was produced."
+    else
+        _date="$(date -u '+%Y-%m-%d')"
+        _uploaded=0
+        for _city in "${CITIES[@]}"; do
+            # Bucket names use hyphens where city keys use underscores,
+            # matching deploy-multi-city-ws.sh.
+            _slug="${_city//_/-}"
+            _dest="s3://sslv-${M6_ENV}-${_slug}-scraped-data/log-bundles/${_date}/$(basename "$ARCHIVE_PATH")"
+            if [[ "$UPLOAD_DRY_RUN" == true ]]; then
+                log_info "[dry-run] would upload to ${_dest}"
+                continue
+            fi
+            log_info "Uploading to ${_dest} ..."
+            if aws s3 cp "$ARCHIVE_PATH" "$_dest" --quiet 2>&1; then
+                _uploaded=$((_uploaded + 1))
+            else
+                log_warn "  upload failed for ${_city} (check IAM s3:PutObject and that the bucket exists)"
+            fi
+        done
+        if [[ "$UPLOAD_DRY_RUN" == true ]]; then
+            log_info "[dry-run] nothing uploaded"
+        else
+            log_info "Uploaded to ${_uploaded}/${#CITIES[@]} city bucket(s)"
+        fi
     fi
 fi
 
