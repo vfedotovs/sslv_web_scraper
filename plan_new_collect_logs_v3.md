@@ -1,6 +1,6 @@
 # Plan: `scripts/collect_logs_v3.sh` — multi-city aware log & artifact collector
 
-Status: in progress — Phases 1–2 done, Phases 3–10 pending
+Status: in progress — Phases 1–3 done (minimum viable collector, minus packaging), Phases 4–10 pending
 Branch: `dev-1.7.8.1`
 Supersedes: `scripts/collect_logs_v2.sh`
 Related: `deploy-multi-city-ws.sh`, `undeploy-multi-city.sh`, `scripts/backup_db_city.sh`, `scripts/restore_db_city.sh`, `config/cities.yaml`
@@ -156,19 +156,31 @@ log-bundles/sslv-logs-2026-07-22T10-31-05Z/
 
 **Not yet applied:** `--since`, `--with-db-dump`, `--with-data-dirs`, `--no-archive` are parsed and recorded in `MANIFEST.txt` but only take effect in Phases 3–8.
 
-### Phase 3 — Log collection *(fixes C1, C2, C5, and rotations)*
+### Phase 3 — Log collection *(fixes C1, C2, C5, and rotations)* — ✅ DONE
 
-- [ ] **3.1** Define the ws log array from the §2 table — **add `aws_mailer.log`**, keep `sendgrid_mailer.log` as best-effort legacy.
-- [ ] **3.2** Collect **rotated** files: glob `*.log*` rather than exact names, so `.log.1`…`.log.9` come along.
-- [ ] **3.3** Replace the per-file `docker cp` loop with a single streamed tar per service — one exec instead of N, and it handles globs and missing files cleanly:
-  ```bash
-  docker exec "$c" sh -c 'tar cf - -C / *.log* 2>/dev/null' | tar xf - -C "$dest/logs"
-  ```
-  Use `sh`, not `bash` — `python:3.8-slim-buster` has no guarantee of bash *(fixes D8)*.
-- [ ] **3.4** Add **ts**: `/app/task_scheduler.log*`.
-- [ ] **3.5** Add **backup** (new): `/var/log/backup.log*`, `/var/log/cron.log`.
-- [ ] **3.6** Add `docker logs --since "$SINCE" --timestamps` → `stdout.log` for **all four** services incl. `db`. This is the only place uvicorn tracebacks and Postgres startup errors appear *(fixes C5)*.
-- [ ] **3.7** Cap `docker logs` with `--tail 50000` to keep bundles sane on long-running stacks.
+- [x] **3.1** ws log inventory defined from the §2 table. `aws_mailer.log` is now collected (C1); `sendgrid_mailer.log` retained as best-effort legacy.
+- [x] **3.2** Rotations collected — the glob is `*.log*`, so `.log.1`…`.log.9` come along.
+- [x] **3.3** `copy_logs()` does one streamed tar per service instead of v2's per-file `docker cp` loop. The container-side program is POSIX `sh`, and it filters the glob down to entries that actually exist, so a partial match (e.g. `backup.log` present, `cron.log` absent) still yields a valid archive *(fixes D8)*.
+- [x] **3.4** ts: `/app/*.log*`.
+- [x] **3.5** backup: `/var/log/backup.log*` + `/var/log/cron.log` — the service v2 ignored entirely (C2).
+- [x] **3.6** `collect_stdout()` writes `docker logs --since --timestamps` to `stdout.log` for all four services incl. `db`, capturing stdout and stderr together *(fixes C5)*.
+- [x] **3.7** Capped at `--tail 50000`.
+- [x] **3.8** *(added)* **Stopped-container fallback.** `docker exec` requires a running container, so the tar path cannot work on a crashed one — which would have made Phase 2's `docker ps -a` pointless for file logs. `copy_logs_stopped()` falls back to `docker cp` of the known log names. Rotations are unrecoverable this way, and the MANIFEST says so explicitly.
+
+**Verified against fixture containers** (`ogre` ws/ts/db/backup, `jurmala` ws, `sigulda` ws, plus an unlabeled `sslv-ws-standalone` decoy):
+
+| Check | Result |
+|---|---|
+| Cross-city isolation (D2) | `ogre/ws/logs/ws_main.log` and `jurmala/ws/logs/ws_main.log` hold their own distinct content |
+| `aws_mailer.log` (C1) | collected |
+| Rotations (3.2) | `ws_main.log`, `.log.1`, `.log.2`; `task_scheduler.log.1`; `backup.log.1` |
+| backup service (C2) | `backup.log`, `backup.log.1`, `cron.log` |
+| stdout capture (C5) | stderr *and* stdout, RFC3339-timestamped |
+| Stopped container | 8 known logs recovered from an exited ws via `docker cp`, flagged `(no rotations: container exited)` |
+| No logs present | `logs=0 (none present)`, no empty `logs/` dir created |
+| `--since` plumbing | `--since 1s` → 0 lines, `--since 72h` → 2 lines |
+| Decoy container | ignored — never attributed to any city |
+| Temp files | no `sslv-collect.*` left in `TMPDIR` |
 
 ### Phase 4 — Artifacts *(fixes C3, C4)*
 
