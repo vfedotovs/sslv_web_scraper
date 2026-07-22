@@ -1,6 +1,6 @@
 # Plan: `scripts/collect_logs_v3.sh` — multi-city aware log & artifact collector
 
-Status: in progress — Phases 1–6 done (7.1-7.3 pulled forward), Phases 7–10 pending
+Status: in progress — Phases 1–7 done, Phases 8–10 pending
 Branch: `dev-1.7.8.1`
 Supersedes: `scripts/collect_logs_v2.sh`
 Related: `deploy-multi-city-ws.sh`, `undeploy-multi-city.sh`, `scripts/backup_db_city.sh`, `scripts/restore_db_city.sh`, `config/cities.yaml`
@@ -258,20 +258,36 @@ Still open in Phase 7: applying the redactor to *log and artifact content*, and 
 | `.env` / `database.ini` (7.3) | listed by name + mtime only; planted password absent from the whole bundle |
 | `--no-redact` | secret present verbatim, MANIFEST stamped `*** DISABLED ***` — the flag is real, not decorative |
 
-### Phase 7 — Redaction *(fixes C9 — required before Phase 6 output is shareable)*
+### Phase 7 — Redaction *(fixes C9 — required before Phase 6 output is shareable)* — ✅ DONE
 
 - [x] **7.1** *(done in Phase 6)* Implement `redact()` over all text output, on by default. Mask `AWS_SECRET_ACCESS_KEY`, `AWS_ACCESS_KEY_ID`, `POSTGRES_PASSWORD`, `DB_PASSWORD`, `SENDGRID_API_KEY`, and any `AKIA[0-9A-Z]{16}`.
 - [x] **7.2** *(done in Phase 6)* Apply to `inspect.json` specifically — `.Config.Env` is a plaintext dump of every secret in `docker-compose.yml`.
 - [x] **7.3** *(done in Phase 6)* Never collect `.env.*` or `database.ini`. Record only *presence* + mtime.
 - [x] **7.4** *(done in Phase 6)* `--no-redact` must print a loud warning and stamp `REDACTION: DISABLED` into `MANIFEST.txt`.
-- [ ] **7.5** Add a self-test: grep the finished bundle for the secret patterns; abort with a non-zero exit if any hit survives.
+- [x] **7.5** `run_redaction_self_test()` scans the finished bundle and writes `REDACTION-SELF-TEST.txt` with a PASS/FAIL verdict and the offending paths. A surviving secret exits **`3`**, not `1`.
+
+**Completing 7.1 — whole-bundle sweep.** Phase 6 redacted only output this script generates (`inspect.json`, `config.txt`, copied deploy logs). Log and artifact *content* comes from the application, which can log a credential itself, so `redact_bundle()` now sweeps the finished tree as a second pass. Binary files are skipped — rewriting a `.sql.gz` or `.png` in place would corrupt it — but they are **not** ignored: the self-test decompresses and scans them, and a hit is a hard failure rather than something silently rewritten.
+
+**Deviation: exit code 3.** The plan defines only `0/1/2`. Conflating "a secret leaked into this bundle" with "one city was partially collected" would be wrong, since only one of the two means the output is unsafe to send anywhere — so `EXIT_REDACTION=3` was added and documented in `--help`.
+
+**Verified:**
+
+| Check | Result |
+|---|---|
+| App-logged secrets | an AWS secret key, a bare `AKIA...` id and a DB password planted in `s3_file_downloader.log`, `dbworker.log` and an artifact all came out masked; 18 text files swept |
+| Leak scan | all three planted values: **0 hits** across the bundle |
+| Data integrity | non-secret CSV content untouched |
+| **Self-test is not a rubber stamp** | with `redact_bundle` neutered, the run exited **3** and named all three offending files |
+| Compressed payload | a credential stored *inside the database* was caught in the `.sql.gz`, exit **3**, and the dump stayed a valid unmodified gzip |
+| `--no-redact` | self-test skipped (not failed), exit `0`, secret verbatim, no report written |
+| Temp files | no `.redacting` leftovers |
 
 ### Phase 8 — Packaging & summary *(fixes C8)*
 
 - [ ] **8.1** Write `MANIFEST.txt`: timestamp, host, script version, flags used, per-(city, service) collected/skipped table with reasons, redaction state.
 - [ ] **8.2** Write `SUMMARY.txt`: a health matrix (city × service → state) plus the last 5 `ERROR`/`CRITICAL` lines from each city's ws logs. This is the artifact a human reads first.
 - [ ] **8.3** `tar czf sslv-logs-<ts>.tar.gz`, print the absolute path and human-readable size on exit. `--no-archive` to skip.
-- [ ] **8.4** Exit codes: `0` all requested cities collected; `1` partial; `2` fatal preflight failure.
+- [ ] **8.4** Exit codes: `0` all requested cities collected; `1` partial; `2` fatal preflight failure; `3` redaction self-test failed (added in Phase 7, already implemented).
 - [x] **8.5** Add `.gitignore` entries for `log-bundles/` and `sslv-logs-*.tar.gz` — done early as item 1.7.
 
 ### Phase 9 — Integration & docs

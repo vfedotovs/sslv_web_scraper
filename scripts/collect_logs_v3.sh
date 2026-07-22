@@ -13,16 +13,14 @@
 #              Phase 3 — log file + docker logs collection.
 #              Phase 4 — pipeline artifacts + stage hand-off directories.
 #              Phase 5 — opt-in debug DB dump.
-#              Phase 6 — host + container state capture, incl. env redaction
-#                        (the masking half of Phase 7, pulled forward because
-#                        inspect.json would otherwise hold every secret).
-# PENDING:     Phase 7 (whole-bundle redaction + self-test), Phase 8 (packaging).
+#              Phase 6 — host + container state capture.
+#              Phase 7 — whole-bundle secret redaction + self-test.
+# PENDING:     Phase 8 (SUMMARY.txt, tar.gz archive).
 #
 # The script discovers each city's containers and collects their logs, docker
 # logs, pipeline artifacts, host/container state and (opt-in) a debug DB dump
-# into a per-city bundle tree. Container env and inspect output are redacted;
-# log and artifact CONTENT is not yet scanned (Phase 7), so review a bundle
-# before sending it outside the team. The tar.gz lands in Phase 8.
+# into a per-city bundle tree, then redacts the whole tree and verifies that
+# with a self-test. The tar.gz archive lands in Phase 8.
 
 set -euo pipefail
 
@@ -30,12 +28,16 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 CONFIG_FILE="${REPO_ROOT}/config/cities.yaml"
 
-SCRIPT_VERSION="3.0.0-phase6"
+SCRIPT_VERSION="3.0.0-phase7"
 
 # Exit codes (plan item 8.4)
 EXIT_OK=0        # everything requested was collected
 EXIT_PARTIAL=1   # some cities/services could not be collected
 EXIT_FATAL=2     # preflight or usage failure — nothing was collected
+# 3 is beyond the plan's 0/1/2: "a secret leaked into the bundle" must not be
+# indistinguishable from "one city was partially collected", because only one
+# of those two means the output is unsafe to send anywhere.
+EXIT_REDACTION=3 # redaction self-test found an unmasked secret (7.5)
 
 # Shared cities.yaml parser (provides parse_cities)
 source "${SCRIPT_DIR}/lib/cities.sh"
@@ -119,7 +121,8 @@ Note: --with-db-dump produces a DEBUG dump only; it is not uploaded to S3.
 For real backups use scripts/backup_db_city.sh, and to restore use
 scripts/restore_db_city.sh.
 
-Exit codes: ${EXIT_OK}=complete, ${EXIT_PARTIAL}=partial, ${EXIT_FATAL}=fatal (nothing collected)
+Exit codes: ${EXIT_OK}=complete, ${EXIT_PARTIAL}=partial, ${EXIT_FATAL}=fatal (nothing
+            collected), ${EXIT_REDACTION}=a secret survived redaction (do not share)
 EOF
 }
 
@@ -202,6 +205,94 @@ redact_stream() {
     sed -E \
         -e "s/((${SECRET_KEYS})=)[^\"',[:space:]]*/\1***REDACTED***/g" \
         -e 's/AKIA[0-9A-Z]{16}/***REDACTED-AKID***/g'
+}
+
+# is_text_file <path> — true for text, false for binary or empty.
+# `grep -I` treats a binary file as non-matching, so this needs no `file(1)`.
+is_text_file() {
+    LC_ALL=C grep -Iq . "$1" 2>/dev/null
+}
+
+# redact_bundle <dir> — second pass over everything already collected (7.1).
+#
+# The per-capture redaction above only covers output this script generates.
+# Log and artifact CONTENT comes from the application, which could have logged
+# a credential itself, so the finished tree gets swept as well. Echoes the
+# number of files rewritten.
+#
+# Binary files are skipped: rewriting a .sql.gz or .png in place would corrupt
+# it. They are not ignored — the self-test below decompresses and scans them,
+# and a hit there is a hard failure rather than something silently rewritten.
+redact_bundle() {
+    local dir="$1"
+    local f tmp count=0
+
+    if [[ "$REDACT" != true ]]; then
+        printf '0'
+        return 0
+    fi
+
+    while IFS= read -r f; do
+        is_text_file "$f" || continue
+        tmp="${f}.redacting"
+        if redact_stream < "$f" > "$tmp" 2>/dev/null; then
+            mv -f "$tmp" "$f"
+            count=$((count + 1))
+        else
+            rm -f "$tmp"
+        fi
+    done < <(find "$dir" -type f ! -name '*.redacting' 2>/dev/null)
+
+    printf '%s' "$count"
+}
+
+# An unmasked secret looks like KEY=<something that is not ***REDACTED***>,
+# plus any AWS key id. "KEY=" with an empty value does not match.
+SELF_TEST_PATTERN="(${SECRET_KEYS})=[^*\"',[:space:]]|AKIA[0-9A-Z]{16}"
+
+# run_redaction_self_test <dir> — 0 = clean, 1 = a secret survived (7.5).
+#
+# Belt and braces: the redactor is regex-based, so this independently proves
+# the finished bundle is clean rather than assuming the pass worked.
+run_redaction_self_test() {
+    local dir="$1"
+    local findings="${dir}/REDACTION-SELF-TEST.txt"
+    local text_hits gz_hits f rc=0
+
+    text_hits="$(grep -rEIl "$SELF_TEST_PATTERN" "$dir" 2>/dev/null \
+        | grep -v 'REDACTION-SELF-TEST.txt' || true)"
+
+    # Compressed payloads (the debug DB dump) are scanned, never rewritten.
+    gz_hits=""
+    while IFS= read -r f; do
+        [[ -n "$f" ]] || continue
+        if gzip -dc "$f" 2>/dev/null | grep -qE "$SELF_TEST_PATTERN"; then
+            gz_hits="${gz_hits}${f}"$'\n'
+        fi
+    done < <(find "$dir" -type f -name '*.gz' 2>/dev/null)
+
+    {
+        echo "# Redaction self-test (plan item 7.5)"
+        echo "# Run:      $(date -u '+%Y-%m-%d %H:%M:%S UTC')"
+        echo "# Looks for: an unmasked <SECRET_KEY>=value, or an AKIA... key id,"
+        echo "#            in every text file and inside every .gz."
+        echo
+        if [[ -z "$text_hits" && -z "$gz_hits" ]]; then
+            echo "RESULT: PASS — no unmasked secrets found."
+        else
+            echo "RESULT: FAIL — secrets survived redaction in:"
+            [[ -n "$text_hits" ]] && echo "$text_hits" | sed 's/^/  text: /'
+            [[ -n "$gz_hits" ]] && echo "$gz_hits" | sed '/^$/d; s/^/  gzip: /'
+            echo
+            echo "Do NOT share this bundle. Remove the listed files, or extend"
+            echo "SECRET_KEYS in scripts/collect_logs_v3.sh and re-run."
+        fi
+    } > "$findings"
+
+    if [[ -n "$text_hits" || -n "$gz_hits" ]]; then
+        rc=1
+    fi
+    return "$rc"
 }
 
 # --- Log inventory (plan items 3.1, 3.4, 3.5) -------------------------------
@@ -1027,6 +1118,16 @@ for _city in "${CITIES[@]}"; do
     fi
 done
 
+# --- Whole-bundle redaction (plan item 7.1) ---------------------------------
+
+if [[ "$REDACT" == true ]]; then
+    log_info "Redacting collected content ..."
+    REDACTED_COUNT="$(redact_bundle "$BUNDLE_DIR")"
+    log_info "  redacted ${REDACTED_COUNT} text file(s); binaries scanned, not rewritten"
+else
+    REDACTED_COUNT=0
+fi
+
 # --- MANIFEST (discovery section; completed in Phase 8.1) -------------------
 
 MANIFEST="${BUNDLE_DIR}/MANIFEST.txt"
@@ -1038,14 +1139,14 @@ MANIFEST="${BUNDLE_DIR}/MANIFEST.txt"
     echo "Script    : collect_logs_v3.sh ${SCRIPT_VERSION}"
     echo "Bundle    : ${BUNDLE_NAME}"
     if [[ "$REDACT" == true ]]; then
-        echo "Redaction : ON for container env / inspect.json / deploy logs."
+        echo "Redaction : ON, whole bundle (${REDACTED_COUNT} text files swept)."
         echo "            Masked: ${SECRET_KEYS//|/, } and AKIA* key ids."
-        echo "            NOT YET whole-bundle (Phase 7): log and artifact"
-        echo "            content is passed through as-is, so review before"
-        echo "            sharing outside the team."
+        echo "            Binaries (.gz/.png) are scanned, never rewritten."
+        echo "            See REDACTION-SELF-TEST.txt for the verification."
     else
         echo "Redaction : *** DISABLED by --no-redact *** — this bundle"
         echo "            contains AWS keys and DB passwords in plaintext."
+        echo "            The self-test is skipped. Do not share this bundle."
     fi
     echo
     echo "Options   : since=${SINCE} running_only=${RUNNING_ONLY}"
@@ -1114,9 +1215,9 @@ MANIFEST="${BUNDLE_DIR}/MANIFEST.txt"
     echo "                            TASK_TIME/VERIFY_TIME, env (redacted)"
     echo "  ws/         status.json   GET /status from inside the container"
     echo
-    echo "NOTE: Phases 2-6 implemented (discovery, logs, artifacts, DB dump,"
-    echo "      state). Whole-bundle redaction and packaging land in Phases"
-    echo "      7-8; see plan_new_collect_logs_v3.md."
+    echo "NOTE: Phases 2-7 implemented (discovery, logs, artifacts, DB dump,"
+    echo "      state, redaction). SUMMARY.txt and the tar.gz archive land in"
+    echo "      Phase 8; see plan_new_collect_logs_v3.md."
 } > "$MANIFEST"
 
 log_info "Wrote $MANIFEST"
@@ -1130,10 +1231,33 @@ TOTAL_FILES=$(count_files "${BUNDLE_DIR}/cities")
 BUNDLE_SIZE=$(du -sh "$BUNDLE_DIR" 2>/dev/null | awk '{print $1}')
 log_info "Collected ${TOTAL_FILES} file(s) from ${TOTAL_FOUND} container(s) across ${#CITIES[@]} city/cities (${BUNDLE_SIZE:-?})"
 
-log_warn "Phases 1-3 only: logs collected. Artifacts, DB dump, host/container"
-log_warn "state, redaction and the tar.gz archive land in Phases 4-8."
+# --- Redaction self-test (plan item 7.5) ------------------------------------
+
+SELF_TEST_FAILED=false
+if [[ "$REDACT" == true ]]; then
+    log_info "Running redaction self-test ..."
+    if run_redaction_self_test "$BUNDLE_DIR"; then
+        log_info "  self-test PASSED — no unmasked secrets in the bundle"
+    else
+        SELF_TEST_FAILED=true
+        log_error "================================================================"
+        log_error "REDACTION SELF-TEST FAILED — a secret survived in this bundle."
+        log_error "DO NOT share or upload it. Offending files are listed in:"
+        log_error "  ${BUNDLE_DIR}/REDACTION-SELF-TEST.txt"
+        log_error "================================================================"
+    fi
+else
+    log_warn "Self-test skipped (--no-redact). This bundle contains plaintext"
+    log_warn "secrets by design — do not share it."
+fi
+
+log_warn "Phases 1-7 done. SUMMARY.txt and the tar.gz archive land in Phase 8."
 
 log_info "Done. Bundle at: ${BUNDLE_DIR}"
+
+if [[ "$SELF_TEST_FAILED" == true ]]; then
+    exit "$EXIT_REDACTION"
+fi
 
 if [[ ${#TROUBLED_CITIES[@]} -gt 0 ]]; then
     log_warn "Cities with collection trouble: ${TROUBLED_CITIES[*]}"
