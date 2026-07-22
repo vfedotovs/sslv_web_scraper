@@ -9,12 +9,13 @@
 # See plan_new_collect_logs_v3.md for the full design and phase breakdown.
 #
 # IMPLEMENTED: Phase 1 — foundation (CLI, logging, preflight, bundle scaffold).
-# PENDING:     Phase 2 (container discovery), Phase 3 (log collection),
-#              Phase 4 (artifacts), Phase 5 (DB dump), Phase 6 (state capture),
-#              Phase 7 (redaction), Phase 8 (packaging).
+#              Phase 2 — label-based container discovery + MANIFEST status table.
+# PENDING:     Phase 3 (log collection), Phase 4 (artifacts), Phase 5 (DB dump),
+#              Phase 6 (state capture), Phase 7 (redaction), Phase 8 (packaging).
 #
-# Until those land this script validates its inputs and lays out the bundle
-# tree, but does not yet copy anything out of the containers.
+# Until those land this script validates its inputs, discovers each city's
+# containers and lays out the bundle tree, but does not yet copy any log or
+# artifact content out of the containers.
 
 set -euo pipefail
 
@@ -22,7 +23,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 CONFIG_FILE="${REPO_ROOT}/config/cities.yaml"
 
-SCRIPT_VERSION="3.0.0-phase1"
+SCRIPT_VERSION="3.0.0-phase2"
 
 # Exit codes (plan item 8.4)
 EXIT_OK=0        # everything requested was collected
@@ -130,6 +131,40 @@ require_value() {
         usage
         exit "$EXIT_FATAL"
     fi
+}
+
+# --- Container discovery (plan items 2.1, 2.2) ------------------------------
+#
+# Containers are matched on the compose labels, never on a name substring.
+# deploy-multi-city-ws.sh runs `compose --project-name <city>`, so
+# com.docker.compose.project is the city and com.docker.compose.service is one
+# of ws/ts/db/backup. Substring matching on "ws" would hit all six cities at
+# once — the root defect of collect_logs_v2.sh (D1/D3).
+
+# find_container <city> <service> — echoes the container name, empty if none.
+# Uses `docker ps -a` deliberately: a stopped or crashed container is exactly
+# the one whose logs are worth having.
+find_container() {
+    local city="$1"
+    local service="$2"
+    docker ps -a \
+        --filter "label=com.docker.compose.project=${city}" \
+        --filter "label=com.docker.compose.service=${service}" \
+        --format '{{.Names}}' 2>/dev/null | head -n1
+}
+
+# container_state <container> — running | exited | created | paused | dead | unknown
+container_state() {
+    docker inspect --format '{{.State.Status}}' "$1" 2>/dev/null || echo "unknown"
+}
+
+# discover_running_projects — distinct compose project names with a running
+# container. Used to narrow the city list under --running-only (item 2.2).
+discover_running_projects() {
+    docker ps \
+        --filter "label=com.docker.compose.project" \
+        --format '{{.Label "com.docker.compose.project"}}' 2>/dev/null \
+        | sort -u
 }
 
 # --- Argument parsing (plan item 1.4) ---------------------------------------
@@ -292,6 +327,29 @@ else
     done
 fi
 
+# --running-only: keep just the cities that currently have something up
+# (plan item 2.2). Applied after validation so a typo still errors out.
+if [[ "$RUNNING_ONLY" == true ]]; then
+    RUNNING_PROJECTS="$(discover_running_projects | tr '\n' ' ')"
+    log_info "Running compose projects: ${RUNNING_PROJECTS:-<none>}"
+
+    _filtered=()
+    for _city in "${CITIES[@]}"; do
+        if in_list "$_city" "$RUNNING_PROJECTS"; then
+            _filtered+=("$_city")
+        else
+            log_info "Skipping $_city — no running containers (--running-only)"
+        fi
+    done
+
+    if [[ ${#_filtered[@]} -eq 0 ]]; then
+        log_error "--running-only: none of the requested cities have running containers"
+        log_error "Requested: ${CITIES[*]}"
+        exit "$EXIT_FATAL"
+    fi
+    CITIES=("${_filtered[@]}")
+fi
+
 # --- Bundle scaffold --------------------------------------------------------
 
 TIMESTAMP="$(date -u '+%Y-%m-%dT%H-%M-%SZ')"
@@ -310,18 +368,122 @@ log_info "Cities (${#CITIES[@]}): ${CITIES[*]}"
 log_info "Services: ${SERVICE_LIST[*]}"
 log_info "Options: since=${SINCE} running_only=${RUNNING_ONLY} db_dump=${WITH_DB_DUMP} data_dirs=${WITH_DATA_DIRS} redact=${REDACT} archive=${ARCHIVE}"
 
+# Discovery results, one TSV row per (city, service). Kept on disk rather than
+# in an associative array so this stays bash 3.2 (macOS) compatible, and so
+# later phases can append to the same record.
+STATUS_FILE="${BUNDLE_DIR}/.status.tsv"
+: > "$STATUS_FILE"
+
+# record_status <city> <service> <state> [container]
+record_status() {
+    printf '%s\t%s\t%s\t%s\n' "$1" "$2" "$3" "${4:--}" >> "$STATUS_FILE"
+}
+
+# --- Per-city collection (plan items 2.3, 2.4, 2.5) -------------------------
+
+# collect_city <city> — discovers this city's containers and lays out its
+# output tree. Never aborts the run: the caller treats a non-zero return as
+# "this city had trouble", and every other city still gets collected (D4).
+collect_city() {
+    local city="$1"
+    local city_dir="${BUNDLE_DIR}/cities/${city}"
+    local found=0
+    local svc container state
+
+    for svc in "${SERVICE_LIST[@]}"; do
+        container="$(find_container "$city" "$svc")"
+
+        if [[ -z "$container" ]]; then
+            # Not deployed on this host — a normal state, not an error (2.3).
+            record_status "$city" "$svc" "absent" "-"
+            continue
+        fi
+
+        state="$(container_state "$container")"
+        found=$((found + 1))
+
+        # Per-city, per-service directory — no two cities can ever share an
+        # output path, whatever their container names are (2.4, fixes D2).
+        mkdir -p "${city_dir}/${svc}"
+        record_status "$city" "$svc" "$state" "$container"
+        log_info "  [$city/$svc] $container ($state)"
+    done
+
+    if [[ $found -eq 0 ]]; then
+        log_warn "  [$city] no containers found — city not deployed on this host"
+        return 0
+    fi
+
+    log_info "  [$city] $found container(s) discovered"
+    return 0
+}
+
+DISCOVERED_CITIES=0
+TROUBLED_CITIES=()
+
 for _city in "${CITIES[@]}"; do
-    # Per-city isolation — no two cities ever share an output path (fixes D2).
-    mkdir -p "${BUNDLE_DIR}/cities/${_city}"
+    log_info "Discovering containers for $_city ..."
+    # Failure isolation (2.5): one broken city must never abort the run.
+    if collect_city "$_city"; then
+        DISCOVERED_CITIES=$((DISCOVERED_CITIES + 1))
+    else
+        log_warn "Collection failed for $_city — continuing with the remaining cities"
+        TROUBLED_CITIES+=("$_city")
+    fi
 done
-log_info "Created per-city output directories under ${BUNDLE_DIR}/cities/"
 
-# --- Collection (Phases 2-8, not yet implemented) ---------------------------
+# --- MANIFEST (discovery section; completed in Phase 8.1) -------------------
 
-log_warn "Phase 1 (foundation) only: no logs, artifacts or state collected yet."
-log_warn "Container discovery and collection land in Phases 2-3."
-log_warn "See plan_new_collect_logs_v3.md; use scripts/collect_logs_v2.sh"
-log_warn "for single-city hosts until then."
+MANIFEST="${BUNDLE_DIR}/MANIFEST.txt"
+{
+    echo "SS.LV multi-city log bundle"
+    echo "=========================================================="
+    echo "Generated : $(date -u '+%Y-%m-%d %H:%M:%S UTC')"
+    echo "Host      : $(hostname)"
+    echo "Script    : collect_logs_v3.sh ${SCRIPT_VERSION}"
+    echo "Bundle    : ${BUNDLE_NAME}"
+    if [[ "$REDACT" == true ]]; then
+        echo "Redaction : ON (not yet implemented — Phase 7)"
+    else
+        echo "Redaction : DISABLED by --no-redact"
+    fi
+    echo
+    echo "Options   : since=${SINCE} running_only=${RUNNING_ONLY}"
+    echo "            db_dump=${WITH_DB_DUMP} data_dirs=${WITH_DATA_DIRS}"
+    echo "            archive=${ARCHIVE} services=${SERVICE_LIST[*]}"
+    echo
+    echo "Container discovery"
+    echo "----------------------------------------------------------"
+    echo "Matched on compose labels com.docker.compose.project=<city>"
+    echo "and com.docker.compose.service=<service>. 'absent' means the"
+    echo "city/service is not deployed on this host — not an error."
+    echo
+    printf '%-14s %-8s %-10s %s\n' "CITY" "SERVICE" "STATE" "CONTAINER"
+    printf '%-14s %-8s %-10s %s\n' "----" "-------" "-----" "---------"
+    while IFS=$'\t' read -r m_city m_svc m_state m_container; do
+        printf '%-14s %-8s %-10s %s\n' "$m_city" "$m_svc" "$m_state" "$m_container"
+    done < "$STATUS_FILE"
+    echo
+    echo "NOTE: Phase 2 (discovery) implemented. Log/artifact collection"
+    echo "      lands in Phase 3+; see plan_new_collect_logs_v3.md."
+} > "$MANIFEST"
 
-log_info "Done. Bundle scaffold at: ${BUNDLE_DIR}"
+log_info "Wrote $MANIFEST"
+
+# --- Summary ----------------------------------------------------------------
+
+# awk (not `grep -vc`, which prints 0 *and* exits 1 on an empty file, so the
+# `|| echo 0` fallback would double up).
+TOTAL_FOUND=$(awk -F'\t' '$3 != "absent"' "$STATUS_FILE" | wc -l | tr -d ' ')
+log_info "Discovery complete: ${TOTAL_FOUND} container(s) across ${#CITIES[@]} city/cities"
+
+log_warn "Phases 1-2 only: containers discovered, but no logs or artifacts"
+log_warn "copied yet. Collection lands in Phase 3."
+
+log_info "Done. Bundle at: ${BUNDLE_DIR}"
+
+if [[ ${#TROUBLED_CITIES[@]} -gt 0 ]]; then
+    log_warn "Cities with collection trouble: ${TROUBLED_CITIES[*]}"
+    exit "$EXIT_PARTIAL"
+fi
 exit "$EXIT_OK"

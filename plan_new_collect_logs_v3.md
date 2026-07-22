@@ -1,6 +1,6 @@
 # Plan: `scripts/collect_logs_v3.sh` — multi-city aware log & artifact collector
 
-Status: in progress — Phase 1 done, Phases 2–10 pending
+Status: in progress — Phases 1–2 done, Phases 3–10 pending
 Branch: `dev-1.7.8.1`
 Supersedes: `scripts/collect_logs_v2.sh`
 Related: `deploy-multi-city-ws.sh`, `undeploy-multi-city.sh`, `scripts/backup_db_city.sh`, `scripts/restore_db_city.sh`, `config/cities.yaml`
@@ -144,20 +144,17 @@ log-bundles/sslv-logs-2026-07-22T10-31-05Z/
 
 **Phase 1 status:** the script validates inputs, resolves the city list, and lays out the bundle tree (`host/`, `cities/<city>/`, `collect.log`), then exits `0` with a notice that collection is pending. `--running-only` is parsed and recorded but is only *applied* in Phase 2, where discovery lands.
 
-### Phase 2 — Correct multi-city container discovery *(fixes D1, D3)*
+### Phase 2 — Correct multi-city container discovery *(fixes D1, D3)* — ✅ DONE
 
-- [ ] **2.1** Implement `find_container(city, service)`:
-  ```bash
-  docker ps -a \
-    --filter "label=com.docker.compose.project=${city}" \
-    --filter "label=com.docker.compose.service=${service}" \
-    --format '{{.Names}}' | head -n1
-  ```
-  Use `-a` so **stopped/crashed** containers are still collected — those are the ones you actually need logs from.
-- [ ] **2.2** Implement `discover_cities()` for `--running-only`: list distinct `com.docker.compose.project` labels and intersect with `cities.yaml`.
-- [ ] **2.3** Record per-(city, service) status — `running` / `exited` / `absent` — into `MANIFEST.txt`. Absent ≠ error.
-- [ ] **2.4** Guarantee **per-city output directories** so no cross-city overwrite is possible.
-- [ ] **2.5** Isolate per-city failures: wrap each city in a function, `|| { log_warn; continue; }`. One broken city must never abort the run *(fixes D4)*.
+- [x] **2.1** `find_container(city, service)` matches on `com.docker.compose.project` / `com.docker.compose.service`, using `docker ps -a` so stopped/crashed containers are still found. `container_state()` reports the state via `docker inspect`.
+- [x] **2.2** `discover_running_projects()` lists distinct running compose projects and is intersected with the `cities.yaml` list under `--running-only`. Unrelated compose projects on the host are ignored. Exits `2` if no requested city has anything running.
+- [x] **2.3** Per-(city, service) status is recorded to `.status.tsv` and rendered as the discovery table in `MANIFEST.txt`. `absent` is reported, not treated as an error. (A TSV file rather than an associative array — bash 3.2 on macOS has none.)
+- [x] **2.4** Output dirs are `cities/<city>/<service>/`, created only when a container is actually found, so undeployed cities leave no empty noise.
+- [x] **2.5** Each city runs through `collect_city()` behind an `if`; a non-zero return logs a warning, records the city as troubled, and the run continues. Any troubled city downgrades the final exit to `1`.
+
+**Verified against labeled fixture containers:** `ogre` with ws+ts running and db `exited`, `jurmala` with ws only, four cities absent, plus a decoy container named `sslv-ws-standalone` carrying no compose labels. v3 found the exited `ogre-db-1`, kept `jurmala-ws-1` separate, and ignored the decoy entirely — the exact case where v2's `--filter name=ws` misfires. Failure isolation was confirmed by injecting a failure into `ogre`: `jurmala` was still collected and the run exited `1`.
+
+**Not yet applied:** `--since`, `--with-db-dump`, `--with-data-dirs`, `--no-archive` are parsed and recorded in `MANIFEST.txt` but only take effect in Phases 3–8.
 
 ### Phase 3 — Log collection *(fixes C1, C2, C5, and rotations)*
 
