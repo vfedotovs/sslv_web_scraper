@@ -1,13 +1,17 @@
 # Database backup cron job - runs daily at 02:00 UTC
-# -u : unbuffered stdout (important for timely log capture)
+# Jobs go through /app/run-job.sh, which sources the container environment
+# snapshot written by entrypoint.sh. cron does NOT inherit the daemon's
+# environment, so calling backup.py directly leaves POSTGRES_PASSWORD,
+# S3_BUCKET, CITY and AWS_* unset (pg_dump then fails auth with exit 1).
+# The wrapper runs python -u (unbuffered stdout, for timely log capture).
 # Output is appended to cron.log; Docker CMD tails this + backup.log to container stdout.
-0 2 * * * /usr/local/bin/python -u /app/backup.py >> /var/log/cron.log 2>&1
+0 2 * * * /app/run-job.sh >> /var/log/cron.log 2>&1
 
 # Backup staleness check (M6 monitoring Item 4) - runs daily at 14:00 UTC,
 # hours after the backup job, and emails an SES alert if the newest backup
 # in the city's db-backups bucket is older than BACKUP_MAX_AGE_HOURS (~26h).
 # This catches a silently failing/dead backup cron that the in-process
 # post-upload verification cannot see.
-0 14 * * * /usr/local/bin/python -u /app/backup.py --staleness-check >> /var/log/cron.log 2>&1
+0 14 * * * /app/run-job.sh --staleness-check >> /var/log/cron.log 2>&1
 
 # Empty line required

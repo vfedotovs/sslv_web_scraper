@@ -117,6 +117,16 @@ def backup_postgres():
     # Do not log the password value
     log.debug("DB password present: %s", bool(db_password))
 
+    # An empty password almost always means the cron job is not seeing the
+    # container environment (see entrypoint.sh / run-job.sh). pg_dump would
+    # fail auth with a bare "exit status 1", so name the real cause here.
+    if not db_password:
+        raise RuntimeError(
+            "POSTGRES_PASSWORD/DB_PASSWORD is empty - the job is not seeing the"
+            " container environment. Check that /app/container.env exists and"
+            " that cron runs backup.py via /app/run-job.sh."
+        )
+
     # Generate backup filename with current date
     now = datetime.datetime.now()
     timestamp = now.strftime("%Y%m%d_%H%M%S")
@@ -131,7 +141,10 @@ def backup_postgres():
 
     env_vars = os.environ.copy()
     env_vars['PGPASSWORD'] = db_password
-    subprocess.run(
+    # Capture stderr rather than using check=True: a bare CalledProcessError
+    # only reports "returned non-zero exit status 1" and hides the actual
+    # reason (auth failure, DB not ready, missing table, disk full).
+    result = subprocess.run(
         [
             "pg_dump",
             "-h", db_host,
@@ -140,13 +153,26 @@ def backup_postgres():
             "-f", backup_filename,
         ],
         env=env_vars,
-        check=True,
+        capture_output=True,
+        text=True,
     )
+    if result.returncode != 0:
+        raise RuntimeError(
+            f"pg_dump failed (exit {result.returncode}) for {db_name}@{db_host}"
+            f" as {db_user}: {result.stderr.strip() or '<no stderr>'}"
+        )
     log.info("pg_dump completed successfully.")
 
     # Compress
     log.info("Compressing backup...")
-    subprocess.run(["gzip", "-f", backup_filename], check=True)
+    gzip_result = subprocess.run(
+        ["gzip", "-f", backup_filename], capture_output=True, text=True
+    )
+    if gzip_result.returncode != 0:
+        raise RuntimeError(
+            f"gzip failed (exit {gzip_result.returncode}) for {backup_filename}:"
+            f" {gzip_result.stderr.strip() or '<no stderr>'}"
+        )
 
     log.debug("Compressed file ready: %s", gzip_filename)
     return gzip_filename

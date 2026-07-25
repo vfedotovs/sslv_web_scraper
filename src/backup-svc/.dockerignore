@@ -2,3 +2,5 @@
 *
 !backup.py
 !cronfile
+!entrypoint.sh
+!run-job.sh

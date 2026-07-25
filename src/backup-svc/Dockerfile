@@ -9,9 +9,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # Set working directory
 WORKDIR /app
 
-# Copy application code and cronfile
-COPY backup.py /app/
+# Copy application code, cron wrapper scripts and cronfile
+COPY backup.py entrypoint.sh run-job.sh /app/
 COPY cronfile /etc/cron.d/db-backup-cron
+RUN chmod 0755 /app/entrypoint.sh /app/run-job.sh
 
 # Install Python dependencies (no cache)
 RUN pip install --no-cache-dir boto3
@@ -23,8 +24,8 @@ RUN chmod 0644 /etc/cron.d/db-backup-cron && crontab /etc/cron.d/db-backup-cron
 RUN touch /var/log/cron.log /var/log/backup.log && \
     chmod 0666 /var/log/cron.log /var/log/backup.log
 
-# Run the cron daemon in foreground.
-# Also tail the log files so that INFO/DEBUG output from the backup script
-# (both the rotating file handler and anything redirected by cron) is visible
-# via `docker logs <container>`.
-CMD ["sh", "-c", "cron -f & exec tail -F /var/log/cron.log /var/log/backup.log"]
+# entrypoint.sh snapshots the container environment for cron (which does not
+# inherit it), then runs the cron daemon in the foreground and tails the log
+# files so INFO/DEBUG output from the backup script is visible via
+# `docker logs <container>`.
+CMD ["/app/entrypoint.sh"]
