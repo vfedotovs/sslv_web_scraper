@@ -14,7 +14,7 @@
 #     ignores the {city}-backup-1 container entirely.
 #
 # Kept only for single-city hosts during the transition. Scheduled for removal
-# after one release cycle — see plan_new_collect_logs_v3.md.
+# after one release cycle — see docs/plan_new_collect_logs_v3.md.
 
 set -e # Exit on error
 

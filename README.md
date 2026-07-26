@@ -80,7 +80,7 @@ lt                   Lists tables sizes in postgres docker allows to test if DB 
 - Wrong city: verify CITY in .env and bucket name.
 - Permission errors: ensure AWS creds in env or IAM role on EC2.
 
-See `M6_phase_1_backup_restore_service_plan.md` for full details.
+See `docs/M6_phase_1_backup_restore_service_plan.md` for full details.
 
 ## Log collection (multi-city)
 
@@ -148,7 +148,7 @@ To scale safely:
 8. Verify with `make lt` or `make test-restore CITY=marupes-pag`
 9. Repeat for next city. Update CI/deploy if needed for per-city.
 
-See also `M6_MVP_problem_list.md` for full risks.
+See also `docs/M6_MVP_problem_list.md` for full risks.
 
 
 ## Currently available features
@@ -187,4 +187,4 @@ make verify-scrape-all
 3. Run `make up` (or the multi-city deploy script)
 4. `curl http://localhost:8000/run-task/<city>`
 
-See `m6-dynamic-page-count-action-plan.md` for the full plan.
+See `docs/m6-dynamic-page-count-action-plan.md` for the full plan.

@@ -229,7 +229,7 @@ for city in "${CITIES[@]}"; do
     #
     # See:
     #   - README.md → "Daily DB Backup & Manual Restore Flow for Multi-City"
-    #   - M6_phase_1_backup_restore_service_plan.md
+    #   - docs/M6_phase_1_backup_restore_service_plan.md
     #   - scripts/restore_db_city.sh --help
     
     log_info "Checking backup age for $city (non-fatal pre-deploy check)..."

@@ -11,7 +11,7 @@ It has been decommissioned because:
 The function is kept as a no-op stub to prevent import/call errors during transition.
 It can be fully removed in a future cleanup.
 
-See m6-dynamic-page-count-action-plan.md Item 10/11 context.
+See docs/m6-dynamic-page-count-action-plan.md Item 10/11 context.
 """
 
 def pdf_creator_main(city_name: str = None):

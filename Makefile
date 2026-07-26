@@ -553,7 +553,7 @@ verify-scrape-all: ## Run verification for several cities (jurmala, ogre, siguld
 	  echo; \
 	done
 
-# --- Log collection (multi-city) — plan_new_collect_logs_v3.md ---------------
+# --- Log collection (multi-city) — docs/plan_new_collect_logs_v3.md ----------
 
 collect-logs: ## collect logs/artifacts/state from all cities into a bundle (CITY=ogre for one)
 	@if [ -n "$(CITY)" ]; then \

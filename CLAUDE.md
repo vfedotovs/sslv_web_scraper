@@ -65,7 +65,7 @@ Dynamic advert page count (M6 - Items 1-13):
 - `city_config.py` loader for cities.yaml (Phase 4 Item 12)
 - Verification script: `make verify-scrape CITY=jurmala`
 
-See m6-dynamic-page-count-action-plan.md for the complete phased checklist.
+See docs/m6-dynamic-page-count-action-plan.md for the complete phased checklist.
 
 ## Development Setup
 

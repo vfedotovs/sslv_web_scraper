@@ -6,7 +6,7 @@
 # is unusable under the current multi-city deployment (it matches every city's
 # containers at once and collects them all into one CWD).
 #
-# See plan_new_collect_logs_v3.md for the full design and phase breakdown.
+# See docs/plan_new_collect_logs_v3.md for the full design and phase breakdown.
 #
 # IMPLEMENTED: Phase 1 — foundation (CLI, logging, preflight, bundle scaffold).
 #              Phase 2 — label-based container discovery + MANIFEST status table.
