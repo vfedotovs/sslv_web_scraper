@@ -501,8 +501,17 @@ _deploy-precheck:
 		exit 1; \
 	fi; \
 	printf "$(call log_step,Checking access to CICD bucket: $$bucket ...)\n"; \
-	if aws s3 ls "s3://$$bucket/" --max-items 1 > /dev/null 2>&1; then \
-		printf "$(call log_success,CICD bucket $$bucket is accessible)\n"; \
+	if aws s3api head-bucket --bucket "$$bucket" > /dev/null 2>&1; then \
+		if aws s3 ls "s3://$$bucket/" 2>/dev/null | grep -q '\.env\.'; then \
+			printf "$(call log_success,CICD bucket $$bucket is accessible and has .env.* files)\n"; \
+		else \
+			printf "$(call log_warning,CICD bucket $$bucket is reachable but contains no .env.* files)\n"; \
+			if ! ls .env.* 1>/dev/null 2>&1; then \
+				printf "$(call log_error,Bucket s3://$$bucket/ is empty and no local .env.* files found.)\n"; \
+				printf "$(call log_info,Populate the bucket (e.g. aws s3 cp .env.CITY s3://$$bucket/) or place .env.* files locally first.)\n"; \
+				exit 1; \
+			fi; \
+		fi; \
 	else \
 		printf "$(call log_warning,Cannot access s3://$$bucket/ (this is OK if .env.* files already exist locally))\n"; \
 		if ! ls .env.* 1>/dev/null 2>&1; then \
