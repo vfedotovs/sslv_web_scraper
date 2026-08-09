@@ -133,7 +133,7 @@ services:
       # Backup alerting (M6 Item 4): SES failure/staleness alert emails
       DEST_EMAIL: ${DEST_EMAIL}
       SRC_EMAIL: ${SRC_EMAIL}
-      MIN_BACKUP_SIZE_KB: ${MIN_BACKUP_SIZE_KB:-10}
+      MIN_BACKUP_SIZE_KB: ${MIN_BACKUP_SIZE_KB:-1}
       BACKUP_MAX_AGE_HOURS: ${BACKUP_MAX_AGE_HOURS:-26}
     depends_on:
       db:

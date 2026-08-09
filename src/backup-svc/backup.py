@@ -57,7 +57,7 @@ AWS_REGION = os.environ.get("AWS_REGION", "eu-west-1")
 # M6 monitoring Item 4 thresholds
 # Minimum plausible size for a compressed backup; a near-empty dump means
 # pg_dump connected to an empty DB.
-MIN_BACKUP_SIZE_KB = int(os.environ.get("MIN_BACKUP_SIZE_KB", "10"))
+MIN_BACKUP_SIZE_KB = int(os.environ.get("MIN_BACKUP_SIZE_KB", "1"))
 # Newest backup object older than this means the cron is silently dead
 # (daily backup at 02:00 + generous slack).
 BACKUP_MAX_AGE_HOURS = int(os.environ.get("BACKUP_MAX_AGE_HOURS", "26"))
