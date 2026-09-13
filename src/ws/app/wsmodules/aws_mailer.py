@@ -64,7 +64,7 @@ def remove_tmp_files(files_to_remove: list) -> None:
             os.remove(file)
             log.info(f"File: {file} deleted with success ")
         except OSError as e:
-            log.error(f" {e.strerror} ")
+            log.error(f"Failed to delete {file}: {e}")
 
 
 def gen_subject_title() -> str:
@@ -156,14 +156,12 @@ def aws_mailer_main() -> None:
     """
     log.info("--- AWS SES mailer module started ---")
 
-    SENDER = "info@propertydata.lv"
-    RECIPIENT = "info@propertydata.lv"
+    SENDER = os.environ.get('SRC_EMAIL', 'info@propertydata.lv')
+    RECIPIENT = os.environ.get('DEST_EMAIL', 'info@propertydata.lv')
     AWS_REGION = "eu-west-1"  # e.g., Ireland
     SUBJECT = gen_subject_title()
-    # TEXT_SECTION_URLS = extract_file_contents("email_body_txt_m4.txt")
 
-    with open("email_body_txt_m4.txt", "r", encoding="utf-8") as f:
-        BODY_TEXT = f.read()
+    BODY_TEXT = extract_file_contents("email_body_txt_m4.txt")
 
     # List the files you want to append in order
     extra_files = [
@@ -211,10 +209,8 @@ def aws_mailer_main() -> None:
             Source=SENDER,
         )
     except ClientError as e:
-        print(f"Failed to send email: {e.response['Error']['Message']}")
         log.error(f"Failed to send email: {e.response['Error']['Message']}")
     else:
-        print(f"Email sent! Message ID: {response['MessageId']}")
         log.info(f"Email sent! Message ID: {response['MessageId']}")
     log.info("--- AWS SES mailer module completed with succeess ---")
     remove_tmp_files(data_files)
