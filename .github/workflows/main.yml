@@ -80,8 +80,8 @@ jobs:
             set -e
             echo "=== Stopping old containers ==="
             docker ps
-            docker ps -aq | xargs docker rm -f || true
-            docker images -q | xargs docker rmi -f || true
+            docker ps -aq | xargs -r docker rm -f || true
+            docker images -q | xargs -r docker rmi -f || true
             echo "=== Old containers stopped ==="
 
             echo "=== Cloning repository ==="
