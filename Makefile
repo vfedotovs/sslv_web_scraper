@@ -297,8 +297,10 @@ lt: ## list table sizes in the first *-db-1 container (check a restore)
 # Backups live in sslv-<env>-<city>-db-backups (M6_ENV picks the env; CITY uses
 # the cities.yaml key, e.g. marupes_pag). verify-backup and test-restore are
 # safe to run any time. backup-* write to S3 and keep only the newest 5 objects.
-# restore-* load the dump into the LIVE DB on top of existing data and ask you
-# to type the city/env first — run test-restore before, backup-city right before.
+# restore-* REPLACE the live DB and ask you to type the city/env first: they save
+# the current DB to restore-safety/, stop the city's ws/ts/backup, load the dump
+# in one transaction (any error rolls back) and restart them. Undo a restore with
+# make restore-city CITY=<city> FILE=restore-safety/<file>. Run test-restore first.
 
 .PHONY: backup-city backup-all verify-backup restore-city restore-all test-restore e2e-backup-restore fetch-last-db-dump fetch-dump fetch-dump-example
 
@@ -311,10 +313,10 @@ backup-all: ## back up every city's DB to S3; each bucket keeps the newest 5 (M6
 verify-backup: ## read-only: newest S3 backup per city is < 26h old and >= MIN_BACKUP_SIZE_KB (CITY= or all, M6_ENV=)
 	@./scripts/verify_backup.sh $(if $(CITY),--city $(CITY),--all) --env $(M6_ENV)
 
-restore-city: ## LIVE restore of one city's latest backup into its running DB; asks to confirm (CITY= M6_ENV=, YES=1)
-	@./scripts/restore_db_city.sh --city $(CITY) --env $(M6_ENV) $(if $(filter 1 true yes,$(YES)),--yes)
+restore-city: ## LIVE: replace one city's DB with its latest backup, atomically; asks first (CITY= M6_ENV=, FILE= to undo, YES=1)
+	@./scripts/restore_db_city.sh --city $(CITY) --env $(M6_ENV) $(if $(FILE),--file $(FILE)) $(if $(filter 1 true yes,$(YES)),--yes)
 
-restore-all: ## LIVE restore of every city's latest backup into its running DB; asks to confirm (M6_ENV=, YES=1)
+restore-all: ## LIVE: replace every city's DB with its latest backup, atomically; asks first (M6_ENV=, YES=1)
 	@./scripts/restore_db_city.sh --all --env $(M6_ENV) $(if $(filter 1 true yes,$(YES)),--yes)
 
 test-restore: ## safe: restore the latest backup into a throwaway postgres container + count rows (CITY= or all, M6_ENV=)

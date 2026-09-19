@@ -27,6 +27,8 @@ Options:
   --city CITY          Restore specific city
   --all                Restore all cities
   --date DATE          Specific date YYYY_MM_DD (default: latest)
+  --file PATH          Restore a local dump (.sql or .sql.gz) instead of S3; needs --city
+                       (e.g. a restore-safety/ copy, to undo a restore)
   --env ENV            Environment (prod|staging|dev, default: prod)
   --prepare-init       Copy to src/db/ for fresh volume init instead of running restore
   --scratch            Test restore: load the dump into a throwaway postgres container,
@@ -35,13 +37,17 @@ Options:
   --yes                Skip the confirmation for a restore into the live DB
   --help               Show help
 
-A restore into the live DB loads the dump on top of the existing data, so it
-asks you to type the city name (or the env for --all) unless --yes is given.
+A live restore REPLACES the city's data with the backup: it saves the current
+DB to restore-safety/, stops the city's ws/ts/backup containers, drops and
+recreates the public schema and loads the dump in ONE transaction (any error
+rolls everything back), then restarts the containers. It asks you to type the
+city name (or the env for --all) unless --yes is given.
 
 Examples:
   $0 --city ogre --date 2026_07_08
   $0 --all --prepare-init
   $0 --city ogre --env staging --scratch
+  $0 --city ogre --file restore-safety/ogre_before_restore_20260919_120000.sql.gz
 EOF
 }
 
@@ -52,6 +58,7 @@ ENV="prod"
 PREPARE_INIT=false
 SCRATCH=false
 ASSUME_YES=false
+FILE=""
 RESTORE_TEST_IMAGE="${RESTORE_TEST_IMAGE:-postgres:15}"  # matches src/db/Dockerfile
 
 while [[ $# -gt 0 ]]; do
@@ -63,6 +70,7 @@ while [[ $# -gt 0 ]]; do
         --prepare-init) PREPARE_INIT=true; shift ;;
         --scratch) SCRATCH=true; shift ;;
         --yes) ASSUME_YES=true; shift ;;
+        --file) FILE="$2"; shift 2 ;;
         --help|-h) usage; exit 0 ;;
         *) log_error "Unknown option $1"; usage; exit 1 ;;
     esac
@@ -82,12 +90,24 @@ if [[ "$SCRATCH" == true && "$PREPARE_INIT" == true ]]; then
     exit 1
 fi
 
-# A live restore replays the dump into the running DB: confirm first.
+if [[ -n "$FILE" ]]; then
+    if [[ -z "$CITY" || "$ALL" == true ]]; then
+        log_error "--file restores one city: use it with --city, not --all"
+        exit 1
+    fi
+    if [[ ! -f "$FILE" ]]; then
+        log_error "--file $FILE not found"
+        exit 1
+    fi
+fi
+
+# A live restore replaces the running DB's data: confirm first.
 if [[ "$SCRATCH" == false && "$PREPARE_INIT" == false && "$ASSUME_YES" == false ]]; then
     target="${CITY:-$ENV}"
     scope="${CITY:+city $CITY}"
     scope="${scope:-ALL cities (env $ENV)}"
     log_warn "About to restore into the LIVE database of ${scope}."
+    log_warn "  Its current data will be REPLACED (a safety copy goes to restore-safety/ first)."
     log_warn "  Test first without touching it: add --scratch (make test-restore)."
     if [[ ! -t 0 ]]; then
         log_error "Live restore needs confirmation: run interactively or add --yes"
@@ -132,30 +152,138 @@ scratch_restore() {
         < "$sql_file" 2>&1 > /dev/null | grep -c 'ERROR' || true)
     [[ "$errors" -gt 0 ]] && log_warn "psql reported $errors error(s) while loading the dump"
 
-    local tables
-    tables=$(docker exec "$name" psql -h 127.0.0.1 -U "$db_user" -d "$db_name" -t -A -c \
-        "SELECT tablename FROM pg_tables WHERE schemaname = 'public' ORDER BY 1" 2>/dev/null || true)
-    local total=0 count
-    if [[ -z "$tables" ]]; then
-        log_error "Scratch restore FAILED for $city: no tables in the restored DB"
-        rc=1
-    else
-        log_info "Restored tables (row counts):"
-        for t in $tables; do
-            count=$(docker exec "$name" psql -h 127.0.0.1 -U "$db_user" -d "$db_name" -t -A -c \
-                "SELECT count(*) FROM \"$t\"" 2>/dev/null || echo 0)
-            log_info "  $t: $count"
-            total=$((total + count))
-        done
-        if [[ "$total" -eq 0 ]]; then
-            log_error "Scratch restore FAILED for $city: tables exist but hold 0 rows"
-            rc=1
-        else
-            log_info "Scratch restore OK for $city: $total rows across $(echo "$tables" | wc -w | tr -d ' ') tables"
-        fi
-    fi
+    report_tables "Scratch restore" "$city" \
+        docker exec "$name" psql -X -h 127.0.0.1 -U "$db_user" -d "$db_name" || rc=1
     docker rm -f "$name" > /dev/null 2>&1 || true
     return $rc
+}
+
+# report_tables <label> <city> <psql command...>
+# Logs the row count of every public table; fails when there are no tables or
+# every table is empty (a restore that "worked" but brought nothing back).
+report_tables() {
+    local label="$1" city="$2"; shift 2
+    local tables total=0 count
+    tables=$("$@" -t -A -c \
+        "SELECT tablename FROM pg_tables WHERE schemaname = 'public' ORDER BY 1" 2>/dev/null || true)
+    if [[ -z "$tables" ]]; then
+        log_error "$label FAILED for $city: no tables in the restored DB"
+        return 1
+    fi
+    log_info "Restored tables (row counts):"
+    for t in $tables; do
+        count=$("$@" -t -A -c "SELECT count(*) FROM \"$t\"" 2>/dev/null || echo 0)
+        log_info "  $t: $count"
+        total=$((total + count))
+    done
+    if [[ "$total" -eq 0 ]]; then
+        log_error "$label FAILED for $city: tables exist but hold 0 rows"
+        return 1
+    fi
+    log_info "$label OK for $city: $total rows across $(echo "$tables" | wc -w | tr -d ' ') tables"
+}
+
+# live_psql / live_pg_dump <container> <user> <db> <password> [args...]
+# Run psql / pg_dump inside a city's live DB container.
+live_psql() {
+    local container="$1" db_user="$2" db_name="$3" password="$4"; shift 4
+    if [[ -n "$password" ]]; then
+        PGPASSWORD="$password" docker exec -i -e PGPASSWORD "$container" \
+            psql -X -U "$db_user" -d "$db_name" "$@"
+    else
+        docker exec -i "$container" psql -X -U "$db_user" -d "$db_name" "$@"
+    fi
+}
+
+live_pg_dump() {
+    local container="$1" db_user="$2" db_name="$3" password="$4"
+    if [[ -n "$password" ]]; then
+        PGPASSWORD="$password" docker exec -e PGPASSWORD "$container" pg_dump -U "$db_user" -d "$db_name"
+    else
+        docker exec "$container" pg_dump -U "$db_user" -d "$db_name"
+    fi
+}
+
+container_running() {
+    [[ "$(docker inspect -f '{{.State.Running}}' "$1" 2>/dev/null)" == "true" ]]
+}
+
+# Replace a city's live data with a plain-SQL dump, atomically.
+# Backups are plain pg_dump output without DROP statements, so replaying one
+# over existing tables fails on CREATE TABLE and appends rows to any table
+# without a unique key. Instead: safety dump -> stop writers -> drop + recreate
+# the public schema and load the dump in one transaction -> restart writers.
+live_restore() {
+    local city="$1" sql_file="$2" db_user="$3" db_name="$4" password="$5"
+    local container="${city}-db-1"
+    if ! container_running "$container"; then
+        log_error "$container is not running; nothing was restored"
+        return 1
+    fi
+
+    # 1. Safety copy of the current data, so a wrong restore can be undone.
+    local safety_dir
+    safety_dir="$(cd "${SCRIPT_DIR}/.." && pwd)/restore-safety"
+    local safety
+    safety="${safety_dir}/${city}_before_restore_$(date +%Y%m%d_%H%M%S).sql.gz"
+    mkdir -p "$safety_dir"
+    log_info "Saving the current $city DB to $safety ..."
+    if ! live_pg_dump "$container" "$db_user" "$db_name" "$password" | gzip > "$safety"; then
+        rm -f "$safety"
+        log_error "Safety dump failed; nothing was restored"
+        return 1
+    fi
+
+    # 2. Dumps from pg_dump >= 15.14 (Aug 2025) wrap the body in \restrict /
+    #    \unrestrict. An older psql in the city image rejects them, so strip
+    #    those two lines only when this psql cannot run them.
+    local load_file="$sql_file"
+    if grep -q '^\\restrict ' "$sql_file" && ! printf '\\restrict probe\n\\unrestrict probe\n' \
+            | live_psql "$container" "$db_user" "$db_name" "$password" -q -v ON_ERROR_STOP=1 > /dev/null 2>&1; then
+        log_warn "psql in $container predates \\restrict; loading the dump without those lines"
+        load_file="${sql_file}.norestrict"
+        grep -v -E '^\\(un)?restrict ' "$sql_file" > "$load_file"
+    fi
+
+    # 3. Stop the city's writers so nothing changes data or holds locks mid-restore.
+    local stopped=() svc c
+    for svc in ws ts backup; do
+        c="${city}-${svc}-1"
+        if container_running "$c" && docker stop "$c" > /dev/null; then
+            stopped+=("$c")
+        fi
+    done
+    if [[ ${#stopped[@]} -gt 0 ]]; then
+        log_info "Stopped during the restore: ${stopped[*]}"
+    fi
+
+    # 4. Replace the schema and load the dump as ONE transaction (-1 needs -f;
+    #    "-f -" reads stdin). ON_ERROR_STOP aborts on the first error and the
+    #    whole transaction, including the DROP SCHEMA, rolls back.
+    local rc=0
+    log_info "Replacing $city data with the backup (single transaction; any error rolls back) ..."
+    { printf 'SET client_min_messages = warning;\nDROP SCHEMA public CASCADE;\nCREATE SCHEMA public;\n'; cat "$load_file"; } \
+        | live_psql "$container" "$db_user" "$db_name" "$password" \
+            -q -v ON_ERROR_STOP=1 --single-transaction -f - > /dev/null || rc=$?
+    [[ "$load_file" != "$sql_file" ]] && rm -f "$load_file"
+
+    # 5. Restart whatever was stopped, whether or not the load worked.
+    if [[ ${#stopped[@]} -gt 0 ]]; then
+        if docker start "${stopped[@]}" > /dev/null; then
+            log_info "Restarted: ${stopped[*]}"
+        else
+            log_error "Could not restart: ${stopped[*]} — start them manually"
+        fi
+    fi
+
+    if [[ $rc -ne 0 ]]; then
+        log_error "Restore FAILED for $city and was rolled back; the live DB is unchanged."
+        log_error "  (Safety copy, not needed: $safety)"
+        return 1
+    fi
+    log_info "Restore completed for $city. Undo with:"
+    log_info "  ./scripts/restore_db_city.sh --city $city --file $safety"
+    report_tables "Live restore" "$city" live_psql "$container" "$db_user" "$db_name" "$password"
 }
 
 get_cities() {
@@ -182,27 +310,40 @@ restore_city() {
     local city_slug="${city//_/-}"
     local bucket="${S3_BUCKET:-sslv-${env}-${city_slug}-db-backups}"
 
-    local key
-    if [[ -n "$date_str" ]]; then
-        key="db-backups/${date_str//_//}/pg_backup_${date_str}.sql.gz"
-    else
-        # Get latest
-        key=$(aws s3 ls "s3://${bucket}/db-backups/" --recursive | sort | tail -1 | awk '{print $4}')
-        if [[ -z "$key" ]]; then
-            log_error "No backup found in $bucket"
-            return 1
+    # restore_city runs as an `if` condition, where set -e is off: every step
+    # that can fail must be checked explicitly.
+    local sql_file
+    if [[ -n "$FILE" ]]; then
+        sql_file="/tmp/restore_${city}_$$.sql"
+        log_info "Using local dump $FILE"
+        if [[ "$FILE" == *.gz ]]; then
+            gunzip -c "$FILE" > "$sql_file" || { log_error "Cannot decompress $FILE"; rm -f "$sql_file"; return 1; }
+        else
+            cp "$FILE" "$sql_file" || { log_error "Cannot read $FILE"; return 1; }
         fi
+    else
+        local key
+        if [[ -n "$date_str" ]]; then
+            key="db-backups/${date_str//_//}/pg_backup_${date_str}.sql.gz"
+        else
+            # Get latest
+            key=$(aws s3 ls "s3://${bucket}/db-backups/" --recursive | sort | tail -1 | awk '{print $4}')
+            if [[ -z "$key" ]]; then
+                log_error "No backup found in $bucket"
+                return 1
+            fi
+        fi
+
+        local local_file
+        local_file="/tmp/$(basename "$key")"
+        sql_file="${local_file%.gz}"
+
+        log_info "Downloading s3://${bucket}/${key} ..."
+        aws s3 cp "s3://${bucket}/${key}" "$local_file" --quiet || { log_error "Download failed"; return 1; }
+
+        log_info "Decompressing..."
+        gunzip -f "$local_file" || { log_error "Cannot decompress $local_file"; rm -f "$local_file"; return 1; }
     fi
-
-    local tmp_dir="/tmp"
-    local local_file="${tmp_dir}/$(basename "$key")"
-    local sql_file="${local_file%.gz}"
-
-    log_info "Downloading s3://${bucket}/${key} ..."
-    aws s3 cp "s3://${bucket}/${key}" "$local_file" --quiet
-
-    log_info "Decompressing..."
-    gunzip -f "$local_file"
 
     if [[ "$SCRATCH" == true ]]; then
         local rc=0
@@ -219,36 +360,10 @@ restore_city() {
         return 0
     fi
 
-    # Restore into running DB
-    log_info "Restoring into running container $container ..."
-    if [[ -n "$password" ]]; then
-        PGPASSWORD="$password" docker exec -i -e PGPASSWORD "$container" \
-            psql -U "$db_user" -d "$db_name" < "$sql_file" || {
-                log_error "psql restore failed"
-                rm -f "$sql_file"
-                return 1
-            }
-    else
-        docker exec -i "$container" psql -U "$db_user" -d "$db_name" < "$sql_file" || {
-            log_error "psql restore failed"
-            rm -f "$sql_file"
-            return 1
-        }
-    fi
-
-    log_info "Restore completed for $city"
-    
-    # Verification step: list tables (after sample restore)
-    log_info "Verification: listing tables (test-restore health check)..."
-    if docker exec "$container" psql -U "$db_user" -d "$db_name" -c '\dt+' > /dev/null 2>&1; then
-        log_info "Tables listed successfully - DB health OK"
-        docker exec "$container" psql -U "$db_user" -d "$db_name" -c '\dt+'
-    else
-        log_warn "Could not list tables for verification"
-    fi
-    
+    local rc=0
+    live_restore "$city" "$sql_file" "$db_user" "$db_name" "$password" || rc=$?
     rm -f "$sql_file"
-    return 0
+    return $rc
 }
 
 CITIES=$(get_cities)
@@ -256,7 +371,8 @@ SUCCESS=0
 FAILED=0
 
 for c in $CITIES; do
-    if restore_city "$c" "$ENV" "$DATE"; then
+    # Subshell: restore_city sources .env.<city>; keep it from leaking into the next city.
+    if (restore_city "$c" "$ENV" "$DATE"); then
         SUCCESS=$((SUCCESS + 1))
     else
         FAILED=$((FAILED + 1))

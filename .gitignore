@@ -53,6 +53,9 @@ dest_email.env
 log-bundles/
 sslv-logs-*.tar.gz
 
+# Pre-restore safety dumps (scripts/restore_db_city.sh): real DB data, never commit
+restore-safety/
+
 # Do not exclude
 !requirements.txt
 !project_data.txt

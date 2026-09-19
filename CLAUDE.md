@@ -54,6 +54,7 @@ The application supports parallel deployment for multiple cities using Docker Co
 - Deploy all: `./deploy-multi-city-ws.sh` (includes db, ws, ts, backup per city)
 - Undeploy all: `make undeploy-staging` / `make undeploy-prod` (or `./undeploy-multi-city.sh`) — keeps each city's DB volume; `PURGE_DATA=1` / `--purge-data` also deletes all city data after typing the env name to confirm
 - Remove city containers without compose (label-based, keeps volumes): `make clean-containers`
+- Restore: `make test-restore CITY=ogre` (throwaway container, safe) before `make restore-city CITY=ogre` (replaces the live DB atomically, saves a safety copy to `restore-safety/`; undo with `FILE=restore-safety/<file>`)
 
 **Important:** Do NOT expose ts health check port 8080 to host when running multi-city (causes port conflicts). Health checks work within Docker network.
 
