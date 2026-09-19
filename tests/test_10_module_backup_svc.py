@@ -166,3 +166,18 @@ def test_run_backup_verify_failure_sends_alert():
 def test_send_alert_email_never_raises():
     with patch.object(backup.boto3, "client", side_effect=Exception("no creds")):
         assert backup.send_alert_email("subj", "body") is False
+
+
+# --- pg_dump invocation ---
+
+def test_pg_dump_uses_clean_if_exists(monkeypatch):
+    """Dumps must drop objects before recreating them, so a restore over an
+    existing DB neither fails on CREATE nor appends duplicate rows."""
+    monkeypatch.setenv("POSTGRES_PASSWORD", "secret")
+    ok = MagicMock(returncode=0, stderr="")
+    with patch.object(backup.subprocess, "run", return_value=ok) as run:
+        backup.backup_postgres()
+    pg_dump_args = run.call_args_list[0][0][0]
+    assert pg_dump_args[0] == "pg_dump"
+    assert "--clean" in pg_dump_args and "--if-exists" in pg_dump_args
+    assert run.call_args_list[0][1]["env"]["PGPASSWORD"] == "secret"

@@ -136,7 +136,7 @@ def backup_postgres():
     # Run pg_dump
     log.info("Starting pg_dump for %s on %s (city=%s)", db_name, db_host, city)
     if log.isEnabledFor(logging.DEBUG):
-        log.debug("pg_dump command would be: pg_dump -h %s -U %s -d %s -f %s",
+        log.debug("pg_dump command would be: pg_dump --clean --if-exists -h %s -U %s -d %s -f %s",
                   db_host, db_user, db_name, backup_filename)
 
     env_vars = os.environ.copy()
@@ -144,9 +144,13 @@ def backup_postgres():
     # Capture stderr rather than using check=True: a bare CalledProcessError
     # only reports "returned non-zero exit status 1" and hides the actual
     # reason (auth failure, DB not ready, missing table, disk full).
+    # --clean --if-exists: the dump drops each object before recreating it, so
+    # it restores cleanly over existing tables (no CREATE errors, no duplicate
+    # rows) as well as into an empty DB or an init.sql-initialised volume.
     result = subprocess.run(
         [
             "pg_dump",
+            "--clean", "--if-exists",
             "-h", db_host,
             "-U", db_user,
             "-d", db_name,

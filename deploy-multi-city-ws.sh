@@ -274,8 +274,11 @@ for city in "${CITIES[@]}"; do
     # Immediate post-deploy trigger is now performed directly in this script
     # (see below) using a temporary curl container with the correct city.
     PROFILE_ARGS=(--profile backup)
-    
-    if $COMPOSE_CMD --project-name "$city" "${ENV_FILE_ARGS[@]}" "${PROFILE_ARGS[@]}" up -d; then
+
+    # --build: without it compose reuses any existing sslv-ws/ts/backup image,
+    # so code changes (e.g. src/backup-svc/backup.py) never reach a host that
+    # already has the images. Unchanged images are rebuilt from cache quickly.
+    if $COMPOSE_CMD --project-name "$city" "${ENV_FILE_ARGS[@]}" "${PROFILE_ARGS[@]}" up -d --build; then
         log_info "Successfully deployed $city (including backup container)"
         SUCCESS_COUNT=$((SUCCESS_COUNT + 1))
 

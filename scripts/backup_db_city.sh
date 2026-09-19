@@ -121,10 +121,13 @@ backup_city() {
     local backup_file="${backup_dir}/pg_backup_${timestamp}.sql"
     local gzip_file="${backup_file}.gz"
 
-    # Run pg_dump
+    # Run pg_dump. --clean --if-exists: the dump drops each object before
+    # recreating it, so it restores cleanly over existing tables too.
+    # No `docker exec -t`: a TTY merges pg_dump's stderr into the dump file
+    # and turns every line ending into CRLF.
     log_info "Running pg_dump for $city ..."
-    if ! PGPASSWORD="$password" docker exec -e PGPASSWORD -t "$container" \
-        pg_dump -U "$db_user" -d "$db_name" > "$backup_file"; then
+    if ! PGPASSWORD="$password" docker exec -e PGPASSWORD "$container" \
+        pg_dump --clean --if-exists -U "$db_user" -d "$db_name" > "$backup_file"; then
         log_error "pg_dump failed for $city"
         rm -f "$backup_file"
         return 1

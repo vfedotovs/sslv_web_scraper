@@ -209,10 +209,12 @@ container_running() {
 }
 
 # Replace a city's live data with a plain-SQL dump, atomically.
-# Backups are plain pg_dump output without DROP statements, so replaying one
-# over existing tables fails on CREATE TABLE and appends rows to any table
-# without a unique key. Instead: safety dump -> stop writers -> drop + recreate
-# the public schema and load the dump in one transaction -> restart writers.
+# Backups taken before dev-1.7.9.9 are plain pg_dump output without DROP
+# statements: replayed over existing tables they fail on CREATE TABLE and
+# append rows to any table without a unique key. Newer ones use --clean
+# --if-exists. Either way: safety dump -> stop writers -> drop + recreate the
+# public schema and load the dump in one transaction -> restart writers
+# (this also removes objects that are not in the dump).
 live_restore() {
     local city="$1" sql_file="$2" db_user="$3" db_name="$4" password="$5"
     local container="${city}-db-1"
