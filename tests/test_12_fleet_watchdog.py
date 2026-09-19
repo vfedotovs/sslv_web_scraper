@@ -13,14 +13,17 @@ CITIES_YAML = Path(__file__).parent.parent / "config" / "cities.yaml"
 spec = importlib.util.spec_from_file_location("fleet_watchdog", WATCHDOG_PY)
 watchdog = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(watchdog)
+REAL_GET_LAST_SUCCESS_AGE_HOURS = watchdog.get_last_success_age_hours
 
 
 @pytest.fixture(autouse=True)
 def isolated_watchdog_state(tmp_path, monkeypatch):
     """Never touch the real state file, host checks or ntfy/heartbeat env."""
     monkeypatch.setenv("WATCHDOG_STATE_FILE", str(tmp_path / "default-state.json"))
-    for var in ("NTFY_TOPIC_URL", "NTFY_TOKEN", "HEARTBEAT_PING_URL"):
+    for var in ("NTFY_TOPIC_URL", "NTFY_TOKEN", "HEARTBEAT_PING_URL", "MIN_BACKUP_SIZE_KB"):
         monkeypatch.delenv(var, raising=False)
+    # check_last_run's psql lookup: default to a healthy recent success.
+    monkeypatch.setattr(watchdog, "get_last_success_age_hours", lambda city: 5.0)
 
 
 HOST_OK = ("host         OK  | mem:415/1843MiB avail swap:0/0MiB | oom:0 | disk:58% used | ctr:4/4", [])
@@ -500,3 +503,92 @@ def test_main_never_mode_is_read_only(tmp_path):
     assert not state_file.exists()
     ntfy.assert_not_called()
     ping.assert_not_called()
+
+
+# --- P2: stuck runs, last-success age, backup size ---
+
+def test_last_success_age_parses_psql_and_filters_city():
+    with patch.object(watchdog, "run_cmd", return_value=(0, "30.5\n", "")) as run:
+        assert REAL_GET_LAST_SUCCESS_AGE_HOURS("marupes_pag") == 30.5
+    sql = run.call_args[0][0][-1]
+    assert "status = 'success'" in sql and "city = 'marupes_pag'" in sql
+    assert run.call_args[0][0][2] == "marupes_pag-db-1"
+
+
+def test_last_success_age_no_rows_and_errors():
+    with patch.object(watchdog, "run_cmd", return_value=(0, "\n", "")):
+        assert REAL_GET_LAST_SUCCESS_AGE_HOURS("ogre") == "none"
+    with patch.object(watchdog, "run_cmd", return_value=(1, "", "no container")):
+        assert REAL_GET_LAST_SUCCESS_AGE_HOURS("ogre") is None
+    with patch.object(watchdog, "run_cmd") as run:
+        assert REAL_GET_LAST_SUCCESS_AGE_HOURS("ogre'; DROP TABLE x;--") is None
+    run.assert_not_called()
+
+
+def test_stuck_running_run_is_urgent_problem():
+    run = {"status": "running", "started_at": iso_hours_ago(4)}
+    with patch.object(watchdog, "get_ws_status", return_value=run):
+        _, problems = watchdog.check_last_run("ogre", max_age_hours=26, max_running_hours=3)
+    assert problems == ["last run stuck in 'running' for 4h (> 3h) — ws likely died mid-pipeline"]
+    assert problems[0].startswith(watchdog.URGENT_PROBLEM_PREFIXES)
+
+
+def test_recent_running_run_is_not_a_problem():
+    run = {"status": "running", "started_at": iso_hours_ago(1)}
+    with patch.object(watchdog, "get_ws_status", return_value=run):
+        assert watchdog.check_last_run("ogre", 26, 3)[1] == []
+
+
+def test_failing_runs_with_old_success_alert_on_success_age(monkeypatch):
+    monkeypatch.setattr(watchdog, "get_last_success_age_hours", lambda city: 50.0)
+    run = {"status": "failed", "started_at": iso_hours_ago(2),
+           "failed_stage": "web_scraper", "error": "403"}
+    with patch.object(watchdog, "get_ws_status", return_value=run):
+        summary, problems = watchdog.check_last_run("ogre", 26)
+    assert "ok:50h ago" in summary
+    assert "last successful run is 50h old (> 26h)" in problems
+    assert problems[-1].startswith(watchdog.URGENT_PROBLEM_PREFIXES)
+
+
+def test_stale_scheduler_does_not_double_report_success_age(monkeypatch):
+    monkeypatch.setattr(watchdog, "get_last_success_age_hours", lambda city: 50.0)
+    run = {"status": "success", "started_at": iso_hours_ago(50)}
+    with patch.object(watchdog, "get_ws_status", return_value=run):
+        _, problems = watchdog.check_last_run("ogre", 26)
+    assert len(problems) == 1 and "scheduler may be dead" in problems[0]
+
+
+def test_no_success_ever_is_problem(monkeypatch):
+    monkeypatch.setattr(watchdog, "get_last_success_age_hours", lambda city: "none")
+    run = {"status": "failed", "started_at": iso_hours_ago(2)}
+    with patch.object(watchdog, "get_ws_status", return_value=run):
+        summary, problems = watchdog.check_last_run("ogre", 26)
+    assert "ok:never" in summary
+    assert "last successful run: none recorded in scrape_runs" in problems
+
+
+def test_unreadable_success_age_is_not_extra_problem(monkeypatch):
+    monkeypatch.setattr(watchdog, "get_last_success_age_hours", lambda city: None)
+    run = {"status": "success", "started_at": iso_hours_ago(5)}
+    with patch.object(watchdog, "get_ws_status", return_value=run):
+        assert watchdog.check_last_run("ogre", 26)[1] == []
+
+
+def test_backup_below_min_size_is_urgent_problem():
+    newest = {"Key": "db-backups/x.sql.gz",
+              "LastModified": iso_hours_ago(3) + "Z", "Size": 4 * 1024}
+    with patch.object(watchdog, "run_cmd", return_value=(0, json.dumps(newest), "")):
+        _, problems = watchdog.check_backup("ogre", "prod", "eu-west-1", 26, min_size_kb=10)
+    assert problems[0].startswith("newest backup is only 4 KB (< 10 KB)")
+    assert problems[0].startswith(watchdog.URGENT_PROBLEM_PREFIXES)
+
+
+def test_min_backup_size_defaults_from_env(monkeypatch):
+    monkeypatch.setenv("MIN_BACKUP_SIZE_KB", "1")
+    seen = {}
+    with patch.object(watchdog, "parse_cities", return_value=["ogre"]), \
+         patch.object(watchdog, "check_city",
+                      side_effect=lambda c, a: seen.update(kb=a.min_backup_size_kb) or ("l", [])), \
+         patch.object(watchdog, "check_host", return_value=HOST_OK):
+        watchdog.main(["--email-mode", "never", "--ntfy-mode", "never"])
+    assert seen["kb"] == 1

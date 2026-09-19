@@ -164,10 +164,11 @@ All run on the 15-minute `sslv-watchdog.timer` as a `host` line in the report; h
 - Restart/OOM baselines live in the state file next to the ntfy state. `--ntfy-mode never` (`make fleet-status`) is **read-only**, so manual runs never consume an event the timer should alert on.
 - Host requirement: the timer user must be able to read the kernel journal (membership of `systemd-journal` or `adm`; check with `id`, fix with `sudo usermod -aG systemd-journal ec2-user`). If not, the report shows `oom:?` rather than failing.
 
-### P2 — Tighten existing checks
-- [ ] **#1:** alert on `status == running` with `started_at` older than 3 h (the OOM-mid-run case); compute age from the last **successful** run.
-- [ ] **#2:** add size check (`< MIN_BACKUP_SIZE_KB`: 10 KB on this branch, 1 KB after the `dev-1.8.5` change) to `check_backup()` using the `Size` already returned by `get_backup_freshness()`.
-- [ ] Route every existing `fleet_watchdog.py` problem through ntfy as well as SES.
+### P2 — Tighten existing checks  ✅ implemented on `dev-1.7.9.3`
+- [x] **#1 stuck runs:** a last run still `running` after `--max-running-hours` (3) → `last run stuck in 'running'` **urgent** (the ws-OOM-mid-pipeline case). `src/ts/ts.py`'s 01:40 verification still ignores `running` (M6 A2); the watchdog now covers it from outside.
+- [x] **#1 last success:** age of the newest `status = 'success'` row per city, read with psql in the `db` container (`/status` only returns the newest run of any status). `last successful run is Xh old` > 26 h → **urgent**; `none recorded` when a city has never succeeded. Not repeated when the scheduler-dead alert already fired. Report shows `ok:Xh ago`.
+- [x] **#2 backup size:** newest object below `--min-backup-size-kb` (default `$MIN_BACKUP_SIZE_KB`, else 10) → `newest backup is only X KB` **urgent**, checked from S3 rather than trusting the backup container.
+- [x] Every `fleet_watchdog.py` problem goes through ntfy as well as SES — true since P0: `notify_ntfy()` pushes the full problem set, and the 06:35 heartbeat run still sends the SES email on problems.
 
 ### P3 — Verify the alerts actually fire
 - [ ] On staging, trigger each alert once: stop a `*-ts-1` container (#5); `fallocate` a large file to cross the disk threshold (#4); lower the memory threshold temporarily (#3); point #2 at an empty test bucket; set `urls_discovered` expectations against a stubbed `/status` (#6).

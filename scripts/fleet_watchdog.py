@@ -69,7 +69,7 @@ DEFAULT_STATE_FILE = os.path.join(
 # Problems that mean the product is down or data is at risk push at "urgent";
 # everything else (container state, unreadable status/DB) at "high".
 URGENT_PROBLEM_PREFIXES = (
-    "last run", "newest backup", "NO backups",
+    "last run", "last successful run", "newest backup", "NO backups",
     "OOM kill", "disk critical", "scraper collapse",
 )
 ZERO_URLS_PROBLEM = "zero URLs discovered"
@@ -157,8 +157,36 @@ def get_ws_status(city):
         return None
 
 
-def check_last_run(city, max_age_hours):
-    """Evaluate the last scrape run from /status; returns (summary, problems)."""
+def get_last_success_age_hours(city):
+    """Hours since this city's newest successful scrape_runs row, via psql in
+    the db container. /status only returns the newest run of any status, so
+    it cannot say how long the city has gone without a success.
+    Returns a float, "none" when no success is recorded, or None on error."""
+    if not re.fullmatch(r"[A-Za-z0-9_-]+", city):  # interpolated into SQL
+        return None
+    # started_at is a TIMESTAMP written with now(); comparing against
+    # now()::timestamp keeps both sides in the server's timezone.
+    rc, out, _ = run_cmd([
+        "docker", "exec", f"{city}-db-1",
+        "psql", "-U", "new_docker_user", "-d", "new_docker_db", "-t", "-A",
+        "-c",
+        "SELECT extract(epoch FROM now()::timestamp - max(started_at)) / 3600"
+        f" FROM scrape_runs WHERE status = 'success' AND city = '{city}'",
+    ], timeout=30)
+    if rc != 0:
+        return None
+    value = out.strip()
+    if not value:
+        return "none"
+    try:
+        return float(value)
+    except ValueError:
+        return None
+
+
+def check_last_run(city, max_age_hours, max_running_hours=3):
+    """Evaluate the last scrape run from /status plus the age of the last
+    successful run; returns (summary, problems)."""
     problems = []
     run = get_ws_status(city)
     if run is None:
@@ -186,11 +214,34 @@ def check_last_run(city, max_age_hours):
             f"last run FAILED at stage {run.get('failed_stage')}:"
             f" {run.get('error')}"
         )
-    if age_hours is not None and age_hours > max_age_hours:
+    run_is_stale = age_hours is not None and age_hours > max_age_hours
+    if run_is_stale:
         problems.append(
             f"last run is {age_hours:.0f}h old (> {max_age_hours}h) —"
             " scheduler may be dead"
         )
+    # A ws killed mid-pipeline (e.g. OOM) leaves its row "running" forever,
+    # and ts.py's 01:40 verification does not treat "running" as a failure.
+    elif (status == "running" and age_hours is not None
+          and age_hours > max_running_hours):
+        problems.append(
+            f"last run stuck in 'running' for {age_hours:.0f}h"
+            f" (> {max_running_hours}h) — ws likely died mid-pipeline"
+        )
+
+    # Runs can keep happening (and failing) while nothing succeeds, so the
+    # product-level question is the age of the last success.
+    success_age = get_last_success_age_hours(city)
+    if success_age == "none":
+        summary += " ok:never"
+        problems.append("last successful run: none recorded in scrape_runs")
+    elif success_age is not None:
+        summary += f" ok:{success_age:.0f}h ago"
+        if success_age > max_age_hours and not run_is_stale:
+            problems.append(
+                f"last successful run is {success_age:.0f}h old"
+                f" (> {max_age_hours}h)"
+            )
     # None = run did not scrape (e.g. used cloud data); only 0 is a failure.
     if status == "success" and run.get("urls_discovered") == 0:
         problems.append(
@@ -241,8 +292,10 @@ def get_backup_freshness(bucket, region):
     return newest["Key"], age_hours, newest["Size"]
 
 
-def check_backup(city, env, region, max_age_hours):
-    """Evaluate S3 backup freshness; returns (summary, problems)."""
+def check_backup(city, env, region, max_age_hours, min_size_kb=10):
+    """Evaluate S3 backup freshness and size; returns (summary, problems).
+    Size is checked here, from outside the backup container, because a dump
+    of an empty or unreachable DB still uploads "successfully"."""
     bucket = f"sslv-{env}-{city.replace('_', '-')}-db-backups"
     result = get_backup_freshness(bucket, region)
     if result == "error":
@@ -256,6 +309,11 @@ def check_backup(city, env, region, max_age_hours):
         problems.append(
             f"newest backup is {age_hours:.0f}h old (> {max_age_hours}h):"
             f" s3://{bucket}/{key}"
+        )
+    if size < min_size_kb * 1024:
+        problems.append(
+            f"newest backup is only {size // 1024} KB (< {min_size_kb} KB),"
+            f" likely a near-empty dump: s3://{bucket}/{key}"
         )
     return summary, problems
 
@@ -446,7 +504,9 @@ def check_city(city, args):
     )
     ctr_summary = f"ctr:{ok_containers}/{len(CITY_SERVICES)}"
 
-    run_summary, run_problems = check_last_run(city, args.max_run_age_hours)
+    run_summary, run_problems = check_last_run(
+        city, args.max_run_age_hours, args.max_running_hours
+    )
     problems.extend(run_problems)
 
     rows = get_db_row_counts(city)
@@ -457,7 +517,8 @@ def check_city(city, args):
         rows_summary = f"LA:{rows[0]} RA:{rows[1]}"
 
     backup_summary, backup_problems = check_backup(
-        city, args.env, args.aws_region, args.max_backup_age_hours
+        city, args.env, args.aws_region, args.max_backup_age_hours,
+        args.min_backup_size_kb,
     )
     problems.extend(backup_problems)
 
@@ -627,6 +688,12 @@ def main(argv=None):
     parser.add_argument("--aws-region", default="eu-west-1")
     parser.add_argument("--max-run-age-hours", type=float, default=26)
     parser.add_argument("--max-backup-age-hours", type=float, default=26)
+    parser.add_argument("--max-running-hours", type=float, default=3,
+                        help="a run still 'running' after this long is stuck")
+    parser.add_argument("--min-backup-size-kb", type=int,
+                        default=int(os.getenv("MIN_BACKUP_SIZE_KB", "10")),
+                        help="newest backup below this is a near-empty dump"
+                             " (default: $MIN_BACKUP_SIZE_KB or 10)")
     parser.add_argument("--ntfy-mode", choices=["problems", "always", "never"],
                         default="problems",
                         help="problems: push on problem-set change + reminders"
