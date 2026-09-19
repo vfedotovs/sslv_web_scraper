@@ -11,6 +11,12 @@ every city in config/cities.yaml:
   4. Backup freshness   — newest object age + size in the city's
                           sslv-{env}-{city}-db-backups bucket (aws s3api)
 
+Host-level checks (critical-monitoring P1): available memory + swap, kernel
+OOM kills since the last run (journalctl -k), disk free on /, running
+compose containers vs the expected 4 per city (flags leftovers), container
+restarts since the last run, and cross-city scraper collapse (>= N cities
+discovering 0 URLs on their last run = ss.lv blocking or a site change).
+
 Then prints a one-line-per-city report and sends ONE consolidated email
 via AWS SES (aws CLI): by default only when something is wrong
 (--email-mode problems); use --email-mode always for a daily digest, or
@@ -20,7 +26,9 @@ ntfy push (critical-monitoring P0, docs/critical_monitoring_ntfy_plan.md):
 --ntfy-mode problems pushes to NTFY_TOPIC_URL only when the set of problems
 changes (new alert, partial recovery, all resolved) plus a reminder every
 --ntfy-reminder-hours while still failing, so a frequent timer does not spam.
-State is kept in --state-file. --ntfy-mode always pushes every run (daily
+State is kept in --state-file, which also holds the restart-count and
+last-check baselines; --ntfy-mode never (e.g. `make fleet-status`) is
+read-only, so manual runs do not consume restart/OOM events. --ntfy-mode always pushes every run (daily
 heartbeat: a missing heartbeat means the watchdog itself is broken).
 
 Dependencies on the host: python3 (stdlib only), docker CLI, aws CLI.
@@ -39,7 +47,9 @@ import argparse
 import json
 import os
 import re
+import shutil
 import subprocess
+import time
 import sys
 import urllib.request
 from datetime import datetime, timezone
@@ -58,7 +68,14 @@ DEFAULT_STATE_FILE = os.path.join(
 )
 # Problems that mean the product is down or data is at risk push at "urgent";
 # everything else (container state, unreadable status/DB) at "high".
-URGENT_PROBLEM_PREFIXES = ("last run", "newest backup", "NO backups")
+URGENT_PROBLEM_PREFIXES = (
+    "last run", "newest backup", "NO backups",
+    "OOM kill", "disk critical", "scraper collapse",
+)
+ZERO_URLS_PROBLEM = "zero URLs discovered"
+# Pseudo-city keys for problems that are not tied to one city.
+HOST_KEY = "host"
+FLEET_KEY = "fleet"
 NTFY_MAX_BODY_BYTES = 3800  # ntfy.sh message limit is 4096 bytes
 
 
@@ -174,6 +191,12 @@ def check_last_run(city, max_age_hours):
             f"last run is {age_hours:.0f}h old (> {max_age_hours}h) —"
             " scheduler may be dead"
         )
+    # None = run did not scrape (e.g. used cloud data); only 0 is a failure.
+    if status == "success" and run.get("urls_discovered") == 0:
+        problems.append(
+            f"{ZERO_URLS_PROBLEM} in last run — list page parser broken"
+            " or ss.lv is blocking the scraper"
+        )
     return summary, problems
 
 
@@ -235,6 +258,181 @@ def check_backup(city, env, region, max_age_hours):
             f" s3://{bucket}/{key}"
         )
     return summary, problems
+
+
+def read_meminfo(path="/proc/meminfo"):
+    """MemTotal/MemAvailable/SwapTotal/SwapFree in MiB, or None if unreadable."""
+    wanted = ("MemTotal", "MemAvailable", "SwapTotal", "SwapFree")
+    info = {}
+    try:
+        with open(path, "r", encoding="utf-8") as fh:
+            for line in fh:
+                key, _, value = line.partition(":")
+                if key in wanted:
+                    info[key] = int(value.split()[0]) // 1024  # kB -> MiB
+    except (OSError, ValueError, IndexError):
+        return None
+    return info if len(info) == len(wanted) else None
+
+
+def check_memory(min_available_mib):
+    """Available (not free) memory: page cache is reclaimable, so MemAvailable
+    is the real headroom. With no swap, running out means an instant OOM kill."""
+    info = read_meminfo()
+    if info is None:
+        return "mem:?", []
+    avail = info["MemAvailable"]
+    swap_used = info["SwapTotal"] - info["SwapFree"]
+    summary = f"mem:{avail}/{info['MemTotal']}MiB avail swap:{swap_used}/{info['SwapTotal']}MiB"
+    problems = []
+    if avail < min_available_mib:
+        problems.append(
+            f"memory low: {avail} MiB available (< {min_available_mib} MiB),"
+            f" swap used {swap_used}/{info['SwapTotal']} MiB"
+        )
+    return summary, problems
+
+
+def get_oom_kills(since_epoch):
+    """Process names the kernel OOM-killed since since_epoch, or None when the
+    kernel log is unreadable (journalctl missing or no journal access)."""
+    # No -q: it would hide the warning that tells us the journal is not
+    # readable, and an unreadable journal must show as "oom:?", not "oom:0".
+    rc, out, err = run_cmd([
+        "journalctl", "-k", "--no-pager", "-o", "cat",
+        "--since", f"@{int(since_epoch)}",
+    ], timeout=30)
+    if rc != 0 or "insufficient permissions" in err or "not seeing messages" in err:
+        return None
+    return re.findall(r"Killed process \d+ \(([^)]+)\)", out)
+
+
+def check_oom(since_epoch):
+    kills = get_oom_kills(since_epoch)
+    if kills is None:
+        return "oom:?", []
+    problems = []
+    if kills:
+        problems.append(
+            f"OOM kill: {len(kills)} process(es) killed by the kernel since last"
+            f" check ({', '.join(sorted(set(kills)))})"
+        )
+    return f"oom:{len(kills)}", problems
+
+
+def check_disk(path, warn_free_pct, crit_free_pct):
+    """A full disk stops Postgres writes for every city at once."""
+    try:
+        usage = shutil.disk_usage(path)
+    except OSError:
+        return "disk:?", []
+    free_pct = usage.free * 100 / usage.total
+    free_gib = usage.free / 2**30
+    summary = f"disk:{100 - free_pct:.0f}% used ({free_gib:.1f}G free)"
+    problems = []
+    if free_pct < crit_free_pct:
+        problems.append(
+            f"disk critical: {free_pct:.0f}% free on {path}"
+            f" ({free_gib:.1f} GiB, < {crit_free_pct}%)"
+        )
+    elif free_pct < warn_free_pct:
+        problems.append(
+            f"disk low: {free_pct:.0f}% free on {path}"
+            f" ({free_gib:.1f} GiB, < {warn_free_pct}%)"
+        )
+    return summary, problems
+
+
+def check_fleet_containers(cities, state):
+    """Running compose containers vs the expected set, plus restarts since the
+    last run. Updates state["restart_counts"]; returns (summary, problems)."""
+    expected = {f"{city}-{svc}-1" for city in cities for svc in CITY_SERVICES}
+    rc, out, _ = run_cmd([
+        "docker", "ps", "-a", "--filter", "label=com.docker.compose.project",
+        "--format", "{{.Names}}|{{.State}}",
+    ])
+    if rc != 0:
+        return "ctr:?", []
+    present, running = set(), set()
+    for line in out.splitlines():
+        name, _, container_state_ = line.partition("|")
+        present.add(name)
+        if container_state_ == "running":
+            running.add(name)
+
+    problems = []
+    unexpected = sorted(running - expected)
+    if unexpected:
+        problems.append(
+            "unexpected containers running (not in cities.yaml):"
+            f" {', '.join(unexpected)}"
+        )
+
+    # Restart deltas. A container recreated by a deploy gets a new Id, which
+    # resets its baseline instead of being reported as a restart.
+    names = sorted(expected & present)
+    counts = {}
+    if names:
+        rc, out, _ = run_cmd([
+            "docker", "inspect", "--format", "{{.Name}}|{{.Id}}|{{.RestartCount}}",
+        ] + names)
+        for line in out.splitlines():
+            parts = line.split("|")
+            if len(parts) == 3 and parts[2].isdigit():
+                counts[parts[0].lstrip("/")] = [parts[1], int(parts[2])]
+    previous = state.get("restart_counts", {})
+    for name, (cid, count) in sorted(counts.items()):
+        prev = previous.get(name)
+        if prev and prev[0] == cid and count > prev[1]:
+            problems.append(
+                f"container {name} restarted {count - prev[1]} time(s)"
+                f" since last check (total {count})"
+            )
+    state["restart_counts"] = counts
+    return f"ctr:{len(running & expected)}/{len(expected)}", problems
+
+
+def check_host(cities, args, state, now_epoch):
+    """All host-level checks; returns (report line, problems list)."""
+    since = state.get("last_check_epoch") or now_epoch - args.first_run_lookback_min * 60
+    summaries, problems = [], []
+    for summary, host_problems in (
+        check_memory(args.min_mem_available_mib),
+        check_oom(since),
+        check_disk("/", args.disk_warn_free_pct, args.disk_crit_free_pct),
+        check_fleet_containers(cities, state),
+    ):
+        summaries.append(summary)
+        problems.extend(host_problems)
+    verdict = "OK " if not problems else "BAD"
+    return f"{HOST_KEY:<12} {verdict} | {' | '.join(summaries)}", problems
+
+
+def check_scraper_collapse(all_problems, cities, min_cities):
+    """Cross-city view of zero-URL runs. All cities share one egress IP, so
+    several collapsing together means blocking or a site-wide change, not
+    one city's config. Returns a problem list for the fleet key."""
+    zero = sorted(
+        city for city, problems in all_problems.items()
+        if any(p.startswith(ZERO_URLS_PROBLEM) for p in problems)
+    )
+    if len(zero) < min_cities:
+        return []
+    return [
+        f"scraper collapse: {len(zero)}/{len(cities)} cities discovered 0 URLs"
+        f" ({', '.join(zero)}) — likely ss.lv blocking or a site-wide change"
+    ]
+
+
+def ping_heartbeat(url):
+    """GET a dead-man's-switch URL (e.g. healthchecks.io) to prove the
+    watchdog itself still runs. Returns True on success."""
+    try:
+        with urllib.request.urlopen(url, timeout=10) as response:
+            return 200 <= response.status < 300
+    except Exception as e:
+        print(f"ERROR: heartbeat ping failed: {e}")
+        return False
 
 
 def check_city(city, args):
@@ -366,8 +564,10 @@ def ntfy_decision(all_problems, state, reminder_hours, now):
     return None, []
 
 
-def notify_ntfy(args, all_problems, lines, cities):
-    """Push the fleet status to ntfy according to --ntfy-mode."""
+def notify_ntfy(args, all_problems, lines, cities, state):
+    """Push the fleet status to ntfy according to --ntfy-mode. Records the
+    pushed problem set in state only when the push succeeded, so a failed
+    push is retried on the next run."""
     if args.ntfy_mode == "never":
         return
     if not args.ntfy_url:
@@ -375,7 +575,6 @@ def notify_ntfy(args, all_problems, lines, cities):
         return
 
     now = datetime.now(timezone.utc)
-    state = load_state(args.state_file)
     kind, resolved = ntfy_decision(all_problems, state, args.ntfy_reminder_hours, now)
     if args.ntfy_mode == "always" and kind is None:
         kind = "reminder" if all_problems else "heartbeat"
@@ -407,13 +606,11 @@ def notify_ntfy(args, all_problems, lines, cities):
         body = "\n".join(body_lines + [""] + lines)
 
     if send_ntfy(args.ntfy_url, title, body, priority, tags, args.ntfy_token):
-        save_state(args.state_file, {
-            "problems": {
-                f"{city}: {problem_fingerprint(p)}": f"{city}: {p}"
-                for city, ps in all_problems.items() for p in ps
-            },
-            "last_sent": now.isoformat(),
-        })
+        state["problems"] = {
+            f"{city}: {problem_fingerprint(p)}": f"{city}: {p}"
+            for city, ps in all_problems.items() for p in ps
+        }
+        state["last_sent"] = now.isoformat()
 
 
 def main(argv=None):
@@ -444,13 +641,31 @@ def main(argv=None):
                         help="re-push an unchanged problem set after this long")
     parser.add_argument("--state-file",
                         default=os.getenv("WATCHDOG_STATE_FILE") or DEFAULT_STATE_FILE,
-                        help="where the last pushed problem set is remembered")
+                        help="last pushed problem set + restart/OOM baselines")
+    parser.add_argument("--min-mem-available-mib", type=int, default=150)
+    parser.add_argument("--disk-warn-free-pct", type=float, default=20)
+    parser.add_argument("--disk-crit-free-pct", type=float, default=10)
+    parser.add_argument("--collapse-min-cities", type=int, default=3,
+                        help="cities with 0 URLs on the same run that count as"
+                             " a fleet-wide scraper collapse")
+    parser.add_argument("--first-run-lookback-min", type=int, default=15,
+                        help="OOM-kill lookback when there is no previous check")
+    parser.add_argument("--heartbeat-ping-url", default=os.getenv("HEARTBEAT_PING_URL"),
+                        help="dead-man's-switch URL pinged after every run"
+                             " (default: $HEARTBEAT_PING_URL; skipped with"
+                             " --ntfy-mode never)")
     args = parser.parse_args(argv)
 
     cities = parse_cities(args.cities_file)
     if not cities:
         print(f"ERROR: no cities found in {args.cities_file}")
         return 1
+
+    # --ntfy-mode never (manual `make fleet-status`) is read-only: it must not
+    # consume the restart/OOM baselines the timer-driven runs alert from.
+    persist = args.ntfy_mode != "never"
+    state = load_state(args.state_file)
+    now_epoch = time.time()
 
     lines = []
     all_problems = {}
@@ -460,9 +675,19 @@ def main(argv=None):
         if problems:
             all_problems[city] = problems
 
+    collapse = check_scraper_collapse(all_problems, cities, args.collapse_min_cities)
+    if collapse:
+        all_problems[FLEET_KEY] = collapse
+
+    host_line, host_problems = check_host(cities, args, state, now_epoch)
+    lines.append(host_line)
+    if host_problems:
+        all_problems[HOST_KEY] = host_problems
+
+    bad_cities = sum(1 for city in cities if city in all_problems)
     now = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
     report = [f"SSLV fleet status — {now} — {len(cities)} cities,"
-              f" {len(all_problems)} with problems", ""]
+              f" {bad_cities} with problems", ""]
     report.extend(lines)
     if all_problems:
         report.append("")
@@ -480,7 +705,13 @@ def main(argv=None):
         subject = f"SSLV FLEET: all {len(cities)} cities OK"
     if args.email_mode == "always" or (args.email_mode == "problems" and all_problems):
         send_email(subject, body, args.src_email, args.dest_email, args.aws_region)
-    notify_ntfy(args, all_problems, lines, cities)
+    notify_ntfy(args, all_problems, lines, cities, state)
+
+    if persist:
+        state["last_check_epoch"] = now_epoch
+        save_state(args.state_file, state)
+        if args.heartbeat_ping_url:
+            ping_heartbeat(args.heartbeat_ping_url)
 
     return 1 if all_problems else 0
 

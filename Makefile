@@ -463,13 +463,15 @@ WATCHDOG_UNITS := sslv-watchdog.service sslv-watchdog.timer sslv-watchdog-heartb
 
 .PHONY: watchdog-install watchdog-uninstall watchdog-status watchdog-test-ntfy
 
-watchdog-install: ## install systemd timers: ntfy alerts every 15 min + daily heartbeat (M6_ENV=staging, NTFY_TOPIC_URL=...)
+watchdog-install: ## install systemd timers: ntfy alerts every 15 min + daily heartbeat (M6_ENV=staging, NTFY_TOPIC_URL=..., HEARTBEAT_PING_URL=... optional)
 	@if [ "$(M6_ENV)" != "staging" ] && [ "$(NTFY_TOPIC_URL)" = "$(NTFY_STAGING_TOPIC_URL)" ]; then \
 		printf "$(call log_error,M6_ENV=$(M6_ENV) would push to the staging topic. Pass M6_ENV=staging or NTFY_TOPIC_URL=<topic for $(M6_ENV)>.)\n"; \
 		exit 1; \
 	fi
 	@printf "$(call log_step,Writing /etc/sslv-watchdog.env (ENV=$(M6_ENV), topic $(NTFY_TOPIC_URL))...)\n"
-	@printf 'ENV=%s\nNTFY_TOPIC_URL=%s\n' "$(M6_ENV)" "$(NTFY_TOPIC_URL)" | sudo tee /etc/sslv-watchdog.env > /dev/null
+	@{ printf 'ENV=%s\nNTFY_TOPIC_URL=%s\n' "$(M6_ENV)" "$(NTFY_TOPIC_URL)"; \
+		if [ -n "$(HEARTBEAT_PING_URL)" ]; then printf 'HEARTBEAT_PING_URL=%s\n' "$(HEARTBEAT_PING_URL)"; fi; \
+	} | sudo tee /etc/sslv-watchdog.env > /dev/null
 	@sudo chmod 600 /etc/sslv-watchdog.env
 	@for unit in $(WATCHDOG_UNITS); do \
 		sed -e "s|@REPO_DIR@|$(CURDIR)|" -e "s|@USER@|$$(id -un)|" scripts/systemd/$$unit \

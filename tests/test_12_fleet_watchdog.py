@@ -5,12 +5,25 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
+import pytest
+
 WATCHDOG_PY = Path(__file__).parent.parent / "scripts" / "fleet_watchdog.py"
 CITIES_YAML = Path(__file__).parent.parent / "config" / "cities.yaml"
 
 spec = importlib.util.spec_from_file_location("fleet_watchdog", WATCHDOG_PY)
 watchdog = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(watchdog)
+
+
+@pytest.fixture(autouse=True)
+def isolated_watchdog_state(tmp_path, monkeypatch):
+    """Never touch the real state file, host checks or ntfy/heartbeat env."""
+    monkeypatch.setenv("WATCHDOG_STATE_FILE", str(tmp_path / "default-state.json"))
+    for var in ("NTFY_TOPIC_URL", "NTFY_TOKEN", "HEARTBEAT_PING_URL"):
+        monkeypatch.delenv(var, raising=False)
+
+
+HOST_OK = ("host         OK  | mem:415/1843MiB avail swap:0/0MiB | oom:0 | disk:58% used | ctr:4/4", [])
 
 
 def iso_hours_ago(hours):
@@ -136,6 +149,7 @@ def run_main(city_problems, email_mode):
     line = "ogre         OK  | run:success 5h ago | LA:61 RA:940 | bkp:3h | ctr:4/4"
     with patch.object(watchdog, "parse_cities", return_value=["ogre"]), \
          patch.object(watchdog, "check_city", return_value=(line, city_problems)), \
+         patch.object(watchdog, "check_host", return_value=HOST_OK), \
          patch.object(watchdog, "send_email", email):
         exit_code = watchdog.main(["--email-mode", email_mode])
     return exit_code, email
@@ -233,6 +247,7 @@ def run_main_ntfy(city_problems, ntfy_mode, state_file, send_ok=True):
     with patch.object(watchdog, "parse_cities", return_value=["ogre"]), \
          patch.object(watchdog, "check_city", return_value=(line, city_problems)), \
          patch.object(watchdog, "send_email", MagicMock(return_value=True)), \
+         patch.object(watchdog, "check_host", return_value=HOST_OK), \
          patch.object(watchdog, "send_ntfy", ntfy):
         watchdog.main(["--email-mode", "never", "--ntfy-mode", ntfy_mode,
                        "--ntfy-url", "https://ntfy.sh/t", "--env", "staging",
@@ -265,7 +280,7 @@ def test_main_ntfy_container_problem_is_high_priority(tmp_path):
 def test_main_ntfy_failed_send_is_retried_next_run(tmp_path):
     state_file = tmp_path / "state.json"
     run_main_ntfy(["boom"], "problems", state_file, send_ok=False)
-    assert not state_file.exists()
+    assert "problems" not in json.loads(state_file.read_text())
     ntfy = run_main_ntfy(["boom"], "problems", state_file)
     ntfy.assert_called_once()
 
@@ -276,11 +291,212 @@ def test_main_ntfy_always_mode_sends_low_priority_heartbeat(tmp_path):
     assert "fleet OK" in title and priority == "low"
 
 
-def test_main_ntfy_without_url_is_noop(tmp_path, monkeypatch):
-    monkeypatch.delenv("NTFY_TOPIC_URL", raising=False)
+def test_main_ntfy_without_url_is_noop(tmp_path):
     ntfy = MagicMock()
     with patch.object(watchdog, "parse_cities", return_value=["ogre"]), \
          patch.object(watchdog, "check_city", return_value=("line", ["boom"])), \
+         patch.object(watchdog, "check_host", return_value=HOST_OK), \
          patch.object(watchdog, "send_ntfy", ntfy):
         watchdog.main(["--email-mode", "never", "--state-file", str(tmp_path / "s.json")])
     ntfy.assert_not_called()
+
+
+# --- P1 host / fleet checks ---
+
+MEMINFO = """MemTotal:        1887436 kB
+MemFree:           91136 kB
+MemAvailable:     {avail} kB
+SwapTotal:        {swap} kB
+SwapFree:         {swap} kB
+"""
+
+
+def write_meminfo(tmp_path, avail_kb, swap_kb=0):
+    path = tmp_path / "meminfo"
+    path.write_text(MEMINFO.format(avail=avail_kb, swap=swap_kb))
+    return str(path)
+
+
+def test_read_meminfo_parses_mib(tmp_path):
+    info = watchdog.read_meminfo(write_meminfo(tmp_path, 424960))
+    assert info == {"MemTotal": 1843, "MemAvailable": 415, "SwapTotal": 0, "SwapFree": 0}
+
+
+def test_read_meminfo_missing_returns_none():
+    assert watchdog.read_meminfo("/nonexistent/meminfo") is None
+
+
+def test_memory_uses_available_not_free(tmp_path):
+    info = watchdog.read_meminfo(write_meminfo(tmp_path, 424960))  # 415 MiB
+    with patch.object(watchdog, "read_meminfo", return_value=info):
+        summary, problems = watchdog.check_memory(150)
+    assert problems == [] and "mem:415/1843MiB" in summary
+
+
+def test_memory_low_is_high_priority_problem(tmp_path):
+    info = watchdog.read_meminfo(write_meminfo(tmp_path, 102400))  # 100 MiB
+    with patch.object(watchdog, "read_meminfo", return_value=info):
+        _, problems = watchdog.check_memory(150)
+    assert problems[0].startswith("memory low: 100 MiB available")
+    assert not problems[0].startswith(watchdog.URGENT_PROBLEM_PREFIXES)
+
+
+def test_oom_kills_parsed_from_kernel_log():
+    log = ("Out of memory: Killed process 4242 (python) total-vm:1000kB\n"
+           "oom_reaper: reaped process 4242 (python)\n"
+           "Out of memory: Killed process 777 (postgres) total-vm:1000kB\n")
+    with patch.object(watchdog, "run_cmd", return_value=(0, log, "")):
+        summary, problems = watchdog.check_oom(0)
+    assert summary == "oom:2"
+    assert problems == ["OOM kill: 2 process(es) killed by the kernel since last"
+                        " check (postgres, python)"]
+    assert problems[0].startswith(watchdog.URGENT_PROBLEM_PREFIXES)
+
+
+def test_oom_unreadable_journal_is_not_a_problem():
+    with patch.object(watchdog, "run_cmd", return_value=(1, "", "no journalctl")):
+        assert watchdog.check_oom(0) == ("oom:?", [])
+
+
+def test_oom_journal_without_permission_is_unknown():
+    hint = ("Hint: You are currently not seeing messages from other users and the"
+            " system.\n      Users in groups 'adm', 'systemd-journal', 'wheel' can"
+            " see all messages.")
+    with patch.object(watchdog, "run_cmd", return_value=(0, "", hint)):
+        assert watchdog.check_oom(0) == ("oom:?", [])
+
+
+def disk(total_gib, free_gib):
+    return MagicMock(total=total_gib * 2**30, free=free_gib * 2**30)
+
+
+def test_disk_thresholds():
+    with patch.object(watchdog.shutil, "disk_usage", return_value=disk(16, 6.9)):
+        assert watchdog.check_disk("/", 20, 10)[1] == []
+    with patch.object(watchdog.shutil, "disk_usage", return_value=disk(16, 2.4)):
+        assert watchdog.check_disk("/", 20, 10)[1][0].startswith("disk low: 15% free")
+    with patch.object(watchdog.shutil, "disk_usage", return_value=disk(16, 1)):
+        problem = watchdog.check_disk("/", 20, 10)[1][0]
+    assert problem.startswith("disk critical: 6% free")
+    assert problem.startswith(watchdog.URGENT_PROBLEM_PREFIXES)
+
+
+def fake_docker(ps_out, inspect_out):
+    def run_cmd(args, timeout=60):
+        return (0, ps_out if args[1] == "ps" else inspect_out, "")
+    return run_cmd
+
+
+EXPECTED_OGRE = ["ogre-db-1", "ogre-ws-1", "ogre-ts-1", "ogre-backup-1"]
+
+
+def test_fleet_containers_all_expected_running_first_run_sets_baseline():
+    ps = "\n".join(f"{n}|running" for n in EXPECTED_OGRE)
+    inspect = "\n".join(f"/{n}|id-{n}|0" for n in EXPECTED_OGRE)
+    state = {}
+    with patch.object(watchdog, "run_cmd", side_effect=fake_docker(ps, inspect)):
+        summary, problems = watchdog.check_fleet_containers(["ogre"], state)
+    assert summary == "ctr:4/4" and problems == []
+    assert state["restart_counts"]["ogre-ws-1"] == ["id-ogre-ws-1", 0]
+
+
+def test_fleet_containers_flags_leftover_city_and_restart():
+    ps = "\n".join(f"{n}|running" for n in EXPECTED_OGRE) + "\nriga-ws-1|running"
+    inspect = "\n".join(
+        f"/{n}|id-{n}|{2 if n == 'ogre-ws-1' else 0}" for n in EXPECTED_OGRE)
+    state = {"restart_counts": {n: [f"id-{n}", 0] for n in EXPECTED_OGRE}}
+    with patch.object(watchdog, "run_cmd", side_effect=fake_docker(ps, inspect)):
+        _, problems = watchdog.check_fleet_containers(["ogre"], state)
+    assert "unexpected containers running (not in cities.yaml): riga-ws-1" in problems
+    assert ("container ogre-ws-1 restarted 2 time(s) since last check (total 2)"
+            in problems)
+
+
+def test_fleet_containers_recreated_container_is_not_a_restart():
+    ps = "\n".join(f"{n}|running" for n in EXPECTED_OGRE)
+    inspect = "\n".join(f"/{n}|new-id|3" for n in EXPECTED_OGRE)
+    state = {"restart_counts": {n: [f"old-id-{n}", 0] for n in EXPECTED_OGRE}}
+    with patch.object(watchdog, "run_cmd", side_effect=fake_docker(ps, inspect)):
+        _, problems = watchdog.check_fleet_containers(["ogre"], state)
+    assert problems == []
+
+
+def test_zero_urls_on_successful_run_is_city_problem():
+    run = {"status": "success", "started_at": iso_hours_ago(5), "urls_discovered": 0}
+    with patch.object(watchdog, "get_ws_status", return_value=run):
+        _, problems = watchdog.check_last_run("ogre", max_age_hours=26)
+    assert problems[0].startswith(watchdog.ZERO_URLS_PROBLEM)
+    assert not problems[0].startswith(watchdog.URGENT_PROBLEM_PREFIXES)
+
+
+def test_urls_not_recorded_is_not_a_problem():
+    run = {"status": "success", "started_at": iso_hours_ago(5), "urls_discovered": None}
+    with patch.object(watchdog, "get_ws_status", return_value=run):
+        assert watchdog.check_last_run("ogre", max_age_hours=26)[1] == []
+
+
+def test_scraper_collapse_needs_min_cities():
+    zero = f"{watchdog.ZERO_URLS_PROBLEM} in last run"
+    two = {"ogre": [zero], "sigulda": [zero], "jurmala": ["other"]}
+    assert watchdog.check_scraper_collapse(two, ["ogre", "sigulda", "jurmala"], 3) == []
+    three = dict(two, jurmala=[zero])
+    problem = watchdog.check_scraper_collapse(three, ["ogre", "sigulda", "jurmala"], 3)[0]
+    assert problem.startswith("scraper collapse: 3/3 cities discovered 0 URLs")
+    assert problem.startswith(watchdog.URGENT_PROBLEM_PREFIXES)
+
+
+def test_check_host_uses_last_check_as_oom_window():
+    args = MagicMock(min_mem_available_mib=150, disk_warn_free_pct=20,
+                     disk_crit_free_pct=10, first_run_lookback_min=15)
+    with patch.object(watchdog, "check_memory", return_value=("mem", [])), \
+         patch.object(watchdog, "check_oom", return_value=("oom:1", ["OOM kill: x"])) as oom, \
+         patch.object(watchdog, "check_disk", return_value=("disk", [])), \
+         patch.object(watchdog, "check_fleet_containers", return_value=("ctr", [])):
+        line, problems = watchdog.check_host(["ogre"], args, {"last_check_epoch": 1000}, 5000)
+        oom.assert_called_with(1000)
+        watchdog.check_host(["ogre"], args, {}, 5000)
+        oom.assert_called_with(5000 - 15 * 60)
+    assert line.startswith("host         BAD") and problems == ["OOM kill: x"]
+
+
+def run_main_full(city_problems, host, mode, state_file, extra=()):
+    ntfy, ping = MagicMock(return_value=True), MagicMock(return_value=True)
+    checks = {c: ("line", p) for c, p in city_problems.items()}
+    with patch.object(watchdog, "parse_cities", return_value=list(city_problems)), \
+         patch.object(watchdog, "check_city", side_effect=lambda c, a: checks[c]), \
+         patch.object(watchdog, "check_host", return_value=host), \
+         patch.object(watchdog, "send_ntfy", ntfy), \
+         patch.object(watchdog, "ping_heartbeat", ping):
+        code = watchdog.main(["--email-mode", "never", "--ntfy-mode", mode,
+                              "--ntfy-url", "https://ntfy.sh/t",
+                              "--state-file", str(state_file), *extra])
+    return code, ntfy, ping
+
+
+def test_main_host_and_collapse_problems_are_pushed(tmp_path):
+    zero = [f"{watchdog.ZERO_URLS_PROBLEM} in last run"]
+    cities = {"ogre": zero, "sigulda": zero, "jurmala": zero}
+    host = ("host BAD", ["disk critical: 5% free on /"])
+    code, ntfy, _ = run_main_full(cities, host, "problems", tmp_path / "s.json")
+    title, body, priority = ntfy.call_args[0][1:4]
+    assert code == 1 and priority == "urgent"
+    assert "fleet" in title and "host" in title
+    assert "- fleet: scraper collapse: 3/3 cities" in body
+    assert "- host: disk critical" in body
+
+
+def test_main_persists_baseline_and_pings_heartbeat(tmp_path):
+    state_file = tmp_path / "s.json"
+    _, _, ping = run_main_full({"ogre": []}, HOST_OK, "problems", state_file,
+                               ["--heartbeat-ping-url", "https://hc-ping.com/x"])
+    assert "last_check_epoch" in json.loads(state_file.read_text())
+    ping.assert_called_once_with("https://hc-ping.com/x")
+
+
+def test_main_never_mode_is_read_only(tmp_path):
+    state_file = tmp_path / "s.json"
+    _, ntfy, ping = run_main_full({"ogre": []}, HOST_OK, "never", state_file,
+                                  ["--heartbeat-ping-url", "https://hc-ping.com/x"])
+    assert not state_file.exists()
+    ntfy.assert_not_called()
+    ping.assert_not_called()

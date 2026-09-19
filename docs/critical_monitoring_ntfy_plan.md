@@ -154,12 +154,15 @@ make watchdog-status                       # timers + last run output
 ```
 The 15-minute cadence covers today's checks (containers, runs, backups). P1's host checks (#3, #4) will run on the same timer; tighten to 5 min only if needed.
 
-### P1 — Metrics not monitored today
-- [ ] **#3 Memory:** read `MemAvailable` from `/proc/meminfo`; count OOM kills from `journalctl -k --since -10min | grep -ci 'killed process'` and `docker inspect -f '{{.State.OOMKilled}}'`.
-- [ ] **#4 Disk:** `shutil.disk_usage('/')`.
-- [ ] **#5 Count + restarts:** expected = 4 × cities from `config/cities.yaml`; restart delta from `docker inspect -f '{{.RestartCount}}'` vs saved state.
-- [ ] **#6 Cross-city collapse:** read `urls_discovered` from each city's `/status`; count cities with 0; escalate at ≥3.
-- [ ] **#7 Heartbeat:** daily summary push at `low` priority; optional healthchecks.io ping URL as `HEARTBEAT_PING_URL`.
+### P1 — Metrics not monitored today  ✅ implemented on `dev-1.7.9.2`
+All run on the 15-minute `sslv-watchdog.timer` as a `host` line in the report; host problems are keyed `host`, the cross-city one `fleet`.
+- [x] **#3 Memory:** `MemAvailable` (not `MemFree`) + swap from `/proc/meminfo`; `memory low` below `--min-mem-available-mib` (150) → **high**. Kernel OOM kills since the previous run from `journalctl -k` → `OOM kill: …` **urgent**. (Docker's `OOMKilled` flag resets when `restart: always` restarts the container, so the kernel log plus #5's restart delta is what catches it.)
+- [x] **#4 Disk:** `shutil.disk_usage('/')`; `disk low` below `--disk-warn-free-pct` (20) → **high**, `disk critical` below `--disk-crit-free-pct` (10) → **urgent**.
+- [x] **#5 Count + restarts:** running compose containers vs 4 × cities (`ctr:24/24`), flags leftover containers not in `cities.yaml`; restart count delta per container vs the previous run → **high**. A container recreated by a deploy (new Id) resets its baseline instead of alerting.
+- [x] **#6 Cross-city collapse:** `zero URLs discovered` per city when a `success` run has `urls_discovered == 0` → **high**; ≥ `--collapse-min-cities` (3) such cities → `fleet: scraper collapse` **urgent**.
+- [x] **#7 Heartbeat:** the daily 06:35 UTC push now includes the host line (mem, OOM, disk, containers); optional `HEARTBEAT_PING_URL` (e.g. healthchecks.io) is pinged after every timer run — `make watchdog-install M6_ENV=staging HEARTBEAT_PING_URL=https://hc-ping.com/<uuid>`.
+- Restart/OOM baselines live in the state file next to the ntfy state. `--ntfy-mode never` (`make fleet-status`) is **read-only**, so manual runs never consume an event the timer should alert on.
+- Host requirement: the timer user must be able to read the kernel journal (membership of `systemd-journal` or `adm`; check with `id`, fix with `sudo usermod -aG systemd-journal ec2-user`). If not, the report shows `oom:?` rather than failing.
 
 ### P2 — Tighten existing checks
 - [ ] **#1:** alert on `status == running` with `started_at` older than 3 h (the OOM-mid-run case); compute age from the last **successful** run.
