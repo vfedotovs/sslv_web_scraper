@@ -76,18 +76,15 @@ if [[ ! -f "docker-compose.yml" ]]; then
     exit 1
 fi
 
-# Load common secrets/config from helper scripts (Secrets Manager / S3) if present.
-# These populate shell env for compose or other tools. Per-city .env.* files (for CITY_ vars etc)
-# are still handled explicitly via ensure_env_file below (download on demand).
-if [ -f "scripts/set_s3_env_from_aws_sm.sh" ]; then
-    log_info "Loading secrets from AWS Secrets Manager..."
-    source "scripts/set_s3_env_from_aws_sm.sh" 2>/dev/null || log_warn "Could not source set_s3_env_from_aws_sm.sh"
-fi
-
-if [ -f "scripts/load_secrets.sh" ]; then
-    log_info "Loading additional secrets and config from S3..."
-    source "scripts/load_secrets.sh" 2>/dev/null || log_warn "Could not source load_secrets.sh"
-fi
+# All config comes from CICD_FILES_BUCKET: .env.prod + database.ini (common) and
+# .env.<city> (per city). The legacy single-city helpers (scripts/load_secrets.sh,
+# scripts/set_s3_env_from_aws_sm.sh) are intentionally NOT sourced here: they
+# download from the M5 bucket and export shared values that break multi-city deploys.
+#
+# Compose gives shell env precedence over --env-file when interpolating ${VAR}, so
+# clear variables the env files must own. Otherwise a stale or empty export (e.g.
+# S3_BUCKET="" from a failed Secrets Manager lookup) silently overrides every city.
+unset S3_BUCKET DEST_EMAIL SRC_EMAIL RELEASE_VERSION SENDGRID_API_KEY
 
 # Optional: allow overriding the cicd files bucket
 # For M6 staging deployments, default to the dedicated staging CICD bucket
@@ -96,28 +93,35 @@ CICD_FILES_BUCKET=${CICD_FILES_BUCKET:-sslv-staging-m6-cicd-files}
 # Generic downloader for any file from the CICD bucket.
 # Returns 0 on success/present, 1 on failure. Logs info on actions.
 # Designed so direct s3 cp works with s3:GetObject only (no ListBucket needed).
+# With force=true the file is always re-downloaded, so a stale or foreign copy on
+# disk (e.g. left behind by load_secrets.sh from the M5 bucket) is replaced.
+# The download goes to a temp file first, so a failed fetch never clobbers a local copy.
 _download_cicd_file() {
     local filename="$1"
-    if [[ -f "$filename" ]]; then
+    local force="${2:-false}"
+    if [[ "$force" != "true" && -f "$filename" ]]; then
         log_info "Using existing $filename on disk"
         return 0
     fi
 
     log_info "Downloading $filename from s3://${CICD_FILES_BUCKET}/ (using IAM)..."
-    if aws s3 cp "s3://${CICD_FILES_BUCKET}/${filename}" "$filename" --quiet 2>&1; then
-        log_info "Downloaded $filename successfully"
+    local tmp="${filename}.download.$$"
+    if aws s3 cp "s3://${CICD_FILES_BUCKET}/${filename}" "$tmp" --quiet 2>&1; then
+        mv -f "$tmp" "$filename"
+        log_info "Downloaded $filename successfully (source: s3://${CICD_FILES_BUCKET}/${filename})"
         if [[ "$filename" == .env* ]]; then
             chmod 600 "$filename" 2>/dev/null || true
         fi
         return 0
     else
+        rm -f "$tmp"
         return 1
     fi
 }
 
-# Public helper for common artifacts (non-fatal usage).
+# Public helper for common artifacts (non-fatal usage). Always fetches a fresh copy.
 ensure_cicd_file() {
-    if ! _download_cicd_file "$1"; then
+    if ! _download_cicd_file "$1" true; then
         log_warn "Could not download $1 from s3://${CICD_FILES_BUCKET}/"
         log_warn "  (Check IAM has s3:GetObject on object, file present in bucket, or place locally)"
         return 1
@@ -125,13 +129,12 @@ ensure_cicd_file() {
     return 0
 }
 
-# Attempt to fetch common files early (non-fatal; per-city will still enforce its .env.*)
-ensure_cicd_file ".env.prod" || log_warn ".env.prod not auto-fetched; will use if present locally for compose"
-ensure_cicd_file "database.ini" || log_warn "database.ini not auto-fetched from CICD bucket"
+# Fetch common files fresh on every deploy (non-fatal; per-city will still enforce its .env.*)
+ensure_cicd_file ".env.prod" || log_warn ".env.prod not fetched; falling back to local copy if present (may be stale)"
+ensure_cicd_file "database.ini" || log_warn "database.ini not fetched; falling back to local copy if present (may be stale)"
 
 # Ensure database.ini is present in the ws build context.
 # src/ws/Dockerfile does: COPY database.ini /
-# load_secrets.sh downloads it to the project root, matching Makefile setup behavior.
 if [[ -f "database.ini" ]]; then
     mkdir -p src/ws
     if ! cmp -s database.ini src/ws/database.ini 2>/dev/null; then
@@ -253,7 +256,7 @@ for city in "${CITIES[@]}"; do
     
     # Build env-file args: use .env.prod (common secrets, POSTGRES_PASSWORD, AWS keys, etc.)
     # as base when present, then city-specific file (provides/overrides CITY_MAIN_URL etc.).
-    # This allows load_secrets.sh downloads + per-city .env.* to work together.
+    # Both come from CICD_FILES_BUCKET (see ensure_cicd_file / ensure_env_file above).
     # Later --env-file overrides earlier ones.
     ENV_FILE_ARGS=()
     if [[ -f ".env.prod" ]]; then
