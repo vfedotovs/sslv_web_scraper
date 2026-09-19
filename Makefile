@@ -456,6 +456,45 @@ verify-backup: ## verify latest backup for CITY (size check, S3 presence, basic 
 fleet-status: ## M6 Item 6 - fleet watchdog report to terminal (containers, runs, DB rows, backups; no email)
 	@python3 scripts/fleet_watchdog.py --email-mode never --env $(M6_ENV)
 
+# --- Fleet watchdog ntfy alerts — docs/critical_monitoring_ntfy_plan.md (P0) ---
+NTFY_STAGING_TOPIC_URL := https://ntfy.sh/staging-sslv-mc-alerts
+NTFY_TOPIC_URL ?= $(NTFY_STAGING_TOPIC_URL)
+WATCHDOG_UNITS := sslv-watchdog.service sslv-watchdog.timer sslv-watchdog-heartbeat.service sslv-watchdog-heartbeat.timer
+
+.PHONY: watchdog-install watchdog-uninstall watchdog-status watchdog-test-ntfy
+
+watchdog-install: ## install systemd timers: ntfy alerts every 15 min + daily heartbeat (M6_ENV=staging, NTFY_TOPIC_URL=...)
+	@if [ "$(M6_ENV)" != "staging" ] && [ "$(NTFY_TOPIC_URL)" = "$(NTFY_STAGING_TOPIC_URL)" ]; then \
+		printf "$(call log_error,M6_ENV=$(M6_ENV) would push to the staging topic. Pass M6_ENV=staging or NTFY_TOPIC_URL=<topic for $(M6_ENV)>.)\n"; \
+		exit 1; \
+	fi
+	@printf "$(call log_step,Writing /etc/sslv-watchdog.env (ENV=$(M6_ENV), topic $(NTFY_TOPIC_URL))...)\n"
+	@printf 'ENV=%s\nNTFY_TOPIC_URL=%s\n' "$(M6_ENV)" "$(NTFY_TOPIC_URL)" | sudo tee /etc/sslv-watchdog.env > /dev/null
+	@sudo chmod 600 /etc/sslv-watchdog.env
+	@for unit in $(WATCHDOG_UNITS); do \
+		sed -e "s|@REPO_DIR@|$(CURDIR)|" -e "s|@USER@|$$(id -un)|" scripts/systemd/$$unit \
+			| sudo tee /etc/systemd/system/$$unit > /dev/null; \
+	done
+	@sudo systemctl daemon-reload
+	@sudo systemctl enable --now sslv-watchdog.timer sslv-watchdog-heartbeat.timer
+	@printf "$(call log_success,Watchdog timers installed. Check with: make watchdog-status)\n"
+
+watchdog-uninstall: ## remove the watchdog systemd timers and env file
+	@sudo systemctl disable --now sslv-watchdog.timer sslv-watchdog-heartbeat.timer 2>/dev/null || true
+	@for unit in $(WATCHDOG_UNITS); do sudo rm -f /etc/systemd/system/$$unit; done
+	@sudo rm -f /etc/sslv-watchdog.env
+	@sudo systemctl daemon-reload
+	@printf "$(call log_success,Watchdog timers removed)\n"
+
+watchdog-status: ## show watchdog timers and the last run's output
+	@systemctl list-timers 'sslv-watchdog*' --all
+	@journalctl -u sslv-watchdog.service -u sslv-watchdog-heartbeat.service -n 30 --no-pager
+
+watchdog-test-ntfy: ## send one low-priority test push to NTFY_TOPIC_URL
+	@curl -fsS -H "Title: [$(M6_ENV)] SSLV watchdog test" -H "Priority: low" -H "Tags: test_tube" \
+		-d "Test push from $$(hostname) at $$(date -u '+%Y-%m-%d %H:%M UTC')" "$(NTFY_TOPIC_URL)" > /dev/null \
+		&& printf "$(call log_success,Test push sent to $(NTFY_TOPIC_URL))\n"
+
 test-restore: ## perform sample restore + list tables for verification (uses restore script's built-in verify)
 	@echo "Test-restore + verification for CITY=$(CITY)..."
 	@./scripts/restore_db_city.sh --city $(CITY) --env $(M6_ENV) 2>&1 | tail -20

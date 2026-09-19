@@ -137,12 +137,22 @@ alert on a missing message.
 
 ## Action items
 
-### P0 — Delivery plumbing
-- [ ] Create topics: `sslv-staging-alerts-<random>` and `sslv-prod-alerts-<random>`; subscribe in the ntfy phone app.
-- [ ] Add `NTFY_TOPIC_URL` (+ optional `NTFY_TOKEN`) to `.env.prod` in each CICD bucket.
-- [ ] Add a `send_ntfy(title, message, priority, tags)` helper to `scripts/fleet_watchdog.py` (stdlib `urllib`, like the rest of the script) and a `--ntfy-mode {problems,always,never}` flag next to `--email-mode`.
-- [ ] De-duplicate: persist last-alerted state (e.g. `/var/lib/sslv-watchdog/state.json`) and push only on **state change** (OK→problem, problem→OK) plus one reminder per 6 h while still failing, so a 5-min timer does not spam.
-- [ ] Schedule on the host with **systemd timers** (Amazon Linux 2023 has no cron by default): a 5-min timer for #3/#4/#5, an hourly timer for #1/#2/#6, a daily 06:30 UTC timer for #7.
+### P0 — Delivery plumbing  ✅ implemented on `dev-1.7.9.1`
+- [x] Staging topic: `https://ntfy.sh/staging-sslv-mc-alerts` (default of `NTFY_TOPIC_URL` in the Makefile). **Note:** this name is guessable — see the security section; move to a random name or token-protected topic before prod.
+- [ ] Prod topic: create one and pass it explicitly (`make watchdog-install M6_ENV=prod NTFY_TOPIC_URL=...`; the Makefile refuses to install a non-staging env on the staging topic).
+- [x] `send_ntfy()` in `scripts/fleet_watchdog.py` (stdlib `urllib`), plus `--ntfy-mode {problems,always,never}`, `--ntfy-url` (`$NTFY_TOPIC_URL`), `--ntfy-token` (`$NTFY_TOKEN`).
+- [x] De-duplication: `--state-file` (default `~/.local/state/sslv-watchdog/state.json`) remembers the last pushed problem set; numbers are masked so "27h old" → "28h old" is not a new alert. Pushes on change (alert / partial recovery / resolved) plus a reminder every `--ntfy-reminder-hours` (default 6). State is saved only after a successful push, so a failed push is retried next run.
+- [x] Priorities: `urgent` for last-run and backup problems (#1, #2), `high` for everything else; `low` for the heartbeat.
+- [x] systemd timers (`scripts/systemd/`, installed by `make watchdog-install M6_ENV=staging`): `sslv-watchdog.timer` every 15 min (`--ntfy-mode problems`, no email), `sslv-watchdog-heartbeat.timer` daily 06:35 UTC (`--ntfy-mode always`, SES email on problems only). Config in `/etc/sslv-watchdog.env`.
+- [x] `make watchdog-test-ntfy`, `make watchdog-status`, `make watchdog-uninstall`.
+
+**On the host:**
+```bash
+make watchdog-test-ntfy M6_ENV=staging     # phone should get a low-priority test push
+make watchdog-install  M6_ENV=staging      # needs sudo; enables both timers
+make watchdog-status                       # timers + last run output
+```
+The 15-minute cadence covers today's checks (containers, runs, backups). P1's host checks (#3, #4) will run on the same timer; tighten to 5 min only if needed.
 
 ### P1 — Metrics not monitored today
 - [ ] **#3 Memory:** read `MemAvailable` from `/proc/meminfo`; count OOM kills from `journalctl -k --since -10min | grep -ci 'killed process'` and `docker inspect -f '{{.State.OOMKilled}}'`.

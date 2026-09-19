@@ -16,6 +16,13 @@ via AWS SES (aws CLI): by default only when something is wrong
 (--email-mode problems); use --email-mode always for a daily digest, or
 never for terminal-only use (e.g. `make fleet-status`).
 
+ntfy push (critical-monitoring P0, docs/critical_monitoring_ntfy_plan.md):
+--ntfy-mode problems pushes to NTFY_TOPIC_URL only when the set of problems
+changes (new alert, partial recovery, all resolved) plus a reminder every
+--ntfy-reminder-hours while still failing, so a frequent timer does not spam.
+State is kept in --state-file. --ntfy-mode always pushes every run (daily
+heartbeat: a missing heartbeat means the watchdog itself is broken).
+
 Dependencies on the host: python3 (stdlib only), docker CLI, aws CLI.
 
 Cron examples (EC2 host):
@@ -34,6 +41,7 @@ import os
 import re
 import subprocess
 import sys
+import urllib.request
 from datetime import datetime, timezone
 
 
@@ -43,6 +51,15 @@ DEFAULT_CITIES_FILE = os.path.join(
 # db/ws/ts have compose healthchecks; the backup container has none, so
 # "running" is its healthy state.
 CITY_SERVICES = {"db": "healthy", "ws": "healthy", "ts": "healthy", "backup": "running"}
+
+DEFAULT_STATE_FILE = os.path.join(
+    os.environ.get("XDG_STATE_HOME") or os.path.expanduser("~/.local/state"),
+    "sslv-watchdog", "state.json",
+)
+# Problems that mean the product is down or data is at risk push at "urgent";
+# everything else (container state, unreadable status/DB) at "high".
+URGENT_PROBLEM_PREFIXES = ("last run", "newest backup", "NO backups")
+NTFY_MAX_BODY_BYTES = 3800  # ntfy.sh message limit is 4096 bytes
 
 
 def run_cmd(args, timeout=60):
@@ -275,6 +292,130 @@ def send_email(subject, body, src, dest, region):
     return True
 
 
+def problem_fingerprint(problem):
+    """Stable identity for a problem: digits masked, so "last run is 27h old"
+    and "... 28h old" are the same ongoing problem, not a new alert."""
+    return re.sub(r"\d+", "#", problem)
+
+
+def load_state(path):
+    try:
+        with open(path, "r", encoding="utf-8") as fh:
+            return json.load(fh)
+    except (OSError, ValueError):
+        return {}
+
+
+def save_state(path, state):
+    try:
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        tmp = f"{path}.tmp"
+        with open(tmp, "w", encoding="utf-8") as fh:
+            json.dump(state, fh, indent=2)
+        os.replace(tmp, path)
+    except OSError as e:
+        print(f"ERROR: cannot write state file {path}: {e}")
+
+
+def send_ntfy(url, title, message, priority="default", tags=None, token=None):
+    """POST one notification to an ntfy topic URL. Returns True on success.
+    Title must be ASCII (HTTP header); the message body may be UTF-8."""
+    body = message.encode("utf-8")
+    if len(body) > NTFY_MAX_BODY_BYTES:
+        body = body[:NTFY_MAX_BODY_BYTES].decode("utf-8", "ignore").encode("utf-8") + b"\n..."
+    headers = {"Title": title, "Priority": priority}
+    if tags:
+        headers["Tags"] = ",".join(tags)
+    if token:
+        headers["Authorization"] = f"Bearer {token}"
+    request = urllib.request.Request(url, data=body, headers=headers, method="POST")
+    try:
+        with urllib.request.urlopen(request, timeout=15) as response:
+            ok = 200 <= response.status < 300
+    except Exception as e:
+        print(f"ERROR: failed to send ntfy notification: {e}")
+        return False
+    if ok:
+        print(f"ntfy notification sent: {title}")
+    return ok
+
+
+def ntfy_decision(all_problems, state, reminder_hours, now):
+    """Decide what, if anything, to push in --ntfy-mode problems.
+
+    Returns (kind, resolved) where kind is None, "alert", "reminder" or
+    "resolved", and resolved lists problems that cleared since the last push.
+    """
+    current = {
+        f"{city}: {problem_fingerprint(p)}": f"{city}: {p}"
+        for city, problems in all_problems.items() for p in problems
+    }
+    previous = state.get("problems", {})
+    resolved = [raw for fp, raw in previous.items() if fp not in current]
+
+    if set(current) != set(previous):
+        return ("alert" if current else "resolved"), resolved
+    if current:
+        last_sent = state.get("last_sent")
+        try:
+            age_hours = (now - datetime.fromisoformat(last_sent)).total_seconds() / 3600
+        except (TypeError, ValueError):
+            age_hours = None
+        if age_hours is None or age_hours >= reminder_hours:
+            return "reminder", []
+    return None, []
+
+
+def notify_ntfy(args, all_problems, lines, cities):
+    """Push the fleet status to ntfy according to --ntfy-mode."""
+    if args.ntfy_mode == "never":
+        return
+    if not args.ntfy_url:
+        print("ntfy: no --ntfy-url / NTFY_TOPIC_URL set, skipping push")
+        return
+
+    now = datetime.now(timezone.utc)
+    state = load_state(args.state_file)
+    kind, resolved = ntfy_decision(all_problems, state, args.ntfy_reminder_hours, now)
+    if args.ntfy_mode == "always" and kind is None:
+        kind = "reminder" if all_problems else "heartbeat"
+    if kind is None:
+        return
+
+    env = args.env.upper()
+    problem_lines = [f"- {city}: {p}" for city, ps in all_problems.items() for p in ps]
+    if kind == "heartbeat":
+        title = f"[{env}] SSLV fleet OK: {len(cities)}/{len(cities)} cities"
+        priority, tags = "low", ["white_check_mark"]
+        body = "\n".join(lines)
+    elif kind == "resolved":
+        title = f"[{env}] SSLV RESOLVED: all {len(cities)} cities OK"
+        priority, tags = "default", ["white_check_mark"]
+        body = "\n".join(["Resolved:"] + [f"- {r}" for r in resolved] + [""] + lines)
+    else:
+        urgent = any(
+            p.startswith(URGENT_PROBLEM_PREFIXES)
+            for ps in all_problems.values() for p in ps
+        )
+        prefix = "SSLV ALERT" if kind == "alert" else "SSLV STILL FAILING"
+        title = f"[{env}] {prefix}: {', '.join(sorted(all_problems))}"
+        priority = "urgent" if urgent else "high"
+        tags = ["rotating_light"] if urgent else ["warning"]
+        body_lines = ["Problems:"] + problem_lines
+        if resolved:
+            body_lines += ["", "Resolved:"] + [f"- {r}" for r in resolved]
+        body = "\n".join(body_lines + [""] + lines)
+
+    if send_ntfy(args.ntfy_url, title, body, priority, tags, args.ntfy_token):
+        save_state(args.state_file, {
+            "problems": {
+                f"{city}: {problem_fingerprint(p)}": f"{city}: {p}"
+                for city, ps in all_problems.items() for p in ps
+            },
+            "last_sent": now.isoformat(),
+        })
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(description="SSLV fleet watchdog (M6 Item 6)")
     parser.add_argument("--cities-file", default=DEFAULT_CITIES_FILE)
@@ -289,6 +430,21 @@ def main(argv=None):
     parser.add_argument("--aws-region", default="eu-west-1")
     parser.add_argument("--max-run-age-hours", type=float, default=26)
     parser.add_argument("--max-backup-age-hours", type=float, default=26)
+    parser.add_argument("--ntfy-mode", choices=["problems", "always", "never"],
+                        default="problems",
+                        help="problems: push on problem-set change + reminders"
+                             " (default); always: push every run (heartbeat);"
+                             " never: no push. No-op without --ntfy-url")
+    parser.add_argument("--ntfy-url", default=os.getenv("NTFY_TOPIC_URL"),
+                        help="ntfy topic URL, e.g. https://ntfy.sh/<topic>"
+                             " (default: $NTFY_TOPIC_URL)")
+    parser.add_argument("--ntfy-token", default=os.getenv("NTFY_TOKEN"),
+                        help="optional ntfy access token (default: $NTFY_TOKEN)")
+    parser.add_argument("--ntfy-reminder-hours", type=float, default=6,
+                        help="re-push an unchanged problem set after this long")
+    parser.add_argument("--state-file",
+                        default=os.getenv("WATCHDOG_STATE_FILE") or DEFAULT_STATE_FILE,
+                        help="where the last pushed problem set is remembered")
     args = parser.parse_args(argv)
 
     cities = parse_cities(args.cities_file)
@@ -324,6 +480,7 @@ def main(argv=None):
         subject = f"SSLV FLEET: all {len(cities)} cities OK"
     if args.email_mode == "always" or (args.email_mode == "problems" and all_problems):
         send_email(subject, body, args.src_email, args.dest_email, args.aws_region)
+    notify_ntfy(args, all_problems, lines, cities)
 
     return 1 if all_problems else 0
 
