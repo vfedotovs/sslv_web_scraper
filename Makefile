@@ -1,21 +1,65 @@
-# Setup before start development or local deploy
+# =============================================================================
+# SSLV multi-city web scraper — Makefile
+#
+#   make            show this help (grouped by category)
+#   make help       same
+#
+# Layout
+#   1. Configuration     variables you can override: make <target> VAR=value
+#   2. Helpers           colored output + safety guards used by recipes
+#   3. Targets, one "##@" section per category (most-used first):
+#        Deploy · Monitoring & alerts · Diagnostics · Backup & restore ·
+#        AWS S3 buckets · Tests · Legacy single-project (M5)
+#
+# Conventions
+#   - "## text" after a target  -> listed by `make help`
+#   - "##@ Title" line          -> starts a section in `make help`
+#   - targets without "##" or starting with "_" are internal helpers
+#   - every command target is .PHONY (declared next to its section)
+# =============================================================================
 
+# =============================================================================
+# 1. Configuration
+# =============================================================================
+
+SHELL := /bin/bash
 OS := $(shell uname -s)
 ARCH := $(shell uname -m)
-SHELL := /bin/bash
 
-ifeq ($(OS), Darwin)
-    ifeq ($(ARCH), x86_64)
-        default: setup build up down
-    else
-        default: ec2_setup ec2_build ec2_up ec2_down
-    endif
-else
-    default: ec2_setup ec2_build ec2_up ec2_down
-endif
+# Deployment environment for bucket names, backups and alerts: prod | staging | dev
+M6_ENV ?= prod
+# Single city for per-city targets (backup-city, restore-city, collect-logs, ...)
+# CITY ?=            (no default; required where noted)
 
-# Helper function for colored output
-# Usage: @printf "$(call log_info,Your message here)\n"
+# S3 bucket helpers (see "AWS S3 buckets")
+BUCKET_NAME ?= sslv-ogre-city-dev-v1-6-db-backups-2025-11
+AWS_REGION ?= us-east-1
+M6_CITY ?= 
+M6_PURPOSE ?= db-backups
+M6_BUCKET_NAME = sslv-$(M6_ENV)-$(M6_CITY)-$(M6_PURPOSE)
+# Bucket matrix for list/create helpers (city slugs use '-', derived from config/cities.yaml)
+M6_CITIES ?= salaspils sigulda marupes-pag adazu-nov ogre jurmala
+M6_PURPOSES ?= db-backups scraped-data
+M6_ENVS ?= prod staging dev
+
+# Watchdog ntfy alerts (see "Monitoring & alerts")
+NTFY_STAGING_TOPIC_URL := https://ntfy.sh/staging-sslv-mc-alerts
+NTFY_TOPIC_URL ?= $(NTFY_STAGING_TOPIC_URL)
+WATCHDOG_UNITS := sslv-watchdog.service sslv-watchdog.timer sslv-watchdog-heartbeat.service sslv-watchdog-heartbeat.timer
+
+# Legacy single-project flow (see "Legacy single-project")
+SETUP_STATE_FILE := .setup_state
+BACKUP_AGE_WARNING_DAYS := 30
+PG_CONTAINER_NAME := `docker ps | grep db-1 | awk '{print $$NF }'`
+S3_BACKUP_BUCKET := `env | grep S3_BUCKET`
+
+.DEFAULT_GOAL := help
+
+# =============================================================================
+# 2. Helpers
+# =============================================================================
+
+# Colored output. Usage: @printf "$(call log_info,Your message here)\n"
 define log_info
 \033[36mℹ\033[0m $(1)
 endef
@@ -36,107 +80,453 @@ define log_step
 \033[35m▶\033[0m $(1)
 endef
 
-# Setup state file for idempotency
-SETUP_STATE_FILE := .setup_state
-BACKUP_AGE_WARNING_DAYS := 30
-
-ec2_precheck:
-	@printf "$(call log_step,Loading envs from AWS Secrets Manager...)\n"
-	@set -e; \
-	if ! command -v aws >/dev/null 2>&1; then \
-		printf "$(call log_error,AWS CLI is not installed. Please install it first.)\n"; \
-		exit 1; \
-	fi; \
-	if ! command -v jq >/dev/null 2>&1; then \
-		printf "$(call log_error,jq is not installed. Please install it first.)\n"; \
-		exit 1; \
-	fi; \
-	. ./scripts/set_s3_env_from_aws_sm.sh || { \
-		printf "$(call log_error,Failed to load environment from AWS Secrets Manager)\n"; \
-		exit 1; \
-	}; \
-	if [ -z "$$S3_BUCKET" ]; then \
-		printf "$(call log_error,S3_BUCKET is not exported.)\n"; \
-		printf "$(call log_info,To set env run: source scripts/set_s3_env_from_aws_sm.sh)\n"; \
-		exit 1; \
-	else \
-		printf "$(call log_success,S3_BUCKET is exported: $$S3_BUCKET)\n"; \
-	fi
-
-
-PG_CONTAINER_NAME := `docker ps | grep db-1 | awk '{print $$NF }'`
-S3_BACKUP_BUCKET := `env | grep S3_BUCKET`
-
-.DEFAULT_GOAL := help
-.PHONY: precheck build setup clean verify-setup check-backup-age create_s3_bucket
-
-help:  ## 💬 This help message
-	@grep -E '^[a-zA-Z0-9_-]+:.*## ' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*## "}; {printf "\033[36m%-20s\033[0m %s\n", $$1, $$2}'
-
-# Define the precheck function
-precheck:  ## checks if required exports are present
-	@printf "$(call log_step,Checking if env S3_BUCKET is exported...)\n"
-	@if [ -z "$(S3_BACKUP_BUCKET)" ]; then \
-		echo ""; \
-		printf "$(call log_error,S3_BUCKET is not exported.)\n"; \
-		echo ""; \
-		printf "$(call log_info,Option 1: Load environment secrets from AWS Secrets manager with:)\n"; \
-		echo "  source scripts/load_secrets.sh"; \
-		echo ""; \
-		printf "$(call log_info,Option 2: Export manually:)\n"; \
-		echo "  export S3_BUCKET='your-bucket-name'"; \
-		echo ""; \
+# Refuse to point a non-staging env at the staging topic.
+define ntfy_topic_guard
+	@if [ "$(M6_ENV)" != "staging" ] && [ "$(NTFY_TOPIC_URL)" = "$(NTFY_STAGING_TOPIC_URL)" ]; then \
+		printf "$(call log_error,M6_ENV=$(M6_ENV) would push to the staging topic. Pass M6_ENV=staging or NTFY_TOPIC_URL=<topic for $(M6_ENV)>.)\n"; \
 		exit 1; \
 	fi
-	@printf "$(call log_success,env S3_BUCKET is exported)\n"
+endef
 
-check-backup-age:  ## verifies backup file is not too old
-	@if [ -f src/db/pg_backup_*.sql ]; then \
-		BACKUP_FILE=$$(ls -t src/db/pg_backup_*.sql 2>/dev/null | head -1); \
-		if [ -n "$$BACKUP_FILE" ]; then \
-			BACKUP_DATE=$$(echo $$BACKUP_FILE | grep -o '[0-9]\{4\}_[0-9]\{2\}_[0-9]\{2\}' | head -1); \
-			if [ -n "$$BACKUP_DATE" ]; then \
-				BACKUP_EPOCH=$$(date -j -f "%Y_%m_%d" "$$BACKUP_DATE" "+%s" 2>/dev/null || echo 0); \
-				CURRENT_EPOCH=$$(date "+%s"); \
-				AGE_DAYS=$$(( ($$CURRENT_EPOCH - $$BACKUP_EPOCH) / 86400 )); \
-				if [ $$AGE_DAYS -gt $(BACKUP_AGE_WARNING_DAYS) ]; then \
-					printf "$(call log_warning,Backup file is $$AGE_DAYS days old (threshold: $(BACKUP_AGE_WARNING_DAYS) days))\n"; \
-					printf "$(call log_info,Consider fetching a more recent backup)\n"; \
-				else \
-					printf "$(call log_success,Backup file age: $$AGE_DAYS days (acceptable))\n"; \
-				fi; \
-			fi; \
+# Undeploying makes every watchdog check fail; stop the timers so it does not
+# page for an intentional outage. They stay enabled and come back on reboot.
+define watchdog_timers_stop
+	@if systemctl is-active --quiet sslv-watchdog.timer 2>/dev/null \
+		|| systemctl is-active --quiet sslv-watchdog-heartbeat.timer 2>/dev/null; then \
+		printf "$(call log_info,Stopping watchdog timers (resume after deploy: sudo systemctl start sslv-watchdog.timer sslv-watchdog-heartbeat.timer))\n"; \
+		sudo systemctl stop sslv-watchdog.timer sslv-watchdog-heartbeat.timer; \
+	fi
+endef
+
+# =============================================================================
+# 3. Targets
+# =============================================================================
+
+##@ Help
+
+.PHONY: help
+
+help:  ## Show this help, grouped by category
+	@awk 'BEGIN {FS = ":.*## "} \
+		/^##@ / {printf "\n\033[1m%s\033[0m\n", substr($$0, 5); next} \
+		/^[a-zA-Z0-9_-]+:.*## / {printf "  \033[36m%-26s\033[0m %s\n", $$1, $$2}' $(MAKEFILE_LIST)
+
+##@ Deploy (multi-city)
+# Day-to-day lifecycle of the 6-city fleet on one host (config/cities.yaml).
+# Every city is its own compose project: <city>-db-1 / -ws-1 / -ts-1 / -backup-1.
+# deploy-* fetch .env.prod, database.ini and .env.<city> from the env's CICD
+# bucket. undeploy-* keep each city's DB volume unless PURGE_DATA=1.
+
+.PHONY: deploy-staging deploy-prod undeploy-staging undeploy-prod clean-containers _deploy-precheck
+
+deploy-staging: ## deploy all cities to staging (sslv-staging-m6-cicd-files)
+	@CICD_FILES_BUCKET=sslv-staging-m6-cicd-files M6_ENV=staging $(MAKE) _deploy-precheck
+	@printf "$(call log_step,Deploying all cities to staging...)\n"
+	@printf "$(call log_info,Command: CICD_FILES_BUCKET=sslv-staging-m6-cicd-files M6_ENV=staging ./deploy-multi-city-ws.sh)\n"
+	CICD_FILES_BUCKET=sslv-staging-m6-cicd-files M6_ENV=staging ./deploy-multi-city-ws.sh
+
+deploy-prod: ## deploy all cities to production (sslv-prod-m6-cicd-files)
+	@CICD_FILES_BUCKET=sslv-prod-m6-cicd-files M6_ENV=prod $(MAKE) _deploy-precheck
+	@printf "$(call log_step,Deploying all cities to production...)\n"
+	@printf "$(call log_info,Command: CICD_FILES_BUCKET=sslv-prod-m6-cicd-files M6_ENV=prod ./deploy-multi-city-ws.sh)\n"
+	CICD_FILES_BUCKET=sslv-prod-m6-cicd-files M6_ENV=prod ./deploy-multi-city-ws.sh
+
+undeploy-staging: ## remove all city containers on staging; keeps DB volumes (PURGE_DATA=1 deletes them, asks first)
+	$(watchdog_timers_stop)
+	M6_ENV=staging ./undeploy-multi-city.sh $(if $(filter 1 true yes,$(PURGE_DATA)),--purge-data)
+
+undeploy-prod: ## remove all city containers on production; keeps DB volumes (PURGE_DATA=1 deletes them, asks first)
+	$(watchdog_timers_stop)
+	M6_ENV=prod ./undeploy-multi-city.sh $(if $(filter 1 true yes,$(PURGE_DATA)),--purge-data)
+
+clean-containers: ## force-remove city containers + networks by compose label; keeps volumes/images (CITIES="a b")
+	$(watchdog_timers_stop)
+	@cities="$(CITIES)"; \
+	if [ -z "$$cities" ]; then source scripts/lib/cities.sh; cities=$$(parse_cities config/cities.yaml); fi; \
+	for city in $$cities; do \
+		ids=$$(docker ps -aq --filter "label=com.docker.compose.project=$$city"); \
+		if [ -n "$$ids" ]; then \
+			docker rm -f $$ids > /dev/null && printf "$(call log_success,$$city: removed $$(echo $$ids | wc -w | tr -d ' ') container(s))\n"; \
+		else \
+			printf "$(call log_info,$$city: no containers)\n"; \
 		fi; \
-	fi
+		nets=$$(docker network ls -q --filter "label=com.docker.compose.project=$$city"); \
+		if [ -n "$$nets" ]; then docker network rm $$nets > /dev/null; fi; \
+	done; \
+	printf "$(call log_success,Containers removed; DB volumes kept (docker volume ls | grep _db_data))\n"
 
-verify-setup:  ## verifies all required setup files exist
-	@printf "$(call log_step,Verifying setup files...)\n"
-	@MISSING=0; \
-	if [ ! -f .env.prod ]; then \
-		printf "$(call log_error,Missing: .env.prod)\n"; \
-		MISSING=1; \
+# Internal: tool + CICD bucket pre-flight shared by deploy-staging / deploy-prod.
+_deploy-precheck:
+	@printf "$(call log_step,Running pre-flight checks for multi-city deploy...)\n"
+	@bucket="$${CICD_FILES_BUCKET}"; \
+	if [ -z "$$bucket" ]; then bucket="sslv-staging-m6-cicd-files"; fi; \
+	if [ ! -f deploy-multi-city-ws.sh ]; then \
+		printf "$(call log_error,deploy-multi-city-ws.sh not found)\n"; \
+		exit 1; \
 	fi; \
-	if [ ! -f database.ini ]; then \
-		printf "$(call log_error,Missing: database.ini)\n"; \
-		MISSING=1; \
+	if [ ! -x deploy-multi-city-ws.sh ]; then \
+		printf "$(call log_warning,Making deploy-multi-city-ws.sh executable...)\n"; \
+		chmod +x deploy-multi-city-ws.sh; \
 	fi; \
-	if [ ! -f src/ws/database.ini ]; then \
-		printf "$(call log_error,Missing: src/ws/database.ini)\n"; \
-		MISSING=1; \
+	if ! command -v aws >/dev/null 2>&1; then \
+		printf "$(call log_error,AWS CLI is required (to fetch .env.* files from CICD bucket))\n"; \
+		exit 1; \
 	fi; \
-	if ! ls src/db/pg_backup_*.sql 1> /dev/null 2>&1; then \
-		printf "$(call log_error,Missing: src/db/pg_backup_*.sql)\n"; \
-		MISSING=1; \
+	if ! command -v docker >/dev/null 2>&1; then \
+		printf "$(call log_error,Docker is required)\n"; \
+		exit 1; \
 	fi; \
-	if [ $$MISSING -eq 0 ]; then \
-		printf "$(call log_success,All setup files are present)\n"; \
-		return 0; \
+	if ! docker compose version >/dev/null 2>&1 && ! command -v docker-compose >/dev/null 2>&1; then \
+		printf "$(call log_error,Neither 'docker compose' nor 'docker-compose' found)\n"; \
+		exit 1; \
+	fi; \
+	if [ ! -f config/cities.yaml ]; then \
+		printf "$(call log_error,config/cities.yaml not found)\n"; \
+		exit 1; \
+	fi; \
+	printf "$(call log_step,Checking access to CICD bucket: $$bucket ...)\n"; \
+	# Probe using direct object fetch first (aws s3 cp of a known key only needs s3:GetObject; \
+	# does not require s3:ListBucket which root 'ls' does). Falls back to ls for compatibility. \
+	if aws s3 cp "s3://$$bucket/.env.prod" /tmp/.probe-env.prod.$$$$ --quiet 2>/dev/null; then \
+		rm -f /tmp/.probe-env.prod.$$$$ 2>/dev/null || true; \
+		printf "$(call log_success,CICD bucket $$bucket is accessible (via GetObject))\n"; \
+	elif aws s3 cp "s3://$$bucket/database.ini" /tmp/.probe-db.$$$$ --quiet 2>/dev/null; then \
+		rm -f /tmp/.probe-db.$$$$ 2>/dev/null || true; \
+		printf "$(call log_success,CICD bucket $$bucket is accessible (via GetObject))\n"; \
+	elif aws s3 ls "s3://$$bucket/" --max-items 1 > /dev/null 2>&1; then \
+		printf "$(call log_success,CICD bucket $$bucket is accessible)\n"; \
 	else \
-		printf "$(call log_error,Some setup files are missing)\n"; \
-		return 1; \
+		printf "$(call log_warning,Cannot access s3://$$bucket/ (this is OK if .env.* or .env.prod files already exist locally))\n"; \
+		if ! ls .env.* .env.prod 1>/dev/null 2>&1; then \
+			printf "$(call log_error,No local .env.* / .env.prod files found and cannot reach CICD bucket.)\n"; \
+			printf "$(call log_info,Run with AWS credentials/IAM that can GetObject (or ListBucket) the bucket, or place .env.* + .env.prod locally first.)\n"; \
+			exit 1; \
+		fi; \
+	fi; \
+	printf "$(call log_success,Pre-flight checks passed)\n"
+
+##@ Monitoring & alerts
+# fleet_watchdog.py checks containers, last runs, DB rows, S3 backups, memory,
+# OOM kills and disk (docs/critical_monitoring_ntfy_plan.md). fleet-status is a
+# read-only report; watchdog-* manage the systemd timers that push to ntfy.
+# Pass M6_ENV=staging on staging: the staging topic is refused for other envs.
+
+.PHONY: fleet-status watchdog-install watchdog-status watchdog-test-ntfy watchdog-drill watchdog-uninstall
+
+fleet-status: ## print the watchdog report once: containers, runs, DB rows, backups, host (read-only, M6_ENV=)
+	@python3 scripts/fleet_watchdog.py --email-mode never --env $(M6_ENV)
+
+watchdog-install: ## install ntfy alert timers: every 15 min + daily heartbeat (M6_ENV=, NTFY_TOPIC_URL=, HEARTBEAT_PING_URL=)
+	$(ntfy_topic_guard)
+	@printf "$(call log_step,Writing /etc/sslv-watchdog.env (ENV=$(M6_ENV), topic $(NTFY_TOPIC_URL))...)\n"
+	@{ printf 'ENV=%s\nNTFY_TOPIC_URL=%s\n' "$(M6_ENV)" "$(NTFY_TOPIC_URL)"; \
+		if [ -n "$(HEARTBEAT_PING_URL)" ]; then printf 'HEARTBEAT_PING_URL=%s\n' "$(HEARTBEAT_PING_URL)"; fi; \
+	} | sudo tee /etc/sslv-watchdog.env > /dev/null
+	@sudo chmod 600 /etc/sslv-watchdog.env
+	@for unit in $(WATCHDOG_UNITS); do \
+		sed -e "s|@REPO_DIR@|$(CURDIR)|" -e "s|@USER@|$$(id -un)|" scripts/systemd/$$unit \
+			| sudo tee /etc/systemd/system/$$unit > /dev/null; \
+	done
+	@sudo systemctl daemon-reload
+	@sudo systemctl enable --now sslv-watchdog.timer sslv-watchdog-heartbeat.timer
+	@printf "$(call log_success,Watchdog timers installed. Check with: make watchdog-status)\n"
+
+watchdog-status: ## show watchdog timers and recent run output
+	@systemctl list-timers 'sslv-watchdog*' --all
+	@journalctl -u sslv-watchdog.service -u sslv-watchdog-heartbeat.service -n 30 --no-pager
+
+watchdog-test-ntfy: ## send one low-priority test push to NTFY_TOPIC_URL
+	@curl -fsS -H "Title: [$(M6_ENV)] SSLV watchdog test" -H "Priority: low" -H "Tags: test_tube" \
+		-d "Test push from $$(hostname) at $$(date -u '+%Y-%m-%d %H:%M UTC')" "$(NTFY_TOPIC_URL)" > /dev/null \
+		&& printf "$(call log_success,Test push sent to $(NTFY_TOPIC_URL))\n"
+
+watchdog-drill: ## fire each alert once as [DRILL] pushes and check recovery (M6_ENV=staging, DRILL=memory,...)
+	$(ntfy_topic_guard)
+	@paused=0; \
+	trap 'if [ $$paused = 1 ]; then sudo systemctl start sslv-watchdog.timer; printf "$(call log_info,Watchdog timer resumed)\n"; fi' EXIT; \
+	if systemctl is-active --quiet sslv-watchdog.timer 2>/dev/null; then \
+		printf "$(call log_info,Pausing sslv-watchdog.timer during the drill...)\n"; \
+		sudo systemctl stop sslv-watchdog.timer && paused=1; \
+	fi; \
+	NTFY_TOPIC_URL="$(NTFY_TOPIC_URL)" python3 scripts/watchdog_drill.py --env $(M6_ENV) $(if $(DRILL),--only $(DRILL))
+
+watchdog-uninstall: ## remove the watchdog timers and /etc/sslv-watchdog.env
+	@sudo systemctl disable --now sslv-watchdog.timer sslv-watchdog-heartbeat.timer 2>/dev/null || true
+	@for unit in $(WATCHDOG_UNITS); do sudo rm -f /etc/systemd/system/$$unit; done
+	@sudo rm -f /etc/sslv-watchdog.env
+	@sudo systemctl daemon-reload
+	@printf "$(call log_success,Watchdog timers removed)\n"
+
+##@ Diagnostics
+# Read-only investigation: log bundles for support, scraper verification
+# against ss.lv, and a quick look at table sizes. Safe to run any time.
+
+.PHONY: collect-logs collect-logs-running collect-logs-full verify-scrape verify-scrape-all lt
+
+collect-logs: ## bundle logs, artifacts and state from all cities (CITY= for one)
+	@if [ -n "$(CITY)" ]; then \
+	  ./scripts/collect_logs_v3.sh --city $(CITY); \
+	else \
+	  ./scripts/collect_logs_v3.sh; \
 	fi
 
-setup: ec2_precheck  ## loads secrets and pulls DB backup file
+collect-logs-running: ## same, only cities with containers up
+	@./scripts/collect_logs_v3.sh --running-only
+
+collect-logs-full: ## same, plus debug DB dump and data dirs; large (CITY= optional)
+	@if [ -n "$(CITY)" ]; then \
+	  ./scripts/collect_logs_v3.sh --city $(CITY) --with-db-dump --with-data-dirs; \
+	else \
+	  ./scripts/collect_logs_v3.sh --with-db-dump --with-data-dirs; \
+	fi
+
+verify-scrape: ## verify page count + city naming against ss.lv (CITY=, default jurmala)
+	@CITY=$${CITY:-jurmala} ./scripts/verify_city_scrape.sh $${CITY}
+
+verify-scrape-all: ## run verify-scrape for jurmala, ogre, sigulda
+	@for c in jurmala ogre sigulda; do \
+	  echo "=== Verifying $$c ==="; \
+	  CITY=$$c ./scripts/verify_city_scrape.sh $$c || true; \
+	  echo; \
+	done
+
+lt: ## list table sizes in the first *-db-1 container (check a restore)
+	@docker exec $(PG_CONTAINER_NAME) psql -U new_docker_user -d new_docker_db -c '\dt+'
+
+##@ Backup & restore (per city)
+# Backups live in sslv-<env>-<city>-db-backups (M6_ENV picks the env; CITY uses
+# the cities.yaml key, e.g. marupes_pag). Restore is always manual and
+# overwrites that city's DB — take a fresh backup-city first.
+
+.PHONY: backup-city backup-all verify-backup restore-city restore-all test-restore e2e-backup-restore fetch_last_db_dump fetch_dump fetch_dump_example
+
+backup-city: ## back up one city's DB to S3 (CITY=ogre M6_ENV=prod)
+	@./scripts/backup_db_city.sh --city $(CITY) --env $(M6_ENV)
+
+backup-all: ## back up every city's DB to S3 (M6_ENV=)
+	@./scripts/backup_db_city.sh --all --env $(M6_ENV)
+
+verify-backup: ## back up CITY= and show the size/verify lines (M6_ENV=)
+	@echo "Basic verification for backup of CITY=$(CITY) ENV=$(M6_ENV)..."
+	@./scripts/backup_db_city.sh --city $(CITY) --env $(M6_ENV) 2>&1 | grep -E '(Verifying|size|Verified|Pruned)' || true
+	@echo "For full test-restore: use restore with verification step (lists tables)"
+
+restore-city: ## restore one city from its latest backup; overwrites its DB (CITY= M6_ENV=)
+	@./scripts/restore_db_city.sh --city $(CITY) --env $(M6_ENV)
+
+restore-all: ## restore every city from its latest backup; overwrites all DBs (M6_ENV=)
+	@./scripts/restore_db_city.sh --all --env $(M6_ENV)
+
+test-restore: ## restore CITY= and show the restore script's table check (M6_ENV=)
+	@echo "Test-restore + verification for CITY=$(CITY)..."
+	@./scripts/restore_db_city.sh --city $(CITY) --env $(M6_ENV) 2>&1 | tail -20
+
+e2e-backup-restore: ## back up, then restore CITY= end to end (M6_ENV=)
+	@echo "=== E2E for CITY=$(CITY) ENV=$(M6_ENV) ==="
+	@echo "1. Backup..."
+	@./scripts/backup_db_city.sh --city $(CITY) --env $(M6_ENV)
+	@echo "2. Simulate volume loss (would be: docker compose --project-name $(CITY) down -v )"
+	@echo "3. Manual restore..."
+	@./scripts/restore_db_city.sh --city $(CITY) --env $(M6_ENV)
+	@echo "4. Verify (lt)..."
+	@echo "(Run 'make lt' or docker exec after real restore to list tables)"
+	@echo "E2E simulation complete. See test-restore target for automated verify."
+
+fetch_last_db_dump: ## download the newest DB dump into src/db/ (CITY= M6_ENV= for a city bucket)
+	@python3 src/db/get_last_db_backup.py $(if $(CITY),--city $(CITY) --env $(M6_ENV),)
+	@cp *.sql src/db/ || true
+
+fetch_dump: DB_BACKUP_DATE ?= 2022_11_01
+fetch_dump: ## download the dump for one date into src/db/ (DB_BACKUP_DATE=2026_07_08, CITY= optional)
+	@if [ -n "$(CITY)" ]; then \
+		city_slug=$$(echo $(CITY) | sed 's/_/-/g'); \
+		bucket="sslv-$(M6_ENV)-$$city_slug-db-backups"; \
+	else \
+		bucket="$(S3_BUCKET)"; \
+	fi; \
+	echo "Fetching from bucket: $$bucket"; \
+	aws s3 cp s3://$$bucket/pg_backup_$(DB_BACKUP_DATE).sql . ; \
+	cp pg_backup_$(DB_BACKUP_DATE).sql src/db/ || true
+
+# Prints fetch_dump usage examples.
+fetch_dump_example: # Example of fetch specific date DB dump file from S3 bucket
+	@echo "make fetch_dump DB_BACKUP_DATE=2026_07_08"
+	@echo "make fetch_dump DB_BACKUP_DATE=2026_07_08 CITY=ogre"
+
+##@ AWS S3 buckets (one-time infrastructure)
+# Create, tag and audit buckets following sslv-<env>-<city>-<purpose>. New
+# buckets get public access blocked, versioning and a 90-day lifecycle rule.
+# create_* change real AWS resources; list_* / check_* are read-only.
+
+.PHONY: create_m6_bucket create_all_m6_buckets create_s3_bucket tag_existing_bucket check_m6_bucket list_m6_buckets list_existing_m6_buckets
+
+create_m6_bucket: ## create sslv-<env>-<city>-<purpose> (M6_ENV= M6_CITY= M6_PURPOSE=, AWS_REGION=)
+	$(MAKE) create_s3_bucket BUCKET_NAME=sslv-$(M6_ENV)-$(M6_CITY)-$(M6_PURPOSE) AWS_REGION=$(AWS_REGION) M6_ENV=$(M6_ENV) M6_CITY=$(M6_CITY) M6_PURPOSE=$(M6_PURPOSE)
+
+create_all_m6_buckets: ## create every city x purpose bucket for M6_ENV= (12 buckets)
+	@echo "Creating all M6 buckets for ENV=$(M6_ENV) ..."
+	@for city in $(M6_CITIES); do \
+		for purpose in $(M6_PURPOSES); do \
+			$(MAKE) create_m6_bucket M6_ENV=$(M6_ENV) M6_CITY=$$city M6_PURPOSE=$$purpose || true; \
+		done; \
+	done
+	@echo "Done (some may have been skipped if already existed)."
+
+create_s3_bucket: ## create + harden one bucket: private, versioned, 90-day expiry (BUCKET_NAME= AWS_REGION=)
+	@printf "$(call log_step,Creating S3 bucket: $(BUCKET_NAME) in region $(AWS_REGION)...)\n"
+	@if aws s3 ls s3://$(BUCKET_NAME) 2>/dev/null; then \
+		printf "$(call log_warning,Bucket $(BUCKET_NAME) already exists)\n"; \
+		exit 1; \
+	fi
+	@if [ "$(AWS_REGION)" = "us-east-1" ]; then \
+		aws s3api create-bucket \
+			--bucket $(BUCKET_NAME) \
+			--region $(AWS_REGION) || { \
+			printf "$(call log_error,Failed to create bucket)\n"; \
+			exit 1; \
+		}; \
+	else \
+		aws s3api create-bucket \
+			--bucket $(BUCKET_NAME) \
+			--region $(AWS_REGION) \
+			--create-bucket-configuration LocationConstraint=$(AWS_REGION) || { \
+			printf "$(call log_error,Failed to create bucket)\n"; \
+			exit 1; \
+		}; \
+	fi
+	@printf "$(call log_success,Bucket created successfully)\n"
+	@printf "$(call log_step,Blocking public access...)\n"
+	@aws s3api put-public-access-block \
+		--bucket $(BUCKET_NAME) \
+		--public-access-block-configuration \
+		"BlockPublicAcls=true,IgnorePublicAcls=true,BlockPublicPolicy=true,RestrictPublicBuckets=true" || { \
+		printf "$(call log_error,Failed to block public access)\n"; \
+		exit 1; \
+	}
+	@printf "$(call log_success,Public access blocked)\n"
+	@printf "$(call log_step,Enabling versioning...)\n"
+	@aws s3api put-bucket-versioning \
+		--bucket $(BUCKET_NAME) \
+		--versioning-configuration Status=Enabled || { \
+		printf "$(call log_error,Failed to enable versioning)\n"; \
+		exit 1; \
+	}
+	@printf "$(call log_success,Versioning enabled)\n"
+	@printf "$(call log_step,Adding lifecycle policy (delete after 90 days)...)\n"
+	@aws s3api put-bucket-lifecycle-configuration \
+		--bucket $(BUCKET_NAME) \
+		--lifecycle-configuration '{ \
+			"Rules": [{ \
+				"Id": "DeleteOldBackups", \
+				"Status": "Enabled", \
+				"Filter": {"Prefix": ""}, \
+				"Expiration": {"Days": 90} \
+			}] \
+		}' || { \
+		printf "$(call log_error,Failed to set lifecycle policy)\n"; \
+		exit 1; \
+	}
+	@printf "$(call log_success,Lifecycle policy set)\n"
+	@printf "$(call log_step,Adding tags...)\n"
+	@aws s3api put-bucket-tagging \
+		--bucket $(BUCKET_NAME) \
+		--tagging 'TagSet=[ \
+			{Key=Project,Value=sslv}, \
+			{Key=Environment,Value=$(M6_ENV)}, \
+			{Key=City,Value=$(M6_CITY)}, \
+			{Key=Version,Value=1.6}, \
+			{Key=Purpose,Value=$(M6_PURPOSE)}, \
+			{Key=CreatedDate,Value=$(shell date +%Y-%m-%d)} \
+		]' || { \
+		printf "$(call log_error,Failed to add tags)\n"; \
+		exit 1; \
+	}
+	@printf "$(call log_success,Tags added)\n"
+	@printf "$(call log_success,S3 bucket $(BUCKET_NAME) created and configured successfully!)\n"
+	@printf "$(call log_info,Bucket details:)\n"
+	@printf "  - Name: $(BUCKET_NAME)\n"
+	@printf "  - Region: $(AWS_REGION)\n"
+	@printf "  - Public Access: Blocked\n"
+	@printf "  - Versioning: Enabled\n"
+	@printf "  - Lifecycle: Delete after 90 days\n"
+
+tag_existing_bucket: ## apply standard tags to an existing bucket (BUCKET_NAME= or M6_ENV= M6_CITY= M6_PURPOSE=)
+	@if [ -n "$(BUCKET_NAME)" ]; then \
+		BUCKET="$(BUCKET_NAME)"; \
+		ENV_TAG="$$(echo $$BUCKET | cut -d- -f2)"; \
+		CITY_TAG="$$(echo $$BUCKET | cut -d- -f3- | rev | cut -d- -f2- | rev)"; \
+		PURPOSE_TAG="$$(echo $$BUCKET | rev | cut -d- -f1 | rev)"; \
+	else \
+		if [ -z "$(M6_CITY)" ]; then \
+			echo "Error: provide BUCKET_NAME=... or M6_CITY=... (with M6_ENV and M6_PURPOSE)"; \
+			exit 1; \
+		fi; \
+		BUCKET="sslv-$(M6_ENV)-$(M6_CITY)-$(M6_PURPOSE)"; \
+		ENV_TAG="$(M6_ENV)"; \
+		CITY_TAG="$(M6_CITY)"; \
+		PURPOSE_TAG="$(M6_PURPOSE)"; \
+	fi; \
+	echo "Tagging bucket: $$BUCKET"; \
+	aws s3api put-bucket-tagging \
+		--bucket $$BUCKET \
+		--tagging 'TagSet=[ \
+			{Key=Project,Value=sslv}, \
+			{Key=Environment,Value='$$ENV_TAG'}, \
+			{Key=City,Value='$$CITY_TAG'}, \
+			{Key=Version,Value=1.6}, \
+			{Key=Purpose,Value='$$PURPOSE_TAG'}, \
+			{Key=CreatedDate,Value=$(shell date +%Y-%m-%d)} \
+		]' || { printf "$(call log_error,Failed to tag $$BUCKET)\n"; exit 1; }; \
+	echo "Tags applied to $$BUCKET"
+
+check_m6_bucket: ## show a bucket's public access, versioning, region and lifecycle (BUCKET_NAME=)
+	@if [ -z "$(BUCKET_NAME)" ]; then \
+		echo "Error: BUCKET_NAME=... is required"; \
+		exit 1; \
+	fi; \
+	echo "Checking bucket: $(BUCKET_NAME)"; \
+	echo "  Public access block:"; \
+	aws s3api get-public-access-block --bucket $(BUCKET_NAME) --query 'PublicAccessBlockConfiguration' --output text 2>/dev/null || echo "    (not set or error)"; \
+	echo "  Versioning:"; \
+	aws s3api get-bucket-versioning --bucket $(BUCKET_NAME) --query 'Status' --output text 2>/dev/null || echo "    (unknown)"; \
+	echo "  Location:"; \
+	aws s3api get-bucket-location --bucket $(BUCKET_NAME) --query 'LocationConstraint' --output text 2>/dev/null || echo "    us-east-1"; \
+	echo "  Lifecycle rules:"; \
+	aws s3api get-bucket-lifecycle-configuration --bucket $(BUCKET_NAME) --query 'Rules[0].Status' --output text 2>/dev/null || echo "    (none or error)"
+
+list_m6_buckets: ## print expected bucket names (M6_ENVS x M6_CITIES x M6_PURPOSES)
+	@echo "Expected M6 buckets:"
+	@for env in $(M6_ENVS); do \
+		for city in $(M6_CITIES); do \
+			for purpose in $(M6_PURPOSES); do \
+				echo "  sslv-$$env-$$city-$$purpose"; \
+			done; \
+		done; \
+	done
+
+list_existing_m6_buckets: ## list buckets in AWS matching sslv-<env>-<city>-<purpose>
+	@echo "Existing buckets matching M6 pattern (sslv-{env}-{city}-{purpose}):"
+	@aws s3 ls | awk '{print $$3}' | grep -E '^sslv-(prod|staging|dev)-.*-(db-backups|scraped-data)$$' || echo "  (none found or no AWS access)"
+
+##@ Tests
+
+.PHONY: test test_cov
+
+test: precheck ## run pytest (precheck: needs S3_BUCKET exported)
+	pytest -v
+
+test_cov: precheck ## run pytest with coverage (precheck: needs S3_BUCKET exported)
+	pytest --cov=.
+
+##@ Legacy single-project (M5, pre-multi-city)
+# The original one-city stack: `docker-compose --env-file .env.prod` without
+# --project-name, secrets from AWS Secrets Manager (sslv_creds) and the M5
+# bucket. Still used by .github/workflows/main.yml (setup, build, up). Not for
+# the multi-city fleet — use the Deploy section. `down` deletes its DB volume.
+
+.PHONY: setup verify-setup check-backup-age precheck build up down clean cleanup-on-failure ec2_precheck default
+
+setup: ec2_precheck ## load secrets (Secrets Manager + M5 bucket) and download the latest DB backup
 	@printf "$(call log_step,Starting EC2 setup...)\n"
 	@set -e; \
 	trap 'printf "$(call log_error,Setup failed! Cleaning up...)\n"; $(MAKE) cleanup-on-failure' ERR; \
@@ -215,27 +605,80 @@ setup: ec2_precheck  ## loads secrets and pulls DB backup file
 	\
 	$(MAKE) check-backup-age
 
-cleanup-on-failure:  ## cleanup partial files on setup failure
-	@printf "$(call log_step,Cleaning up partial setup files...)\n"
-	@rm -f $(SETUP_STATE_FILE)
-	@rm -f pg_backup_*.sql 2>/dev/null || true
-	@printf "$(call log_info,Cleanup complete. You can retry setup.)\n"
+verify-setup: ## check .env.prod, database.ini and the DB backup file are present
+	@printf "$(call log_step,Verifying setup files...)\n"
+	@MISSING=0; \
+	if [ ! -f .env.prod ]; then \
+		printf "$(call log_error,Missing: .env.prod)\n"; \
+		MISSING=1; \
+	fi; \
+	if [ ! -f database.ini ]; then \
+		printf "$(call log_error,Missing: database.ini)\n"; \
+		MISSING=1; \
+	fi; \
+	if [ ! -f src/ws/database.ini ]; then \
+		printf "$(call log_error,Missing: src/ws/database.ini)\n"; \
+		MISSING=1; \
+	fi; \
+	if ! ls src/db/pg_backup_*.sql 1> /dev/null 2>&1; then \
+		printf "$(call log_error,Missing: src/db/pg_backup_*.sql)\n"; \
+		MISSING=1; \
+	fi; \
+	if [ $$MISSING -eq 0 ]; then \
+		printf "$(call log_success,All setup files are present)\n"; \
+		return 0; \
+	else \
+		printf "$(call log_error,Some setup files are missing)\n"; \
+		return 1; \
+	fi
 
+check-backup-age: ## warn if src/db/pg_backup_*.sql is older than BACKUP_AGE_WARNING_DAYS
+	@if [ -f src/db/pg_backup_*.sql ]; then \
+		BACKUP_FILE=$$(ls -t src/db/pg_backup_*.sql 2>/dev/null | head -1); \
+		if [ -n "$$BACKUP_FILE" ]; then \
+			BACKUP_DATE=$$(echo $$BACKUP_FILE | grep -o '[0-9]\{4\}_[0-9]\{2\}_[0-9]\{2\}' | head -1); \
+			if [ -n "$$BACKUP_DATE" ]; then \
+				BACKUP_EPOCH=$$(date -j -f "%Y_%m_%d" "$$BACKUP_DATE" "+%s" 2>/dev/null || echo 0); \
+				CURRENT_EPOCH=$$(date "+%s"); \
+				AGE_DAYS=$$(( ($$CURRENT_EPOCH - $$BACKUP_EPOCH) / 86400 )); \
+				if [ $$AGE_DAYS -gt $(BACKUP_AGE_WARNING_DAYS) ]; then \
+					printf "$(call log_warning,Backup file is $$AGE_DAYS days old (threshold: $(BACKUP_AGE_WARNING_DAYS) days))\n"; \
+					printf "$(call log_info,Consider fetching a more recent backup)\n"; \
+				else \
+					printf "$(call log_success,Backup file age: $$AGE_DAYS days (acceptable))\n"; \
+				fi; \
+			fi; \
+		fi; \
+	fi
 
-build:  ## builds all containers (ts, ws, db)
+precheck: ## check S3_BUCKET is exported
+	@printf "$(call log_step,Checking if env S3_BUCKET is exported...)\n"
+	@if [ -z "$(S3_BACKUP_BUCKET)" ]; then \
+		echo ""; \
+		printf "$(call log_error,S3_BUCKET is not exported.)\n"; \
+		echo ""; \
+		printf "$(call log_info,Option 1: Load environment secrets from AWS Secrets manager with:)\n"; \
+		echo "  source scripts/load_secrets.sh"; \
+		echo ""; \
+		printf "$(call log_info,Option 2: Export manually:)\n"; \
+		echo "  export S3_BUCKET='your-bucket-name'"; \
+		echo ""; \
+		exit 1; \
+	fi
+	@printf "$(call log_success,env S3_BUCKET is exported)\n"
+
+build: ## build the db, ts and ws images
 	@docker-compose --env-file .env.prod build db
 	@docker-compose --env-file .env.prod build ts
 	@docker-compose --env-file .env.prod build ws
 
-
-up:  ## starts all containers
+up: ## start the single-project stack
 	docker-compose --env-file .env.prod up -d
 
-
-down:  ## legacy single-project stack only: stops it AND deletes its DB volume. Multi-city: use undeploy-staging / undeploy-prod
+down: ## stop the single-project stack AND delete its DB volume (multi-city: undeploy-*)
 	docker-compose --env-file .env.prod down -v   # removes volumes (clears old PGDATA)
 
-clean:  ## removes setup/DB files + project Docker images (including -backup images)
+clean: ## delete setup files, DB dumps and project images (not containers)
 	@printf "$(call log_step,Cleaning up setup files...)\n"
 	@rm -f .env.prod && printf "$(call log_success,Removed .env.prod)\n" || printf "$(call log_info,.env.prod not found)\n"
 	@rm -f database.ini && printf "$(call log_success,Removed database.ini)\n" || printf "$(call log_info,database.ini not found)\n"
@@ -252,414 +695,46 @@ clean:  ## removes setup/DB files + project Docker images (including -backup ima
 	@docker images --format "{{.Repository}}" | grep -E -e '-(backup|ts|ws|db)$$' | xargs -r docker rmi -f 2>/dev/null || true
 	@printf "$(call log_success,Cleanup completed)\n"
 
-BUCKET_NAME ?= sslv-ogre-city-dev-v1-6-db-backups-2025-11
-AWS_REGION ?= us-east-1
+# Internal: called by setup's ERR trap.
+cleanup-on-failure:  # cleanup partial files on setup failure
+	@printf "$(call log_step,Cleaning up partial setup files...)\n"
+	@rm -f $(SETUP_STATE_FILE)
+	@rm -f pg_backup_*.sql 2>/dev/null || true
+	@printf "$(call log_info,Cleanup complete. You can retry setup.)\n"
 
-# M6 multi-city bucket helpers (recommended for new buckets)
-# Usage: make create_m6_bucket CITY=salaspils ENV=prod PURPOSE=db-backups
-#   or:  make create_m6_bucket CITY=salaspils ENV=staging PURPOSE=scraped-data
-M6_ENV ?= prod
-M6_CITY ?= 
-M6_PURPOSE ?= db-backups
-M6_BUCKET_NAME = sslv-$(M6_ENV)-$(M6_CITY)-$(M6_PURPOSE)
-
-# List of cities and purposes for M6 (derived from config/cities.yaml + plan)
-M6_CITIES ?= salaspils sigulda marupes-pag adazu-nov ogre jurmala
-M6_PURPOSES ?= db-backups scraped-data
-M6_ENVS ?= prod staging dev
-
-create_m6_bucket: ## creates M6-style per-city bucket using M6_ENV, M6_CITY, M6_PURPOSE (e.g. make create_m6_bucket CITY=salaspils ENV=prod PURPOSE=db-backups)
-	$(MAKE) create_s3_bucket BUCKET_NAME=sslv-$(M6_ENV)-$(M6_CITY)-$(M6_PURPOSE) AWS_REGION=$(AWS_REGION) M6_ENV=$(M6_ENV) M6_CITY=$(M6_CITY) M6_PURPOSE=$(M6_PURPOSE)
-
-create_s3_bucket:  ## creates new S3 bucket for DB backups (use BUCKET_NAME= and AWS_REGION= to override)
-	@printf "$(call log_step,Creating S3 bucket: $(BUCKET_NAME) in region $(AWS_REGION)...)\n"
-	@if aws s3 ls s3://$(BUCKET_NAME) 2>/dev/null; then \
-		printf "$(call log_warning,Bucket $(BUCKET_NAME) already exists)\n"; \
-		exit 1; \
-	fi
-	@if [ "$(AWS_REGION)" = "us-east-1" ]; then \
-		aws s3api create-bucket \
-			--bucket $(BUCKET_NAME) \
-			--region $(AWS_REGION) || { \
-			printf "$(call log_error,Failed to create bucket)\n"; \
-			exit 1; \
-		}; \
-	else \
-		aws s3api create-bucket \
-			--bucket $(BUCKET_NAME) \
-			--region $(AWS_REGION) \
-			--create-bucket-configuration LocationConstraint=$(AWS_REGION) || { \
-			printf "$(call log_error,Failed to create bucket)\n"; \
-			exit 1; \
-		}; \
-	fi
-	@printf "$(call log_success,Bucket created successfully)\n"
-	@printf "$(call log_step,Blocking public access...)\n"
-	@aws s3api put-public-access-block \
-		--bucket $(BUCKET_NAME) \
-		--public-access-block-configuration \
-		"BlockPublicAcls=true,IgnorePublicAcls=true,BlockPublicPolicy=true,RestrictPublicBuckets=true" || { \
-		printf "$(call log_error,Failed to block public access)\n"; \
-		exit 1; \
-	}
-	@printf "$(call log_success,Public access blocked)\n"
-	@printf "$(call log_step,Enabling versioning...)\n"
-	@aws s3api put-bucket-versioning \
-		--bucket $(BUCKET_NAME) \
-		--versioning-configuration Status=Enabled || { \
-		printf "$(call log_error,Failed to enable versioning)\n"; \
-		exit 1; \
-	}
-	@printf "$(call log_success,Versioning enabled)\n"
-	@printf "$(call log_step,Adding lifecycle policy (delete after 90 days)...)\n"
-	@aws s3api put-bucket-lifecycle-configuration \
-		--bucket $(BUCKET_NAME) \
-		--lifecycle-configuration '{ \
-			"Rules": [{ \
-				"Id": "DeleteOldBackups", \
-				"Status": "Enabled", \
-				"Filter": {"Prefix": ""}, \
-				"Expiration": {"Days": 90} \
-			}] \
-		}' || { \
-		printf "$(call log_error,Failed to set lifecycle policy)\n"; \
-		exit 1; \
-	}
-	@printf "$(call log_success,Lifecycle policy set)\n"
-	@printf "$(call log_step,Adding tags...)\n"
-	@aws s3api put-bucket-tagging \
-		--bucket $(BUCKET_NAME) \
-		--tagging 'TagSet=[ \
-			{Key=Project,Value=sslv}, \
-			{Key=Environment,Value=$(M6_ENV)}, \
-			{Key=City,Value=$(M6_CITY)}, \
-			{Key=Version,Value=1.6}, \
-			{Key=Purpose,Value=$(M6_PURPOSE)}, \
-			{Key=CreatedDate,Value=$(shell date +%Y-%m-%d)} \
-		]' || { \
-		printf "$(call log_error,Failed to add tags)\n"; \
-		exit 1; \
-	}
-	@printf "$(call log_success,Tags added)\n"
-	@printf "$(call log_success,S3 bucket $(BUCKET_NAME) created and configured successfully!)\n"
-	@printf "$(call log_info,Bucket details:)\n"
-	@printf "  - Name: $(BUCKET_NAME)\n"
-	@printf "  - Region: $(AWS_REGION)\n"
-	@printf "  - Public Access: Blocked\n"
-	@printf "  - Versioning: Enabled\n"
-	@printf "  - Lifecycle: Delete after 90 days\n"
-
-list_m6_buckets: ## prints all expected M6 bucket names (from M6_ENVS x M6_CITIES x M6_PURPOSES)
-	@echo "Expected M6 buckets:"
-	@for env in $(M6_ENVS); do \
-		for city in $(M6_CITIES); do \
-			for purpose in $(M6_PURPOSES); do \
-				echo "  sslv-$$env-$$city-$$purpose"; \
-			done; \
-		done; \
-	done
-
-list_existing_m6_buckets: ## lists buckets in AWS that match the M6 naming pattern
-	@echo "Existing buckets matching M6 pattern (sslv-{env}-{city}-{purpose}):"
-	@aws s3 ls | awk '{print $$3}' | grep -E '^sslv-(prod|staging|dev)-.*-(db-backups|scraped-data)$$' || echo "  (none found or no AWS access)"
-
-tag_existing_bucket: ## applies standard M6 tags to an existing bucket. Use BUCKET_NAME=... or M6_ENV + M6_CITY + M6_PURPOSE
-	@if [ -n "$(BUCKET_NAME)" ]; then \
-		BUCKET="$(BUCKET_NAME)"; \
-		ENV_TAG="$$(echo $$BUCKET | cut -d- -f2)"; \
-		CITY_TAG="$$(echo $$BUCKET | cut -d- -f3- | rev | cut -d- -f2- | rev)"; \
-		PURPOSE_TAG="$$(echo $$BUCKET | rev | cut -d- -f1 | rev)"; \
-	else \
-		if [ -z "$(M6_CITY)" ]; then \
-			echo "Error: provide BUCKET_NAME=... or M6_CITY=... (with M6_ENV and M6_PURPOSE)"; \
-			exit 1; \
-		fi; \
-		BUCKET="sslv-$(M6_ENV)-$(M6_CITY)-$(M6_PURPOSE)"; \
-		ENV_TAG="$(M6_ENV)"; \
-		CITY_TAG="$(M6_CITY)"; \
-		PURPOSE_TAG="$(M6_PURPOSE)"; \
-	fi; \
-	echo "Tagging bucket: $$BUCKET"; \
-	aws s3api put-bucket-tagging \
-		--bucket $$BUCKET \
-		--tagging 'TagSet=[ \
-			{Key=Project,Value=sslv}, \
-			{Key=Environment,Value='$$ENV_TAG'}, \
-			{Key=City,Value='$$CITY_TAG'}, \
-			{Key=Version,Value=1.6}, \
-			{Key=Purpose,Value='$$PURPOSE_TAG'}, \
-			{Key=CreatedDate,Value=$(shell date +%Y-%m-%d)} \
-		]' || { printf "$(call log_error,Failed to tag $$BUCKET)\n"; exit 1; }; \
-	echo "Tags applied to $$BUCKET"
-
-check_m6_bucket: ## checks configuration of a bucket (public access, versioning, etc). Use BUCKET_NAME=...
-	@if [ -z "$(BUCKET_NAME)" ]; then \
-		echo "Error: BUCKET_NAME=... is required"; \
-		exit 1; \
-	fi; \
-	echo "Checking bucket: $(BUCKET_NAME)"; \
-	echo "  Public access block:"; \
-	aws s3api get-public-access-block --bucket $(BUCKET_NAME) --query 'PublicAccessBlockConfiguration' --output text 2>/dev/null || echo "    (not set or error)"; \
-	echo "  Versioning:"; \
-	aws s3api get-bucket-versioning --bucket $(BUCKET_NAME) --query 'Status' --output text 2>/dev/null || echo "    (unknown)"; \
-	echo "  Location:"; \
-	aws s3api get-bucket-location --bucket $(BUCKET_NAME) --query 'LocationConstraint' --output text 2>/dev/null || echo "    us-east-1"; \
-	echo "  Lifecycle rules:"; \
-	aws s3api get-bucket-lifecycle-configuration --bucket $(BUCKET_NAME) --query 'Rules[0].Status' --output text 2>/dev/null || echo "    (none or error)"
-
-create_all_m6_buckets: ## creates ALL M6 buckets for ENV (default prod). WARNING: will attempt to create 12 buckets.
-	@echo "Creating all M6 buckets for ENV=$(M6_ENV) ..."
-	@for city in $(M6_CITIES); do \
-		for purpose in $(M6_PURPOSES); do \
-			$(MAKE) create_m6_bucket M6_ENV=$(M6_ENV) M6_CITY=$$city M6_PURPOSE=$$purpose || true; \
-		done; \
-	done
-	@echo "Done (some may have been skipped if already existed)."
-
-fetch_dump_example: # Example of fetch specific date DB dump file from S3 bucket
-	@echo "make fetch_dump DB_BACKUP_DATE=2026_07_08"
-	@echo "make fetch_dump DB_BACKUP_DATE=2026_07_08 CITY=ogre"
-
-fetch_dump: DB_BACKUP_DATE ?= 2022_11_01
-fetch_dump: # Fetches DB dump file from S3 bucket. Supports CITY= (e.g. make fetch_dump CITY=ogre)
-	@if [ -n "$(CITY)" ]; then \
-		city_slug=$$(echo $(CITY) | sed 's/_/-/g'); \
-		bucket="sslv-$(M6_ENV)-$$city_slug-db-backups"; \
-	else \
-		bucket="$(S3_BUCKET)"; \
-	fi; \
-	echo "Fetching from bucket: $$bucket"; \
-	aws s3 cp s3://$$bucket/pg_backup_$(DB_BACKUP_DATE).sql . ; \
-	cp pg_backup_$(DB_BACKUP_DATE).sql src/db/ || true
-
-fetch_last_db_dump: # Fetches last Postgres DB dump. Supports CITY= ENV=
-	@python3 src/db/get_last_db_backup.py $(if $(CITY),--city $(CITY) --env $(M6_ENV),)
-	@cp *.sql src/db/ || true
-
-backup-city: ## run backup for one city (e.g. make backup-city CITY=ogre ENV=prod)
-	@./scripts/backup_db_city.sh --city $(CITY) --env $(M6_ENV)
-
-restore-city: ## run restore for one city
-	@./scripts/restore_db_city.sh --city $(CITY) --env $(M6_ENV)
-
-backup-all: ## backup all cities for ENV (default prod)
-	@./scripts/backup_db_city.sh --all --env $(M6_ENV)
-
-restore-all: ## restore all cities (latest)
-	@./scripts/restore_db_city.sh --all --env $(M6_ENV)
-
-verify-backup: ## verify latest backup for CITY (size check, S3 presence, basic health)
-	@echo "Basic verification for backup of CITY=$(CITY) ENV=$(M6_ENV)..."
-	@./scripts/backup_db_city.sh --city $(CITY) --env $(M6_ENV) 2>&1 | grep -E '(Verifying|size|Verified|Pruned)' || true
-	@echo "For full test-restore: use restore with verification step (lists tables)"
-
-fleet-status: ## M6 Item 6 - fleet watchdog report to terminal (containers, runs, DB rows, backups; no email)
-	@python3 scripts/fleet_watchdog.py --email-mode never --env $(M6_ENV)
-
-# --- Fleet watchdog ntfy alerts — docs/critical_monitoring_ntfy_plan.md (P0) ---
-NTFY_STAGING_TOPIC_URL := https://ntfy.sh/staging-sslv-mc-alerts
-NTFY_TOPIC_URL ?= $(NTFY_STAGING_TOPIC_URL)
-WATCHDOG_UNITS := sslv-watchdog.service sslv-watchdog.timer sslv-watchdog-heartbeat.service sslv-watchdog-heartbeat.timer
-
-.PHONY: watchdog-install watchdog-uninstall watchdog-status watchdog-test-ntfy watchdog-drill
-
-# Refuse to point a non-staging env at the staging topic.
-define ntfy_topic_guard
-	@if [ "$(M6_ENV)" != "staging" ] && [ "$(NTFY_TOPIC_URL)" = "$(NTFY_STAGING_TOPIC_URL)" ]; then \
-		printf "$(call log_error,M6_ENV=$(M6_ENV) would push to the staging topic. Pass M6_ENV=staging or NTFY_TOPIC_URL=<topic for $(M6_ENV)>.)\n"; \
-		exit 1; \
-	fi
-endef
-
-watchdog-install: ## install systemd timers: ntfy alerts every 15 min + daily heartbeat (M6_ENV=staging, NTFY_TOPIC_URL=..., HEARTBEAT_PING_URL=... optional)
-	$(ntfy_topic_guard)
-	@printf "$(call log_step,Writing /etc/sslv-watchdog.env (ENV=$(M6_ENV), topic $(NTFY_TOPIC_URL))...)\n"
-	@{ printf 'ENV=%s\nNTFY_TOPIC_URL=%s\n' "$(M6_ENV)" "$(NTFY_TOPIC_URL)"; \
-		if [ -n "$(HEARTBEAT_PING_URL)" ]; then printf 'HEARTBEAT_PING_URL=%s\n' "$(HEARTBEAT_PING_URL)"; fi; \
-	} | sudo tee /etc/sslv-watchdog.env > /dev/null
-	@sudo chmod 600 /etc/sslv-watchdog.env
-	@for unit in $(WATCHDOG_UNITS); do \
-		sed -e "s|@REPO_DIR@|$(CURDIR)|" -e "s|@USER@|$$(id -un)|" scripts/systemd/$$unit \
-			| sudo tee /etc/systemd/system/$$unit > /dev/null; \
-	done
-	@sudo systemctl daemon-reload
-	@sudo systemctl enable --now sslv-watchdog.timer sslv-watchdog-heartbeat.timer
-	@printf "$(call log_success,Watchdog timers installed. Check with: make watchdog-status)\n"
-
-watchdog-uninstall: ## remove the watchdog systemd timers and env file
-	@sudo systemctl disable --now sslv-watchdog.timer sslv-watchdog-heartbeat.timer 2>/dev/null || true
-	@for unit in $(WATCHDOG_UNITS); do sudo rm -f /etc/systemd/system/$$unit; done
-	@sudo rm -f /etc/sslv-watchdog.env
-	@sudo systemctl daemon-reload
-	@printf "$(call log_success,Watchdog timers removed)\n"
-
-watchdog-status: ## show watchdog timers and the last run's output
-	@systemctl list-timers 'sslv-watchdog*' --all
-	@journalctl -u sslv-watchdog.service -u sslv-watchdog-heartbeat.service -n 30 --no-pager
-
-watchdog-drill: ## P3: fire each watchdog alert once as [DRILL] pushes + check recovery (M6_ENV=staging; DRILL=memory,container to limit)
-	$(ntfy_topic_guard)
-	@paused=0; \
-	trap 'if [ $$paused = 1 ]; then sudo systemctl start sslv-watchdog.timer; printf "$(call log_info,Watchdog timer resumed)\n"; fi' EXIT; \
-	if systemctl is-active --quiet sslv-watchdog.timer 2>/dev/null; then \
-		printf "$(call log_info,Pausing sslv-watchdog.timer during the drill...)\n"; \
-		sudo systemctl stop sslv-watchdog.timer && paused=1; \
-	fi; \
-	NTFY_TOPIC_URL="$(NTFY_TOPIC_URL)" python3 scripts/watchdog_drill.py --env $(M6_ENV) $(if $(DRILL),--only $(DRILL))
-
-watchdog-test-ntfy: ## send one low-priority test push to NTFY_TOPIC_URL
-	@curl -fsS -H "Title: [$(M6_ENV)] SSLV watchdog test" -H "Priority: low" -H "Tags: test_tube" \
-		-d "Test push from $$(hostname) at $$(date -u '+%Y-%m-%d %H:%M UTC')" "$(NTFY_TOPIC_URL)" > /dev/null \
-		&& printf "$(call log_success,Test push sent to $(NTFY_TOPIC_URL))\n"
-
-test-restore: ## perform sample restore + list tables for verification (uses restore script's built-in verify)
-	@echo "Test-restore + verification for CITY=$(CITY)..."
-	@./scripts/restore_db_city.sh --city $(CITY) --env $(M6_ENV) 2>&1 | tail -20
-
-e2e-backup-restore: ## End-to-end simulation: backup one city → simulate volume loss → manual restore → verify (item 11)
-	@echo "=== E2E for CITY=$(CITY) ENV=$(M6_ENV) ==="
-	@echo "1. Backup..."
-	@./scripts/backup_db_city.sh --city $(CITY) --env $(M6_ENV)
-	@echo "2. Simulate volume loss (would be: docker compose --project-name $(CITY) down -v )"
-	@echo "3. Manual restore..."
-	@./scripts/restore_db_city.sh --city $(CITY) --env $(M6_ENV)
-	@echo "4. Verify (lt)..."
-	@echo "(Run 'make lt' or docker exec after real restore to list tables)"
-	@echo "E2E simulation complete. See test-restore target for automated verify."
-
-# M6 Multi-city deployment targets
-_deploy-precheck:
-	@printf "$(call log_step,Running pre-flight checks for multi-city deploy...)\n"
-	@bucket="$${CICD_FILES_BUCKET}"; \
-	if [ -z "$$bucket" ]; then bucket="sslv-staging-m6-cicd-files"; fi; \
-	if [ ! -f deploy-multi-city-ws.sh ]; then \
-		printf "$(call log_error,deploy-multi-city-ws.sh not found)\n"; \
-		exit 1; \
-	fi; \
-	if [ ! -x deploy-multi-city-ws.sh ]; then \
-		printf "$(call log_warning,Making deploy-multi-city-ws.sh executable...)\n"; \
-		chmod +x deploy-multi-city-ws.sh; \
-	fi; \
+# Internal: prerequisite of setup (AWS CLI, jq, S3_BUCKET from Secrets Manager).
+ec2_precheck:
+	@printf "$(call log_step,Loading envs from AWS Secrets Manager...)\n"
+	@set -e; \
 	if ! command -v aws >/dev/null 2>&1; then \
-		printf "$(call log_error,AWS CLI is required (to fetch .env.* files from CICD bucket))\n"; \
+		printf "$(call log_error,AWS CLI is not installed. Please install it first.)\n"; \
 		exit 1; \
 	fi; \
-	if ! command -v docker >/dev/null 2>&1; then \
-		printf "$(call log_error,Docker is required)\n"; \
+	if ! command -v jq >/dev/null 2>&1; then \
+		printf "$(call log_error,jq is not installed. Please install it first.)\n"; \
 		exit 1; \
 	fi; \
-	if ! docker compose version >/dev/null 2>&1 && ! command -v docker-compose >/dev/null 2>&1; then \
-		printf "$(call log_error,Neither 'docker compose' nor 'docker-compose' found)\n"; \
+	. ./scripts/set_s3_env_from_aws_sm.sh || { \
+		printf "$(call log_error,Failed to load environment from AWS Secrets Manager)\n"; \
 		exit 1; \
-	fi; \
-	if [ ! -f config/cities.yaml ]; then \
-		printf "$(call log_error,config/cities.yaml not found)\n"; \
+	}; \
+	if [ -z "$$S3_BUCKET" ]; then \
+		printf "$(call log_error,S3_BUCKET is not exported.)\n"; \
+		printf "$(call log_info,To set env run: source scripts/set_s3_env_from_aws_sm.sh)\n"; \
 		exit 1; \
-	fi; \
-	printf "$(call log_step,Checking access to CICD bucket: $$bucket ...)\n"; \
-	# Probe using direct object fetch first (aws s3 cp of a known key only needs s3:GetObject; \
-	# does not require s3:ListBucket which root 'ls' does). Falls back to ls for compatibility. \
-	if aws s3 cp "s3://$$bucket/.env.prod" /tmp/.probe-env.prod.$$$$ --quiet 2>/dev/null; then \
-		rm -f /tmp/.probe-env.prod.$$$$ 2>/dev/null || true; \
-		printf "$(call log_success,CICD bucket $$bucket is accessible (via GetObject))\n"; \
-	elif aws s3 cp "s3://$$bucket/database.ini" /tmp/.probe-db.$$$$ --quiet 2>/dev/null; then \
-		rm -f /tmp/.probe-db.$$$$ 2>/dev/null || true; \
-		printf "$(call log_success,CICD bucket $$bucket is accessible (via GetObject))\n"; \
-	elif aws s3 ls "s3://$$bucket/" --max-items 1 > /dev/null 2>&1; then \
-		printf "$(call log_success,CICD bucket $$bucket is accessible)\n"; \
 	else \
-		printf "$(call log_warning,Cannot access s3://$$bucket/ (this is OK if .env.* or .env.prod files already exist locally))\n"; \
-		if ! ls .env.* .env.prod 1>/dev/null 2>&1; then \
-			printf "$(call log_error,No local .env.* / .env.prod files found and cannot reach CICD bucket.)\n"; \
-			printf "$(call log_info,Run with AWS credentials/IAM that can GetObject (or ListBucket) the bucket, or place .env.* + .env.prod locally first.)\n"; \
-			exit 1; \
-		fi; \
-	fi; \
-	printf "$(call log_success,Pre-flight checks passed)\n"
-
-deploy-staging: ## runs ./deploy-multi-city-ws.sh configured for staging
-	@CICD_FILES_BUCKET=sslv-staging-m6-cicd-files M6_ENV=staging $(MAKE) _deploy-precheck
-	@printf "$(call log_step,Deploying all cities to staging...)\n"
-	@printf "$(call log_info,Command: CICD_FILES_BUCKET=sslv-staging-m6-cicd-files M6_ENV=staging ./deploy-multi-city-ws.sh)\n"
-	CICD_FILES_BUCKET=sslv-staging-m6-cicd-files M6_ENV=staging ./deploy-multi-city-ws.sh
-
-# Undeploying makes every watchdog check fail; stop the timers so it does not
-# page for an intentional outage. They stay enabled and come back on reboot.
-define watchdog_timers_stop
-	@if systemctl is-active --quiet sslv-watchdog.timer 2>/dev/null \
-		|| systemctl is-active --quiet sslv-watchdog-heartbeat.timer 2>/dev/null; then \
-		printf "$(call log_info,Stopping watchdog timers (resume after deploy: sudo systemctl start sslv-watchdog.timer sslv-watchdog-heartbeat.timer))\n"; \
-		sudo systemctl stop sslv-watchdog.timer sslv-watchdog-heartbeat.timer; \
-	fi
-endef
-
-.PHONY: undeploy-staging undeploy-prod clean-containers
-
-undeploy-staging: ## removes all city containers + networks on staging, KEEPS DB volumes (PURGE_DATA=1 also deletes all city data, asks to confirm)
-	$(watchdog_timers_stop)
-	M6_ENV=staging ./undeploy-multi-city.sh $(if $(filter 1 true yes,$(PURGE_DATA)),--purge-data)
-
-undeploy-prod: ## removes all city containers + networks on production, KEEPS DB volumes (PURGE_DATA=1 also deletes all city data, asks to confirm)
-	$(watchdog_timers_stop)
-	M6_ENV=prod ./undeploy-multi-city.sh $(if $(filter 1 true yes,$(PURGE_DATA)),--purge-data)
-
-clean-containers: ## force-removes every city's containers + networks by compose label (no compose file needed); keeps volumes + images. CITIES="a b" to override cities.yaml
-	$(watchdog_timers_stop)
-	@cities="$(CITIES)"; \
-	if [ -z "$$cities" ]; then source scripts/lib/cities.sh; cities=$$(parse_cities config/cities.yaml); fi; \
-	for city in $$cities; do \
-		ids=$$(docker ps -aq --filter "label=com.docker.compose.project=$$city"); \
-		if [ -n "$$ids" ]; then \
-			docker rm -f $$ids > /dev/null && printf "$(call log_success,$$city: removed $$(echo $$ids | wc -w | tr -d ' ') container(s))\n"; \
-		else \
-			printf "$(call log_info,$$city: no containers)\n"; \
-		fi; \
-		nets=$$(docker network ls -q --filter "label=com.docker.compose.project=$$city"); \
-		if [ -n "$$nets" ]; then docker network rm $$nets > /dev/null; fi; \
-	done; \
-	printf "$(call log_success,Containers removed; DB volumes kept (docker volume ls | grep _db_data))\n"
-
-deploy-prod: ## runs ./deploy-multi-city-ws.sh configured for production
-	@CICD_FILES_BUCKET=sslv-prod-m6-cicd-files M6_ENV=prod $(MAKE) _deploy-precheck
-	@printf "$(call log_step,Deploying all cities to production...)\n"
-	@printf "$(call log_info,Command: CICD_FILES_BUCKET=sslv-prod-m6-cicd-files M6_ENV=prod ./deploy-multi-city-ws.sh)\n"
-	CICD_FILES_BUCKET=sslv-prod-m6-cicd-files M6_ENV=prod ./deploy-multi-city-ws.sh
-
-lt: ## Lists tables sizes to test if DB dump was restored correctly 
-	@docker exec $(PG_CONTAINER_NAME) psql -U new_docker_user -d new_docker_db -c '\dt+'
-
-test: precheck ## Runs pytests locally (Not implemented)
-	pytest -v
-
-test_cov: precheck ## Runs pytest coverage (Not implemented)
-	pytest --cov=.
-
-
-verify-scrape: ## Phase 3 Item 10 - verify dynamic page count + city naming for CITY (default jurmala)
-	@CITY=$${CITY:-jurmala} ./scripts/verify_city_scrape.sh $${CITY}
-
-verify-scrape-all: ## Run verification for several cities (jurmala, ogre, sigulda)
-	@for c in jurmala ogre sigulda; do \
-	  echo "=== Verifying $$c ==="; \
-	  CITY=$$c ./scripts/verify_city_scrape.sh $$c || true; \
-	  echo; \
-	done
-
-# --- Log collection (multi-city) — docs/plan_new_collect_logs_v3.md ----------
-
-collect-logs: ## collect logs/artifacts/state from all cities into a bundle (CITY=ogre for one)
-	@if [ -n "$(CITY)" ]; then \
-	  ./scripts/collect_logs_v3.sh --city $(CITY); \
-	else \
-	  ./scripts/collect_logs_v3.sh; \
+		printf "$(call log_success,S3_BUCKET is exported: $$S3_BUCKET)\n"; \
 	fi
 
-collect-logs-running: ## same, but only cities that currently have containers up
-	@./scripts/collect_logs_v3.sh --running-only
-
-collect-logs-full: ## everything incl. debug DB dump + data dirs (CITY= optional, large)
-	@if [ -n "$(CITY)" ]; then \
-	  ./scripts/collect_logs_v3.sh --city $(CITY) --with-db-dump --with-data-dirs; \
-	else \
-	  ./scripts/collect_logs_v3.sh --with-db-dump --with-data-dirs; \
-	fi
+# Old all-in-one entry point, kept for compatibility. NOTE: outside Intel macOS
+# it depends on ec2_setup/ec2_build/ec2_up/ec2_down, which no longer exist, so
+# `make default` fails there (as does .github/workflows/CICD-arm-dev-m5.yml).
+ifeq ($(OS), Darwin)
+    ifeq ($(ARCH), x86_64)
+        default: setup build up down
+    else
+        default: ec2_setup ec2_build ec2_up ec2_down
+    endif
+else
+    default: ec2_setup ec2_build ec2_up ec2_down
+endif
