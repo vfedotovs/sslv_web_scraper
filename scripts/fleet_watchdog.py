@@ -666,6 +666,7 @@ def notify_ntfy(args, all_problems, lines, cities, state):
             body_lines += ["", "Resolved:"] + [f"- {r}" for r in resolved]
         body = "\n".join(body_lines + [""] + lines)
 
+    title = args.ntfy_title_prefix + title
     if send_ntfy(args.ntfy_url, title, body, priority, tags, args.ntfy_token):
         state["problems"] = {
             f"{city}: {problem_fingerprint(p)}": f"{city}: {p}"
@@ -704,6 +705,9 @@ def main(argv=None):
                              " (default: $NTFY_TOPIC_URL)")
     parser.add_argument("--ntfy-token", default=os.getenv("NTFY_TOKEN"),
                         help="optional ntfy access token (default: $NTFY_TOKEN)")
+    parser.add_argument("--ntfy-title-prefix", default="",
+                        help='prepended to every push title, e.g. "[DRILL] "'
+                             " (ASCII only: it is an HTTP header)")
     parser.add_argument("--ntfy-reminder-hours", type=float, default=6,
                         help="re-push an unchanged problem set after this long")
     parser.add_argument("--state-file",

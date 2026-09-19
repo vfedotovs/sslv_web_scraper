@@ -170,10 +170,23 @@ All run on the 15-minute `sslv-watchdog.timer` as a `host` line in the report; h
 - [x] **#2 backup size:** newest object below `--min-backup-size-kb` (default `$MIN_BACKUP_SIZE_KB`, else 10) → `newest backup is only X KB` **urgent**, checked from S3 rather than trusting the backup container.
 - [x] Every `fleet_watchdog.py` problem goes through ntfy as well as SES — true since P0: `notify_ntfy()` pushes the full problem set, and the 06:35 heartbeat run still sends the SES email on problems.
 
-### P3 — Verify the alerts actually fire
-- [ ] On staging, trigger each alert once: stop a `*-ts-1` container (#5); `fallocate` a large file to cross the disk threshold (#4); lower the memory threshold temporarily (#3); point #2 at an empty test bucket; set `urls_discovered` expectations against a stubbed `/status` (#6).
-- [ ] Confirm the recovery ("resolved") push arrives for each.
-- [ ] Stop the heartbeat timer for a day and confirm the missed heartbeat is noticed (#7).
+### P3 — Verify the alerts actually fire  🛠 tooling on `dev-1.7.9.4`, run pending on staging
+`scripts/watchdog_drill.py` (`make watchdog-drill M6_ENV=staging`) fires each alert once through the **real** watchdog and ntfy, then removes the condition and checks the recovery push lists it under "Resolved:". Pushes are titled `[DRILL] …`, each drill uses a throwaway state file, and the Makefile pauses `sslv-watchdog.timer` for the duration so the real timer does not alert on the drill.
+
+| Drill | How the condition is induced | Expected alert |
+|---|---|---|
+| `memory` (#3) | threshold raised above total RAM | `memory low` ≥ high |
+| `disk` (#4) | warn threshold set to 100% — **nothing is filled** (replaces the `fallocate` idea: same alert path, zero risk to Postgres) | `disk low` ≥ high |
+| `backup` (#2) | min size raised above any real backup — S3 untouched (replaces the empty test bucket, which would only give "could not list") | `newest backup is only` urgent |
+| `oom` (#3) | kernel OOM log faked in-process (a real OOM kill is not safe) | `OOM kill` urgent |
+| `stuck-run` (#1) | `/status` faked: one city `running` for 4 h | `stuck in 'running'` urgent |
+| `collapse` (#6) | `/status` faked: every city 0 URLs | `scraper collapse` urgent |
+| `container` (#5) | **real** `docker stop <city>-ts-1`, then start + wait healthy; refused within 20 min of 00:40/01:40 UTC unless `--force` | `container … is exited` ≥ high |
+| `heartbeat` (#7) | `--ntfy-mode always` | `fleet OK` low (healthy fleet) |
+
+- [ ] Run on staging: `make watchdog-drill M6_ENV=staging` (or `DRILL=memory,container` to limit) — expect 8 × PASS.
+- [ ] Confirm on the phone that every `[DRILL]` push arrived (the script only sees that ntfy accepted them) — alert + recovery per drill, 15 in total on a healthy fleet.
+- [ ] Stop the heartbeat timer for a day (`sudo systemctl stop sslv-watchdog-heartbeat.timer`) and confirm the missing 06:35 push is noticed — or the dead-man's-switch alert fires if `HEARTBEAT_PING_URL` is set (then also stop `sslv-watchdog.timer`, which does the pinging). Restart both afterwards.
 
 ### Related, not monitoring (reduces how often these alerts fire)
 - [ ] Add 2 GB swap on the host (memory headroom; see #3).

@@ -461,13 +461,18 @@ NTFY_STAGING_TOPIC_URL := https://ntfy.sh/staging-sslv-mc-alerts
 NTFY_TOPIC_URL ?= $(NTFY_STAGING_TOPIC_URL)
 WATCHDOG_UNITS := sslv-watchdog.service sslv-watchdog.timer sslv-watchdog-heartbeat.service sslv-watchdog-heartbeat.timer
 
-.PHONY: watchdog-install watchdog-uninstall watchdog-status watchdog-test-ntfy
+.PHONY: watchdog-install watchdog-uninstall watchdog-status watchdog-test-ntfy watchdog-drill
 
-watchdog-install: ## install systemd timers: ntfy alerts every 15 min + daily heartbeat (M6_ENV=staging, NTFY_TOPIC_URL=..., HEARTBEAT_PING_URL=... optional)
+# Refuse to point a non-staging env at the staging topic.
+define ntfy_topic_guard
 	@if [ "$(M6_ENV)" != "staging" ] && [ "$(NTFY_TOPIC_URL)" = "$(NTFY_STAGING_TOPIC_URL)" ]; then \
 		printf "$(call log_error,M6_ENV=$(M6_ENV) would push to the staging topic. Pass M6_ENV=staging or NTFY_TOPIC_URL=<topic for $(M6_ENV)>.)\n"; \
 		exit 1; \
 	fi
+endef
+
+watchdog-install: ## install systemd timers: ntfy alerts every 15 min + daily heartbeat (M6_ENV=staging, NTFY_TOPIC_URL=..., HEARTBEAT_PING_URL=... optional)
+	$(ntfy_topic_guard)
 	@printf "$(call log_step,Writing /etc/sslv-watchdog.env (ENV=$(M6_ENV), topic $(NTFY_TOPIC_URL))...)\n"
 	@{ printf 'ENV=%s\nNTFY_TOPIC_URL=%s\n' "$(M6_ENV)" "$(NTFY_TOPIC_URL)"; \
 		if [ -n "$(HEARTBEAT_PING_URL)" ]; then printf 'HEARTBEAT_PING_URL=%s\n' "$(HEARTBEAT_PING_URL)"; fi; \
@@ -491,6 +496,16 @@ watchdog-uninstall: ## remove the watchdog systemd timers and env file
 watchdog-status: ## show watchdog timers and the last run's output
 	@systemctl list-timers 'sslv-watchdog*' --all
 	@journalctl -u sslv-watchdog.service -u sslv-watchdog-heartbeat.service -n 30 --no-pager
+
+watchdog-drill: ## P3: fire each watchdog alert once as [DRILL] pushes + check recovery (M6_ENV=staging; DRILL=memory,container to limit)
+	$(ntfy_topic_guard)
+	@paused=0; \
+	trap 'if [ $$paused = 1 ]; then sudo systemctl start sslv-watchdog.timer; printf "$(call log_info,Watchdog timer resumed)\n"; fi' EXIT; \
+	if systemctl is-active --quiet sslv-watchdog.timer 2>/dev/null; then \
+		printf "$(call log_info,Pausing sslv-watchdog.timer during the drill...)\n"; \
+		sudo systemctl stop sslv-watchdog.timer && paused=1; \
+	fi; \
+	NTFY_TOPIC_URL="$(NTFY_TOPIC_URL)" python3 scripts/watchdog_drill.py --env $(M6_ENV) $(if $(DRILL),--only $(DRILL))
 
 watchdog-test-ntfy: ## send one low-priority test push to NTFY_TOPIC_URL
 	@curl -fsS -H "Title: [$(M6_ENV)] SSLV watchdog test" -H "Priority: low" -H "Tags: test_tube" \
