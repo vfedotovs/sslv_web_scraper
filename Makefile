@@ -232,7 +232,7 @@ up:  ## starts all containers
 	docker-compose --env-file .env.prod up -d
 
 
-down:  ## stops all containers
+down:  ## legacy single-project stack only: stops it AND deletes its DB volume. Multi-city: use undeploy-staging / undeploy-prod
 	docker-compose --env-file .env.prod down -v   # removes volumes (clears old PGDATA)
 
 clean:  ## removes setup/DB files + project Docker images (including -backup images)
@@ -249,7 +249,7 @@ clean:  ## removes setup/DB files + project Docker images (including -backup ima
 		printf "$(call log_info,rm_images.sh not found - skipping)\n"; \
 	fi
 	@printf "$(call log_step,Pruning project-specific images (e.g. *-backup) ...)\n"
-	@docker images --format "{{.Repository}}" | grep -E '-(backup|ts|ws|db)$' | xargs -r docker rmi -f 2>/dev/null || true
+	@docker images --format "{{.Repository}}" | grep -E -e '-(backup|ts|ws|db)$$' | xargs -r docker rmi -f 2>/dev/null || true
 	@printf "$(call log_success,Cleanup completed)\n"
 
 BUCKET_NAME ?= sslv-ogre-city-dev-v1-6-db-backups-2025-11
@@ -582,6 +582,42 @@ deploy-staging: ## runs ./deploy-multi-city-ws.sh configured for staging
 	@printf "$(call log_step,Deploying all cities to staging...)\n"
 	@printf "$(call log_info,Command: CICD_FILES_BUCKET=sslv-staging-m6-cicd-files M6_ENV=staging ./deploy-multi-city-ws.sh)\n"
 	CICD_FILES_BUCKET=sslv-staging-m6-cicd-files M6_ENV=staging ./deploy-multi-city-ws.sh
+
+# Undeploying makes every watchdog check fail; stop the timers so it does not
+# page for an intentional outage. They stay enabled and come back on reboot.
+define watchdog_timers_stop
+	@if systemctl is-active --quiet sslv-watchdog.timer 2>/dev/null \
+		|| systemctl is-active --quiet sslv-watchdog-heartbeat.timer 2>/dev/null; then \
+		printf "$(call log_info,Stopping watchdog timers (resume after deploy: sudo systemctl start sslv-watchdog.timer sslv-watchdog-heartbeat.timer))\n"; \
+		sudo systemctl stop sslv-watchdog.timer sslv-watchdog-heartbeat.timer; \
+	fi
+endef
+
+.PHONY: undeploy-staging undeploy-prod clean-containers
+
+undeploy-staging: ## removes all city containers + networks on staging, KEEPS DB volumes (PURGE_DATA=1 also deletes all city data, asks to confirm)
+	$(watchdog_timers_stop)
+	M6_ENV=staging ./undeploy-multi-city.sh $(if $(filter 1 true yes,$(PURGE_DATA)),--purge-data)
+
+undeploy-prod: ## removes all city containers + networks on production, KEEPS DB volumes (PURGE_DATA=1 also deletes all city data, asks to confirm)
+	$(watchdog_timers_stop)
+	M6_ENV=prod ./undeploy-multi-city.sh $(if $(filter 1 true yes,$(PURGE_DATA)),--purge-data)
+
+clean-containers: ## force-removes every city's containers + networks by compose label (no compose file needed); keeps volumes + images. CITIES="a b" to override cities.yaml
+	$(watchdog_timers_stop)
+	@cities="$(CITIES)"; \
+	if [ -z "$$cities" ]; then source scripts/lib/cities.sh; cities=$$(parse_cities config/cities.yaml); fi; \
+	for city in $$cities; do \
+		ids=$$(docker ps -aq --filter "label=com.docker.compose.project=$$city"); \
+		if [ -n "$$ids" ]; then \
+			docker rm -f $$ids > /dev/null && printf "$(call log_success,$$city: removed $$(echo $$ids | wc -w | tr -d ' ') container(s))\n"; \
+		else \
+			printf "$(call log_info,$$city: no containers)\n"; \
+		fi; \
+		nets=$$(docker network ls -q --filter "label=com.docker.compose.project=$$city"); \
+		if [ -n "$$nets" ]; then docker network rm $$nets > /dev/null; fi; \
+	done; \
+	printf "$(call log_success,Containers removed; DB volumes kept (docker volume ls | grep _db_data))\n"
 
 deploy-prod: ## runs ./deploy-multi-city-ws.sh configured for production
 	@CICD_FILES_BUCKET=sslv-prod-m6-cicd-files M6_ENV=prod $(MAKE) _deploy-precheck

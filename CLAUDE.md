@@ -52,7 +52,8 @@ The application supports parallel deployment for multiple cities using Docker Co
 - Each city has separate `.env.{city}` file (e.g., `.env.ogre`, `.env.salaspils`)
 - Containers are named: `{city}-db-1`, `{city}-ws-1`, `{city}-ts-1`, `{city}-backup-1`
 - Deploy all: `./deploy-multi-city-ws.sh` (includes db, ws, ts, backup per city)
-- Undeploy all: `./undeploy-multi-city.sh`
+- Undeploy all: `make undeploy-staging` / `make undeploy-prod` (or `./undeploy-multi-city.sh`) — keeps each city's DB volume; `PURGE_DATA=1` / `--purge-data` also deletes all city data after typing the env name to confirm
+- Remove city containers without compose (label-based, keeps volumes): `make clean-containers`
 
 **Important:** Do NOT expose ts health check port 8080 to host when running multi-city (causes port conflicts). Health checks work within Docker network.
 
@@ -154,7 +155,7 @@ docker-compose --env-file .env.prod down -v
 
 # Multi-city deployment
 ./deploy-multi-city-ws.sh      # Deploy ogre, sigulda, salaspils
-./undeploy-multi-city.sh       # Stop all city instances
+./undeploy-multi-city.sh       # Stop all city instances (keeps DB volumes; --purge-data deletes them)
 
 # Check health status
 docker ps                      # Shows (healthy) status
