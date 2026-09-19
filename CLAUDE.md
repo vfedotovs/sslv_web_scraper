@@ -127,15 +127,15 @@ make clean                   # Remove all setup files and state
 
 # Database operations
 make lt                      # List table sizes (verify DB restore)
-make fetch_dump DB_BACKUP_DATE=2022_11_05  # Fetch specific dated backup
+make fetch-dump DB_BACKUP_DATE=2022_11_05  # Fetch specific dated backup
 
 # AWS operations
-make create_s3_bucket        # Create new S3 bucket for DB backups
-make create_s3_bucket BUCKET_NAME=custom-name AWS_REGION=us-west-2
+make create-s3-bucket        # Create new S3 bucket for DB backups
+make create-s3-bucket BUCKET_NAME=custom-name AWS_REGION=us-west-2
 
 # Testing (Note: currently not fully implemented)
 make test                    # Run pytest
-make test_cov                # Run pytest with coverage
+make test-cov                 # Run pytest with coverage
 ```
 
 ### Makefile Features
@@ -340,5 +340,5 @@ Main branch: `main`
 
 **Old DB backup warnings:**
 - Normal if backup is >30 days old
-- Fetch newer backup: `make fetch_dump DB_BACKUP_DATE=YYYY_MM_DD`
-- Or create new: Use `make create_s3_bucket` for new backup bucket
+- Fetch newer backup: `make fetch-dump DB_BACKUP_DATE=YYYY_MM_DD`
+- Or create new: Use `make create-s3-bucket` for new backup bucket

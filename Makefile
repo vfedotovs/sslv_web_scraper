@@ -295,49 +295,47 @@ lt: ## list table sizes in the first *-db-1 container (check a restore)
 
 ##@ Backup & restore (per city)
 # Backups live in sslv-<env>-<city>-db-backups (M6_ENV picks the env; CITY uses
-# the cities.yaml key, e.g. marupes_pag). Restore is always manual and
-# overwrites that city's DB — take a fresh backup-city first.
+# the cities.yaml key, e.g. marupes_pag). verify-backup and test-restore are
+# safe to run any time. backup-* write to S3 and keep only the newest 5 objects.
+# restore-* load the dump into the LIVE DB on top of existing data and ask you
+# to type the city/env first — run test-restore before, backup-city right before.
 
-.PHONY: backup-city backup-all verify-backup restore-city restore-all test-restore e2e-backup-restore fetch_last_db_dump fetch_dump fetch_dump_example
+.PHONY: backup-city backup-all verify-backup restore-city restore-all test-restore e2e-backup-restore fetch-last-db-dump fetch-dump fetch-dump-example
 
-backup-city: ## back up one city's DB to S3 (CITY=ogre M6_ENV=prod)
+backup-city: ## back up one city's DB to S3; bucket keeps the newest 5 (CITY=ogre M6_ENV=prod)
 	@./scripts/backup_db_city.sh --city $(CITY) --env $(M6_ENV)
 
-backup-all: ## back up every city's DB to S3 (M6_ENV=)
+backup-all: ## back up every city's DB to S3; each bucket keeps the newest 5 (M6_ENV=)
 	@./scripts/backup_db_city.sh --all --env $(M6_ENV)
 
-verify-backup: ## back up CITY= and show the size/verify lines (M6_ENV=)
-	@echo "Basic verification for backup of CITY=$(CITY) ENV=$(M6_ENV)..."
-	@./scripts/backup_db_city.sh --city $(CITY) --env $(M6_ENV) 2>&1 | grep -E '(Verifying|size|Verified|Pruned)' || true
-	@echo "For full test-restore: use restore with verification step (lists tables)"
+verify-backup: ## read-only: newest S3 backup per city is < 26h old and >= MIN_BACKUP_SIZE_KB (CITY= or all, M6_ENV=)
+	@./scripts/verify_backup.sh $(if $(CITY),--city $(CITY),--all) --env $(M6_ENV)
 
-restore-city: ## restore one city from its latest backup; overwrites its DB (CITY= M6_ENV=)
-	@./scripts/restore_db_city.sh --city $(CITY) --env $(M6_ENV)
+restore-city: ## LIVE restore of one city's latest backup into its running DB; asks to confirm (CITY= M6_ENV=, YES=1)
+	@./scripts/restore_db_city.sh --city $(CITY) --env $(M6_ENV) $(if $(filter 1 true yes,$(YES)),--yes)
 
-restore-all: ## restore every city from its latest backup; overwrites all DBs (M6_ENV=)
-	@./scripts/restore_db_city.sh --all --env $(M6_ENV)
+restore-all: ## LIVE restore of every city's latest backup into its running DB; asks to confirm (M6_ENV=, YES=1)
+	@./scripts/restore_db_city.sh --all --env $(M6_ENV) $(if $(filter 1 true yes,$(YES)),--yes)
 
-test-restore: ## restore CITY= and show the restore script's table check (M6_ENV=)
-	@echo "Test-restore + verification for CITY=$(CITY)..."
-	@./scripts/restore_db_city.sh --city $(CITY) --env $(M6_ENV) 2>&1 | tail -20
+test-restore: ## safe: restore the latest backup into a throwaway postgres container + count rows (CITY= or all, M6_ENV=)
+	@./scripts/restore_db_city.sh $(if $(CITY),--city $(CITY),--all) --env $(M6_ENV) --scratch
 
-e2e-backup-restore: ## back up, then restore CITY= end to end (M6_ENV=)
-	@echo "=== E2E for CITY=$(CITY) ENV=$(M6_ENV) ==="
-	@echo "1. Backup..."
+e2e-backup-restore: ## take a fresh backup of CITY=, then prove it restores in a throwaway container (M6_ENV=)
+	@if [ -z "$(CITY)" ]; then printf "$(call log_error,CITY= is required (e.g. make e2e-backup-restore CITY=ogre M6_ENV=staging))\n"; exit 1; fi
+	@printf "$(call log_step,1/3 Backup $(CITY) (env $(M6_ENV)) to S3 — keeps the newest 5 backups...)\n"
 	@./scripts/backup_db_city.sh --city $(CITY) --env $(M6_ENV)
-	@echo "2. Simulate volume loss (would be: docker compose --project-name $(CITY) down -v )"
-	@echo "3. Manual restore..."
-	@./scripts/restore_db_city.sh --city $(CITY) --env $(M6_ENV)
-	@echo "4. Verify (lt)..."
-	@echo "(Run 'make lt' or docker exec after real restore to list tables)"
-	@echo "E2E simulation complete. See test-restore target for automated verify."
+	@printf "$(call log_step,2/3 Check the new backup in S3...)\n"
+	@./scripts/verify_backup.sh --city $(CITY) --env $(M6_ENV)
+	@printf "$(call log_step,3/3 Restore it into a throwaway container (live DB untouched)...)\n"
+	@./scripts/restore_db_city.sh --city $(CITY) --env $(M6_ENV) --scratch
+	@printf "$(call log_success,E2E backup/restore passed for $(CITY))\n"
 
-fetch_last_db_dump: ## download the newest DB dump into src/db/ (CITY= M6_ENV= for a city bucket)
+fetch-last-db-dump: ## download the newest DB dump into src/db/ (CITY= M6_ENV= for a city bucket)
 	@python3 src/db/get_last_db_backup.py $(if $(CITY),--city $(CITY) --env $(M6_ENV),)
 	@cp *.sql src/db/ || true
 
-fetch_dump: DB_BACKUP_DATE ?= 2022_11_01
-fetch_dump: ## download the dump for one date into src/db/ (DB_BACKUP_DATE=2026_07_08, CITY= optional)
+fetch-dump: DB_BACKUP_DATE ?= 2022_11_01
+fetch-dump: ## download the dump for one date into src/db/ (DB_BACKUP_DATE=2026_07_08, CITY= optional)
 	@if [ -n "$(CITY)" ]; then \
 		city_slug=$$(echo $(CITY) | sed 's/_/-/g'); \
 		bucket="sslv-$(M6_ENV)-$$city_slug-db-backups"; \
@@ -348,31 +346,31 @@ fetch_dump: ## download the dump for one date into src/db/ (DB_BACKUP_DATE=2026_
 	aws s3 cp s3://$$bucket/pg_backup_$(DB_BACKUP_DATE).sql . ; \
 	cp pg_backup_$(DB_BACKUP_DATE).sql src/db/ || true
 
-# Prints fetch_dump usage examples.
-fetch_dump_example: # Example of fetch specific date DB dump file from S3 bucket
-	@echo "make fetch_dump DB_BACKUP_DATE=2026_07_08"
-	@echo "make fetch_dump DB_BACKUP_DATE=2026_07_08 CITY=ogre"
+# Prints fetch-dump usage examples.
+fetch-dump-example: # Example of fetch specific date DB dump file from S3 bucket
+	@echo "make fetch-dump DB_BACKUP_DATE=2026_07_08"
+	@echo "make fetch-dump DB_BACKUP_DATE=2026_07_08 CITY=ogre"
 
 ##@ AWS S3 buckets (one-time infrastructure)
 # Create, tag and audit buckets following sslv-<env>-<city>-<purpose>. New
 # buckets get public access blocked, versioning and a 90-day lifecycle rule.
 # create_* change real AWS resources; list_* / check_* are read-only.
 
-.PHONY: create_m6_bucket create_all_m6_buckets create_s3_bucket tag_existing_bucket check_m6_bucket list_m6_buckets list_existing_m6_buckets
+.PHONY: create-m6-bucket create-all-m6-buckets create-s3-bucket tag-existing-bucket check-m6-bucket list-m6-buckets list-existing-m6-buckets
 
-create_m6_bucket: ## create sslv-<env>-<city>-<purpose> (M6_ENV= M6_CITY= M6_PURPOSE=, AWS_REGION=)
-	$(MAKE) create_s3_bucket BUCKET_NAME=sslv-$(M6_ENV)-$(M6_CITY)-$(M6_PURPOSE) AWS_REGION=$(AWS_REGION) M6_ENV=$(M6_ENV) M6_CITY=$(M6_CITY) M6_PURPOSE=$(M6_PURPOSE)
+create-m6-bucket: ## create sslv-<env>-<city>-<purpose> (M6_ENV= M6_CITY= M6_PURPOSE=, AWS_REGION=)
+	$(MAKE) create-s3-bucket BUCKET_NAME=sslv-$(M6_ENV)-$(M6_CITY)-$(M6_PURPOSE) AWS_REGION=$(AWS_REGION) M6_ENV=$(M6_ENV) M6_CITY=$(M6_CITY) M6_PURPOSE=$(M6_PURPOSE)
 
-create_all_m6_buckets: ## create every city x purpose bucket for M6_ENV= (12 buckets)
+create-all-m6-buckets: ## create every city x purpose bucket for M6_ENV= (12 buckets)
 	@echo "Creating all M6 buckets for ENV=$(M6_ENV) ..."
 	@for city in $(M6_CITIES); do \
 		for purpose in $(M6_PURPOSES); do \
-			$(MAKE) create_m6_bucket M6_ENV=$(M6_ENV) M6_CITY=$$city M6_PURPOSE=$$purpose || true; \
+			$(MAKE) create-m6-bucket M6_ENV=$(M6_ENV) M6_CITY=$$city M6_PURPOSE=$$purpose || true; \
 		done; \
 	done
 	@echo "Done (some may have been skipped if already existed)."
 
-create_s3_bucket: ## create + harden one bucket: private, versioned, 90-day expiry (BUCKET_NAME= AWS_REGION=)
+create-s3-bucket: ## create + harden one bucket: private, versioned, 90-day expiry (BUCKET_NAME= AWS_REGION=)
 	@printf "$(call log_step,Creating S3 bucket: $(BUCKET_NAME) in region $(AWS_REGION)...)\n"
 	@if aws s3 ls s3://$(BUCKET_NAME) 2>/dev/null; then \
 		printf "$(call log_warning,Bucket $(BUCKET_NAME) already exists)\n"; \
@@ -450,7 +448,7 @@ create_s3_bucket: ## create + harden one bucket: private, versioned, 90-day expi
 	@printf "  - Versioning: Enabled\n"
 	@printf "  - Lifecycle: Delete after 90 days\n"
 
-tag_existing_bucket: ## apply standard tags to an existing bucket (BUCKET_NAME= or M6_ENV= M6_CITY= M6_PURPOSE=)
+tag-existing-bucket: ## apply standard tags to an existing bucket (BUCKET_NAME= or M6_ENV= M6_CITY= M6_PURPOSE=)
 	@if [ -n "$(BUCKET_NAME)" ]; then \
 		BUCKET="$(BUCKET_NAME)"; \
 		ENV_TAG="$$(echo $$BUCKET | cut -d- -f2)"; \
@@ -479,7 +477,7 @@ tag_existing_bucket: ## apply standard tags to an existing bucket (BUCKET_NAME= 
 		]' || { printf "$(call log_error,Failed to tag $$BUCKET)\n"; exit 1; }; \
 	echo "Tags applied to $$BUCKET"
 
-check_m6_bucket: ## show a bucket's public access, versioning, region and lifecycle (BUCKET_NAME=)
+check-m6-bucket: ## show a bucket's public access, versioning, region and lifecycle (BUCKET_NAME=)
 	@if [ -z "$(BUCKET_NAME)" ]; then \
 		echo "Error: BUCKET_NAME=... is required"; \
 		exit 1; \
@@ -494,7 +492,7 @@ check_m6_bucket: ## show a bucket's public access, versioning, region and lifecy
 	echo "  Lifecycle rules:"; \
 	aws s3api get-bucket-lifecycle-configuration --bucket $(BUCKET_NAME) --query 'Rules[0].Status' --output text 2>/dev/null || echo "    (none or error)"
 
-list_m6_buckets: ## print expected bucket names (M6_ENVS x M6_CITIES x M6_PURPOSES)
+list-m6-buckets: ## print expected bucket names (M6_ENVS x M6_CITIES x M6_PURPOSES)
 	@echo "Expected M6 buckets:"
 	@for env in $(M6_ENVS); do \
 		for city in $(M6_CITIES); do \
@@ -504,29 +502,31 @@ list_m6_buckets: ## print expected bucket names (M6_ENVS x M6_CITIES x M6_PURPOS
 		done; \
 	done
 
-list_existing_m6_buckets: ## list buckets in AWS matching sslv-<env>-<city>-<purpose>
+list-existing-m6-buckets: ## list buckets in AWS matching sslv-<env>-<city>-<purpose>
 	@echo "Existing buckets matching M6 pattern (sslv-{env}-{city}-{purpose}):"
 	@aws s3 ls | awk '{print $$3}' | grep -E '^sslv-(prod|staging|dev)-.*-(db-backups|scraped-data)$$' || echo "  (none found or no AWS access)"
 
 ##@ Tests
 
-.PHONY: test test_cov
+.PHONY: test test-cov
 
-test: precheck ## run pytest (precheck: needs S3_BUCKET exported)
+test: ## run pytest
 	pytest -v
 
-test_cov: precheck ## run pytest with coverage (precheck: needs S3_BUCKET exported)
+test-cov: ## run pytest with coverage
 	pytest --cov=.
 
 ##@ Legacy single-project (M5, pre-multi-city)
 # The original one-city stack: `docker-compose --env-file .env.prod` without
 # --project-name, secrets from AWS Secrets Manager (sslv_creds) and the M5
-# bucket. Still used by .github/workflows/main.yml (setup, build, up). Not for
+# bucket. Still used by .github/workflows/main.yml (setup, build, up); the M5
+# workflow (CICD-arm-dev-m5.yml) checks out dev-1.5.8 and uses that branch's
+# ec2_* targets. Not for
 # the multi-city fleet — use the Deploy section. `down` deletes its DB volume.
 
-.PHONY: setup verify-setup check-backup-age precheck build up down clean cleanup-on-failure ec2_precheck default
+.PHONY: setup verify-setup check-backup-age precheck build up down clean cleanup-on-failure _setup-precheck
 
-setup: ec2_precheck ## load secrets (Secrets Manager + M5 bucket) and download the latest DB backup
+setup: _setup-precheck ## load secrets (Secrets Manager + M5 bucket) and download the latest DB backup
 	@printf "$(call log_step,Starting EC2 setup...)\n"
 	@set -e; \
 	trap 'printf "$(call log_error,Setup failed! Cleaning up...)\n"; $(MAKE) cleanup-on-failure' ERR; \
@@ -703,7 +703,7 @@ cleanup-on-failure:  # cleanup partial files on setup failure
 	@printf "$(call log_info,Cleanup complete. You can retry setup.)\n"
 
 # Internal: prerequisite of setup (AWS CLI, jq, S3_BUCKET from Secrets Manager).
-ec2_precheck:
+_setup-precheck:
 	@printf "$(call log_step,Loading envs from AWS Secrets Manager...)\n"
 	@set -e; \
 	if ! command -v aws >/dev/null 2>&1; then \
@@ -726,15 +726,19 @@ ec2_precheck:
 		printf "$(call log_success,S3_BUCKET is exported: $$S3_BUCKET)\n"; \
 	fi
 
-# Old all-in-one entry point, kept for compatibility. NOTE: outside Intel macOS
-# it depends on ec2_setup/ec2_build/ec2_up/ec2_down, which no longer exist, so
-# `make default` fails there (as does .github/workflows/CICD-arm-dev-m5.yml).
-ifeq ($(OS), Darwin)
-    ifeq ($(ARCH), x86_64)
-        default: setup build up down
-    else
-        default: ec2_setup ec2_build ec2_up ec2_down
-    endif
-else
-    default: ec2_setup ec2_build ec2_up ec2_down
-endif
+# Deprecated snake_case names, kept so old docs, notes and muscle memory still
+# work. Each runs the kebab-case target, then prints a deprecation notice.
+# Hidden from `make help`; remove once nothing uses them.
+DEPRECATED_ALIASES := create_m6_bucket:create-m6-bucket create_all_m6_buckets:create-all-m6-buckets \
+	create_s3_bucket:create-s3-bucket tag_existing_bucket:tag-existing-bucket \
+	check_m6_bucket:check-m6-bucket list_m6_buckets:list-m6-buckets \
+	list_existing_m6_buckets:list-existing-m6-buckets fetch_dump:fetch-dump \
+	fetch_last_db_dump:fetch-last-db-dump fetch_dump_example:fetch-dump-example \
+	test_cov:test-cov ec2_precheck:_setup-precheck
+
+define deprecated_alias
+.PHONY: $(1)
+$(1): $(2)
+	@printf "$$(call log_warning,'make $(1)' is deprecated; use 'make $(2)')\n"
+endef
+$(foreach a,$(DEPRECATED_ALIASES),$(eval $(call deprecated_alias,$(word 1,$(subst :, ,$(a))),$(word 2,$(subst :, ,$(a))))))

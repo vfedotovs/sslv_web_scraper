@@ -194,9 +194,9 @@ FAILED=0
 
 for city in $CITIES; do
     if backup_city "$city" "$ENV"; then
-        ((SUCCESS++))
+        SUCCESS=$((SUCCESS + 1))
     else
-        ((FAILED++))
+        FAILED=$((FAILED + 1))
     fi
 done
 

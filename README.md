@@ -140,12 +140,12 @@ To scale safely:
 
 1. Add city to `config/cities.yaml` (e.g. add `marupes_pag`).
 2. Create `.env.marupes_pag` with CITY_MAIN_URL, EMAIL_CITY_TITLE, and S3_BUCKET=sslv-prod-marupes-pag-db-backups (and other creds if needed).
-3. Create the S3 bucket: `make create_m6_bucket CITY=marupes-pag ENV=prod PURPOSE=db-backups`
+3. Create the S3 bucket: `make create-m6-bucket M6_CITY=marupes-pag M6_ENV=prod M6_PURPOSE=db-backups`
 4. (Optional) Create scraped-data bucket similarly.
 5. Test backup for the new city: `make backup-city CITY=marupes-pag ENV=prod`
 6. Deploy the new city: `./deploy-multi-city-ws.sh` (it will pick up from config)
 7. Simulate volume loss (e.g. `docker compose --project-name marupes_pag down -v`), then manual restore: `./scripts/restore_db_city.sh --city marupes_pag --env prod`
-8. Verify with `make lt` or `make test-restore CITY=marupes-pag`
+8. Verify with `make verify-backup CITY=marupes_pag` (S3 age/size) and `make test-restore CITY=marupes_pag` (restores into a throwaway container; the live DB is untouched)
 9. Repeat for next city. Update CI/deploy if needed for per-city.
 
 See also `docs/M6_MVP_problem_list.md` for full risks.
