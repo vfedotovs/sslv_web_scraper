@@ -47,6 +47,13 @@ NTFY_STAGING_TOPIC_URL := https://ntfy.sh/staging-sslv-mc-alerts
 NTFY_TOPIC_URL ?= $(NTFY_STAGING_TOPIC_URL)
 WATCHDOG_UNITS := sslv-watchdog.service sslv-watchdog.timer sslv-watchdog-heartbeat.service sslv-watchdog-heartbeat.timer
 
+# Tests (see "Tests"): project venv for the full suite, pytest-only venv for the host
+VENV ?= .venv
+HOST_VENV ?= .venv-host
+TEST_DEPS := pytest coverage httpx  # httpx: FastAPI TestClient (tests/test_11_status_endpoint.py)
+# Tests of the stdlib-only host scripts; the only ones that run on the EC2 host
+HOST_TESTS := tests/test_12_fleet_watchdog.py tests/test_27_watchdog_drill.py
+
 # Legacy single-project flow (see "Legacy single-project")
 SETUP_STATE_FILE := .setup_state
 BACKUP_AGE_WARNING_DAYS := 30
@@ -96,6 +103,24 @@ define watchdog_timers_stop
 		printf "$(call log_info,Stopping watchdog timers (resume after deploy: sudo systemctl start sslv-watchdog.timer sslv-watchdog-heartbeat.timer))\n"; \
 		sudo systemctl stop sslv-watchdog.timer sslv-watchdog-heartbeat.timer; \
 	fi
+endef
+
+# $(call with_test_python,<command>,<modules>)
+# Sets $$py to a Python that imports <modules> (default: pytest) - $(VENV)/ first,
+# then python3 - and runs <command>. Otherwise explains where tests run.
+define with_test_python
+	@py=""; mods="$(or $(2),pytest)"; imports=""; \
+	for m in $$mods; do imports="$$imports import $$m;"; done; \
+	if [ -x "$(VENV)/bin/python" ] && "$(VENV)/bin/python" -c "$$imports" 2>/dev/null; then py="$(VENV)/bin/python"; \
+	elif python3 -c "$$imports" 2>/dev/null; then py=python3; \
+	else \
+		printf "$(call log_error,No Python with $$mods found (no usable $(VENV)/ and python3 lacks them).)\n"; \
+		printf "$(call log_info,Dev machine: run 'make dev-setup' once - it creates $(VENV)/ with the app requirements.)\n"; \
+		printf "$(call log_info,EC2 host: the full suite runs in CI (app deps live in the images); use 'make test-host'.)\n"; \
+		exit 1; \
+	fi; \
+	printf "$(call log_info,Using $$py)\n"; \
+	$(1)
 endef
 
 # =============================================================================
@@ -509,14 +534,42 @@ list-existing-m6-buckets: ## list buckets in AWS matching sslv-<env>-<city>-<pur
 	@aws s3 ls | awk '{print $$3}' | grep -E '^sslv-(prod|staging|dev)-.*-(db-backups|scraped-data)$$' || echo "  (none found or no AWS access)"
 
 ##@ Tests
+# The full suite needs the app's Python deps (pandas, fastapi, boto3, psycopg2,
+# schedule), which only exist inside the images - so it runs in CI and on dev
+# machines, not on the EC2 host. Dev machine: `make dev-setup` once, then
+# `make test`. EC2 host: `make test-host` runs the tests of the stdlib-only host
+# scripts (fleet_watchdog, watchdog_drill) with a pytest-only venv.
 
-.PHONY: test test-cov
+.PHONY: dev-setup test test-cov test-host
 
-test: ## run pytest
-	pytest -v
+dev-setup: ## create .venv/ with pytest, coverage, httpx and the ws/ts requirements (dev machines, not the EC2 host)
+	@printf "$(call log_step,Creating $(VENV)/ and installing $(TEST_DEPS) + src/ws and src/ts requirements...)\n"
+	@python3 -m venv $(VENV)
+	@$(VENV)/bin/python -m pip install -q --upgrade pip
+	@$(VENV)/bin/python -m pip install -q $(TEST_DEPS) -r src/ws/requirements.txt -r src/ts/requirements.txt
+	@printf "$(call log_success,$(VENV)/ ready - run: make test)\n"
 
-test-cov: ## run pytest with coverage
-	pytest --cov=.
+test: ## run the full pytest suite (.venv/ from dev-setup, else python3 with pytest)
+	$(call with_test_python,"$$py" -m pytest -v)
+
+test-cov: ## run the suite under coverage and print the report (same as CI: coverage run -m pytest)
+	$(call with_test_python,"$$py" -m coverage run -m pytest && "$$py" -m coverage report -m,pytest coverage)
+
+test-host: ## run the host scripts' tests only (fleet_watchdog, watchdog_drill); safe on the EC2 host
+	@if python3 -c 'import pytest' 2>/dev/null; then py=python3; \
+	else \
+		if [ ! -x "$(HOST_VENV)/bin/python" ]; then \
+			printf "$(call log_info,python3 has no pytest; creating $(HOST_VENV)/ with pytest only (~30 MB)...)\n"; \
+			if ! { python3 -m venv $(HOST_VENV) && $(HOST_VENV)/bin/python -m pip install -q pytest; }; then \
+				rm -rf $(HOST_VENV); \
+				printf "$(call log_error,Could not create $(HOST_VENV)/ - install venv/pip support (sudo dnf install -y python3-pip) and retry)\n"; \
+				exit 1; \
+			fi; \
+		fi; \
+		py=$(HOST_VENV)/bin/python; \
+	fi; \
+	printf "$(call log_info,Using $$py)\n"; \
+	"$$py" -m pytest -q $(HOST_TESTS)
 
 ##@ Legacy single-project (M5, pre-multi-city)
 # The original one-city stack: `docker-compose --env-file .env.prod` without

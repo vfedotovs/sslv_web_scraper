@@ -59,3 +59,9 @@ restore-safety/
 # Do not exclude
 !requirements.txt
 !project_data.txt
+
+# Test environments + coverage output (make dev-setup / test-host / test-cov)
+.venv/
+.venv-host/
+coverage.xml
+htmlcov/
