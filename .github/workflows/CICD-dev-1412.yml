@@ -18,6 +18,7 @@ jobs:
         run: |
           python -m pip install pytest
           python -m pip install coverage
+          python -m pip install httpx  # FastAPI TestClient (tests/test_11_status_endpoint.py)
           pip install -r ./src/ws/requirements.txt 
           pip install -r ./src/ts/requirements.txt 
       - name: Run pytest cov report
