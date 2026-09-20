@@ -145,12 +145,15 @@ alert on a missing message.
 - [x] Priorities: `urgent` for last-run and backup problems (#1, #2), `high` for everything else; `low` for the heartbeat.
 - [x] systemd timers (`scripts/systemd/`, installed by `make watchdog-install M6_ENV=staging`): `sslv-watchdog.timer` every 15 min (`--ntfy-mode problems`, no email), `sslv-watchdog-heartbeat.timer` daily 06:35 UTC (`--ntfy-mode always`, SES email on problems only). Config in `/etc/sslv-watchdog.env`.
 - [x] `make watchdog-test-ntfy`, `make watchdog-status`, `make watchdog-uninstall`.
+- [x] **Timer lifecycle is symmetric** (`dev-1.7.9.12`): `undeploy-*` / `clean-containers` stop the timers so a planned outage does not page, and `deploy-staging` / `deploy-prod` start them again. Before this, a redeploy left the fleet unmonitored — and the daily heartbeat silent — until the host next rebooted.
+- [x] **`make watchdog-status` says it out loud** (`dev-1.7.9.12`): per-timer installed / active / enabled check with a ✗ and the resume command when a timer is not running (a stopped timer otherwise showed only as `-` in `systemctl list-timers`), and 60 journal lines so a single 6-city report is not truncated.
+- [x] **Problems name their cause** (`dev-1.7.9.12`): a city with no `scrape_runs` row reports `no run recorded for <city> …` instead of `could not read /status …` (and its last-success check still runs); a failed bucket listing reports the AWS error code — `NoSuchBucket`, `AccessDenied`, `PermanentRedirect` — plus the region tried. The bucket region is overridable with `--s3-region` / `$S3_REGION` (`make watchdog-install S3_REGION=eu-north-1` writes it to `/etc/sslv-watchdog.env`); SES stays pinned to `--aws-region`, where the sender identity is verified.
 
 **On the host:**
 ```bash
 make watchdog-test-ntfy M6_ENV=staging     # phone should get a low-priority test push
 make watchdog-install  M6_ENV=staging      # needs sudo; enables both timers
-make watchdog-status                       # timers + last run output
+make watchdog-status                       # timer state (warns if stopped) + last 60 journal lines
 ```
 The 15-minute cadence covers today's checks (containers, runs, backups). P1's host checks (#3, #4) will run on the same timer; tighten to 5 min only if needed.
 

@@ -20,7 +20,8 @@ REAL_GET_LAST_SUCCESS_AGE_HOURS = watchdog.get_last_success_age_hours
 def isolated_watchdog_state(tmp_path, monkeypatch):
     """Never touch the real state file, host checks or ntfy/heartbeat env."""
     monkeypatch.setenv("WATCHDOG_STATE_FILE", str(tmp_path / "default-state.json"))
-    for var in ("NTFY_TOPIC_URL", "NTFY_TOKEN", "HEARTBEAT_PING_URL", "MIN_BACKUP_SIZE_KB"):
+    for var in ("NTFY_TOPIC_URL", "NTFY_TOKEN", "HEARTBEAT_PING_URL",
+                "MIN_BACKUP_SIZE_KB", "S3_REGION", "AWS_REGION"):
         monkeypatch.delenv(var, raising=False)
     # check_last_run's psql lookup: default to a healthy recent success.
     monkeypatch.setattr(watchdog, "get_last_success_age_hours", lambda city: 5.0)
@@ -592,3 +593,128 @@ def test_min_backup_size_defaults_from_env(monkeypatch):
          patch.object(watchdog, "check_host", return_value=HOST_OK):
         watchdog.main(["--email-mode", "never", "--ntfy-mode", "never"])
     assert seen["kb"] == 1
+
+
+# --- /status: "never ran" is not "unreachable" ---
+
+def test_get_ws_status_returns_sentinel_when_city_has_no_row():
+    body = json.dumps({"status": "ok", "cities": {}})
+    with patch.object(watchdog, "run_cmd", return_value=(0, body, "")):
+        assert watchdog.get_ws_status("ogre") is watchdog.NO_RUN_RECORDED
+
+
+def test_get_ws_status_returns_run_for_known_city():
+    run = {"status": "success", "started_at": iso_hours_ago(2)}
+    body = json.dumps({"status": "ok", "cities": {"ogre": run}})
+    with patch.object(watchdog, "run_cmd", return_value=(0, body, "")):
+        assert watchdog.get_ws_status("ogre") == run
+
+
+@pytest.mark.parametrize("result", [
+    (1, "", "Error: No such container: ogre-ws-1"),  # exec/ws failure
+    (0, "<html>503</html>", ""),                     # unparseable body
+    (0, json.dumps({"detail": "boom"}), ""),         # no cities key
+])
+def test_get_ws_status_unreadable_returns_none(result):
+    with patch.object(watchdog, "run_cmd", return_value=result):
+        assert watchdog.get_ws_status("ogre") is None
+
+
+def test_never_ran_city_is_not_blamed_on_the_endpoint(monkeypatch):
+    monkeypatch.setattr(watchdog, "get_last_success_age_hours", lambda city: "none")
+    with patch.object(watchdog, "get_ws_status", return_value=watchdog.NO_RUN_RECORDED):
+        summary, problems = watchdog.check_last_run("ogre", max_age_hours=26)
+    assert summary.startswith("run:none")
+    assert "ok:never" in summary
+    assert len(problems) == 1  # not also "last successful run: none recorded"
+    assert "no run recorded for ogre" in problems[0]
+    assert not any("/status" in p for p in problems)
+
+
+def test_never_ran_city_still_checks_last_success(monkeypatch):
+    """A row in scrape_runs that /status does not return under this key means
+    the keys disagree — worth seeing, so the success check must still run."""
+    monkeypatch.setattr(watchdog, "get_last_success_age_hours", lambda city: 50.0)
+    with patch.object(watchdog, "get_ws_status", return_value=watchdog.NO_RUN_RECORDED):
+        summary, problems = watchdog.check_last_run("ogre", max_age_hours=26)
+    assert "ok:50h ago" in summary
+    assert any("no run recorded for ogre" in p for p in problems)
+    assert any("last successful run is 50h old" in p for p in problems)
+
+
+# --- backup listing: say why the listing failed ---
+
+@pytest.mark.parametrize("stderr,expected", [
+    ("An error occurred (NoSuchBucket) when calling the ListObjectsV2 "
+     "operation: The specified bucket does not exist",
+     "NoSuchBucket: bucket does not exist"),
+    ("An error occurred (AccessDenied) when calling the ListObjectsV2 "
+     "operation: Access Denied",
+     "AccessDenied: IAM denies s3:ListBucket"),
+    ("An error occurred (PermanentRedirect) when calling the ListObjectsV2 "
+     "operation: The bucket is in this region: eu-north-1",
+     "PermanentRedirect: bucket is in another region"),
+    ("An error occurred (SomethingNew) when calling the ListObjectsV2 operation",
+     "SomethingNew"),
+    ("/bin/sh: aws: command not found", "aws CLI not available"),
+])
+def test_backup_listing_error_names_the_cause(stderr, expected):
+    with patch.object(watchdog, "run_cmd", return_value=(1, "", stderr)):
+        summary, problems = watchdog.check_backup("ogre", "staging", "eu-west-1", 26)
+    assert summary == "bkp:unknown"
+    assert len(problems) == 1
+    assert problems[0].startswith("could not list s3://sslv-staging-ogre-db-backups")
+    assert "eu-west-1" in problems[0]  # which region was tried
+    assert expected in problems[0]
+
+
+def test_backup_listing_error_without_stderr_still_reports():
+    with patch.object(watchdog, "run_cmd", return_value=(1, "", "")):
+        _, problems = watchdog.check_backup("ogre", "prod", "eu-west-1", 26)
+    assert "could not list" in problems[0] and "unknown error" in problems[0]
+
+
+# --- S3 region is configurable, SES region is not ---
+
+def city_args(**overrides):
+    args = MagicMock(env="staging", aws_region="eu-west-1", s3_region=None,
+                     max_run_age_hours=26, max_running_hours=3,
+                     max_backup_age_hours=26, min_backup_size_kb=10)
+    for key, value in overrides.items():
+        setattr(args, key, value)
+    return args
+
+
+def backup_region_seen_by_check_city(args):
+    healthy = dict(watchdog.CITY_SERVICES)
+    with patch.object(watchdog, "check_containers", return_value=(healthy, [])), \
+         patch.object(watchdog, "check_last_run", return_value=("run:success", [])), \
+         patch.object(watchdog, "get_db_row_counts", return_value=(1, 2)), \
+         patch.object(watchdog, "check_backup", return_value=("bkp:3h", [])) as backup:
+        watchdog.check_city("ogre", args)
+    return backup.call_args[0][2]
+
+
+def test_backup_listing_uses_s3_region_when_set():
+    assert backup_region_seen_by_check_city(
+        city_args(s3_region="eu-north-1")) == "eu-north-1"
+
+
+def test_backup_listing_falls_back_to_aws_region():
+    assert backup_region_seen_by_check_city(city_args()) == "eu-west-1"
+
+
+@pytest.mark.parametrize("env_var", ["S3_REGION", "AWS_REGION"])
+def test_s3_region_defaults_from_env(monkeypatch, env_var):
+    monkeypatch.delenv("S3_REGION", raising=False)
+    monkeypatch.delenv("AWS_REGION", raising=False)
+    monkeypatch.setenv(env_var, "eu-north-1")
+    seen = {}
+    with patch.object(watchdog, "parse_cities", return_value=["ogre"]), \
+         patch.object(watchdog, "check_city",
+                      side_effect=lambda c, a: seen.update(
+                          s3=a.s3_region, ses=a.aws_region) or ("l", [])), \
+         patch.object(watchdog, "check_host", return_value=HOST_OK):
+        watchdog.main(["--email-mode", "never", "--ntfy-mode", "never"])
+    assert seen["s3"] == "eu-north-1"
+    assert seen["ses"] == "eu-west-1"  # SES identity is verified in one region

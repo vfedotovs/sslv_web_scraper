@@ -105,6 +105,21 @@ define watchdog_timers_stop
 	fi
 endef
 
+# Deploying ends the intentional outage, so undo watchdog_timers_stop. Without
+# this the fleet stays unmonitored (and the daily heartbeat silent) until the
+# host next reboots, and the only clue is a "-" in `make watchdog-status`.
+define watchdog_timers_start
+	@for unit in sslv-watchdog.timer sslv-watchdog-heartbeat.timer; do \
+		if [ -f /etc/systemd/system/$$unit ] \
+			&& ! systemctl is-active --quiet $$unit 2>/dev/null; then \
+			printf "$(call log_info,Starting $$unit (stopped by a previous undeploy))\n"; \
+			sudo systemctl start $$unit \
+				&& printf "$(call log_success,$$unit started)\n" \
+				|| printf "$(call log_warning,Could not start $$unit - start it manually)\n"; \
+		fi; \
+	done
+endef
+
 # $(call with_test_python,<command>,<modules>)
 # Sets $$py to a Python that imports <modules> (default: pytest) - $(VENV)/ first,
 # then python3 - and runs <command>. Otherwise explains where tests run.
@@ -149,12 +164,14 @@ deploy-staging: ## deploy all cities to staging (sslv-staging-m6-cicd-files)
 	@printf "$(call log_step,Deploying all cities to staging...)\n"
 	@printf "$(call log_info,Command: CICD_FILES_BUCKET=sslv-staging-m6-cicd-files M6_ENV=staging ./deploy-multi-city-ws.sh)\n"
 	CICD_FILES_BUCKET=sslv-staging-m6-cicd-files M6_ENV=staging ./deploy-multi-city-ws.sh
+	$(watchdog_timers_start)
 
 deploy-prod: ## deploy all cities to production (sslv-prod-m6-cicd-files)
 	@CICD_FILES_BUCKET=sslv-prod-m6-cicd-files M6_ENV=prod $(MAKE) _deploy-precheck
 	@printf "$(call log_step,Deploying all cities to production...)\n"
 	@printf "$(call log_info,Command: CICD_FILES_BUCKET=sslv-prod-m6-cicd-files M6_ENV=prod ./deploy-multi-city-ws.sh)\n"
 	CICD_FILES_BUCKET=sslv-prod-m6-cicd-files M6_ENV=prod ./deploy-multi-city-ws.sh
+	$(watchdog_timers_start)
 
 undeploy-staging: ## remove all city containers on staging; keeps DB volumes (PURGE_DATA=1 deletes them, asks first)
 	$(watchdog_timers_stop)
@@ -235,17 +252,20 @@ _deploy-precheck:
 # OOM kills and disk (docs/critical_monitoring_ntfy_plan.md). fleet-status is a
 # read-only report; watchdog-* manage the systemd timers that push to ntfy.
 # Pass M6_ENV=staging on staging: the staging topic is refused for other envs.
+# Pass S3_REGION= when the db-backups buckets are not in the watchdog's SES
+# region (eu-west-1); a wrong region fails the listing with PermanentRedirect.
 
 .PHONY: fleet-status watchdog-install watchdog-status watchdog-test-ntfy watchdog-drill watchdog-uninstall
 
 fleet-status: ## print the watchdog report once: containers, runs, DB rows, backups, host (read-only, M6_ENV=)
 	@python3 scripts/fleet_watchdog.py --email-mode never --env $(M6_ENV)
 
-watchdog-install: ## install ntfy alert timers: every 15 min + daily heartbeat (M6_ENV=, NTFY_TOPIC_URL=, HEARTBEAT_PING_URL=)
+watchdog-install: ## install ntfy alert timers: every 15 min + daily heartbeat (M6_ENV=, NTFY_TOPIC_URL=, HEARTBEAT_PING_URL=, S3_REGION=)
 	$(ntfy_topic_guard)
 	@printf "$(call log_step,Writing /etc/sslv-watchdog.env (ENV=$(M6_ENV), topic $(NTFY_TOPIC_URL))...)\n"
 	@{ printf 'ENV=%s\nNTFY_TOPIC_URL=%s\n' "$(M6_ENV)" "$(NTFY_TOPIC_URL)"; \
 		if [ -n "$(HEARTBEAT_PING_URL)" ]; then printf 'HEARTBEAT_PING_URL=%s\n' "$(HEARTBEAT_PING_URL)"; fi; \
+		if [ -n "$(S3_REGION)" ]; then printf 'S3_REGION=%s\n' "$(S3_REGION)"; fi; \
 	} | sudo tee /etc/sslv-watchdog.env > /dev/null
 	@sudo chmod 600 /etc/sslv-watchdog.env
 	@for unit in $(WATCHDOG_UNITS); do \
@@ -257,8 +277,18 @@ watchdog-install: ## install ntfy alert timers: every 15 min + daily heartbeat (
 	@printf "$(call log_success,Watchdog timers installed. Check with: make watchdog-status)\n"
 
 watchdog-status: ## show watchdog timers and recent run output
+	@for unit in sslv-watchdog.timer sslv-watchdog-heartbeat.timer; do \
+		if [ ! -f /etc/systemd/system/$$unit ]; then \
+			printf "$(call log_warning,$$unit is NOT installed - run: make watchdog-install)\n"; \
+		elif systemctl is-active --quiet $$unit 2>/dev/null; then \
+			printf "$(call log_success,$$unit active ($$(systemctl is-enabled $$unit 2>/dev/null)))\n"; \
+		else \
+			printf "$(call log_error,$$unit is NOT running - the fleet is unmonitored)\n"; \
+			printf "$(call log_info,Resume with: sudo systemctl start $$unit)\n"; \
+		fi; \
+	done
 	@systemctl list-timers 'sslv-watchdog*' --all
-	@journalctl -u sslv-watchdog.service -u sslv-watchdog-heartbeat.service -n 30 --no-pager
+	@journalctl -u sslv-watchdog.service -u sslv-watchdog-heartbeat.service -n 60 --no-pager
 
 watchdog-test-ntfy: ## send one low-priority test push to NTFY_TOPIC_URL
 	@curl -fsS -H "Title: [$(M6_ENV)] SSLV watchdog test" -H "Priority: low" -H "Tags: test_tube" \

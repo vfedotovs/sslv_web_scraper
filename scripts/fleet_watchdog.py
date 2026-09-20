@@ -73,6 +73,18 @@ URGENT_PROBLEM_PREFIXES = (
     "OOM kill", "disk critical", "scraper collapse",
 )
 ZERO_URLS_PROBLEM = "zero URLs discovered"
+# get_ws_status: /status answered, but this city has no scrape_runs row yet
+# (fresh deploy). Empty so it stays falsy for callers that do `status or {}`.
+NO_RUN_RECORDED = {}
+# aws CLI failures worth translating: the code alone does not say what to fix.
+AWS_ERROR_HINTS = {
+    "NoSuchBucket": "bucket does not exist",
+    "AccessDenied": "IAM denies s3:ListBucket",
+    "PermanentRedirect": "bucket is in another region — set --s3-region",
+    "AuthorizationHeaderMalformed": "wrong region — set --s3-region",
+    "InvalidAccessKeyId": "bad AWS credentials",
+    "ExpiredToken": "AWS credentials expired",
+}
 # Pseudo-city keys for problems that are not tied to one city.
 HOST_KEY = "host"
 FLEET_KEY = "fleet"
@@ -141,7 +153,12 @@ def check_containers(city):
 
 def get_ws_status(city):
     """Fetch this city's entry from the ws /status endpoint via docker exec
-    (ws port 8000 is not exposed to the host). Returns dict or None."""
+    (ws port 8000 is not exposed to the host).
+
+    Returns the run dict, NO_RUN_RECORDED when /status answered but has no
+    row for this city, or None when /status could not be read at all
+    (ws down, HTTP 503/404, unparseable body). The two are different
+    problems: "never ran" is not "unreachable"."""
     rc, out, err = run_cmd([
         "docker", "exec", f"{city}-ws-1", "python", "-c",
         "import urllib.request;"
@@ -152,9 +169,13 @@ def get_ws_status(city):
         return None
     try:
         data = json.loads(out)
-        return data.get("cities", {}).get(city)
-    except (ValueError, AttributeError):
+    except ValueError:
         return None
+    cities = data.get("cities") if isinstance(data, dict) else None
+    if not isinstance(cities, dict):
+        return None
+    run = cities.get(city)
+    return NO_RUN_RECORDED if run is None else run
 
 
 def get_last_success_age_hours(city):
@@ -192,49 +213,64 @@ def check_last_run(city, max_age_hours, max_running_hours=3):
     if run is None:
         return "run:unknown", [f"could not read /status from {city}-ws-1"]
 
-    status = run.get("status")
-    started_at = run.get("started_at")
-    age_hours = None
-    if started_at:
-        try:
-            started = datetime.fromisoformat(started_at)
-            if started.tzinfo is None:
-                started = started.replace(tzinfo=timezone.utc)
-            age_hours = (datetime.now(timezone.utc) - started).total_seconds() / 3600
-        except ValueError:
-            pass
+    # /status answered but knows nothing about this city: a fresh deploy that
+    # has never run. Reporting that as "could not read /status" blamed the
+    # endpoint and skipped the last-success check below.
+    never_ran = run is NO_RUN_RECORDED
+    status = None
+    run_is_stale = False
+    if never_ran:
+        summary = "run:none"
+        problems.append(
+            f"no run recorded for {city} in scrape_runs — the pipeline has"
+            " never run here (or runs under a different city key)"
+        )
+    else:
+        status = run.get("status")
+        started_at = run.get("started_at")
+        if started_at:
+            try:
+                started = datetime.fromisoformat(started_at)
+                if started.tzinfo is None:
+                    started = started.replace(tzinfo=timezone.utc)
+                age_hours = (
+                    datetime.now(timezone.utc) - started
+                ).total_seconds() / 3600
+            except ValueError:
+                pass
 
-    age_str = f"{age_hours:.0f}h ago" if age_hours is not None else "age unknown"
-    summary = (
-        f"run:{status} {age_str}"
-        f" new:{run.get('new_ads')} rm:{run.get('removed_ads')}"
-    )
-    if status == "failed":
-        problems.append(
-            f"last run FAILED at stage {run.get('failed_stage')}:"
-            f" {run.get('error')}"
+        age_str = f"{age_hours:.0f}h ago" if age_hours is not None else "age unknown"
+        summary = (
+            f"run:{status} {age_str}"
+            f" new:{run.get('new_ads')} rm:{run.get('removed_ads')}"
         )
-    run_is_stale = age_hours is not None and age_hours > max_age_hours
-    if run_is_stale:
-        problems.append(
-            f"last run is {age_hours:.0f}h old (> {max_age_hours}h) —"
-            " scheduler may be dead"
-        )
-    # A ws killed mid-pipeline (e.g. OOM) leaves its row "running" forever,
-    # and ts.py's 01:40 verification does not treat "running" as a failure.
-    elif (status == "running" and age_hours is not None
-          and age_hours > max_running_hours):
-        problems.append(
-            f"last run stuck in 'running' for {age_hours:.0f}h"
-            f" (> {max_running_hours}h) — ws likely died mid-pipeline"
-        )
+        if status == "failed":
+            problems.append(
+                f"last run FAILED at stage {run.get('failed_stage')}:"
+                f" {run.get('error')}"
+            )
+        run_is_stale = age_hours is not None and age_hours > max_age_hours
+        if run_is_stale:
+            problems.append(
+                f"last run is {age_hours:.0f}h old (> {max_age_hours}h) —"
+                " scheduler may be dead"
+            )
+        # A ws killed mid-pipeline (e.g. OOM) leaves its row "running" forever,
+        # and ts.py's 01:40 verification does not treat "running" as a failure.
+        elif (status == "running" and age_hours is not None
+              and age_hours > max_running_hours):
+            problems.append(
+                f"last run stuck in 'running' for {age_hours:.0f}h"
+                f" (> {max_running_hours}h) — ws likely died mid-pipeline"
+            )
 
     # Runs can keep happening (and failing) while nothing succeeds, so the
     # product-level question is the age of the last success.
     success_age = get_last_success_age_hours(city)
     if success_age == "none":
         summary += " ok:never"
-        problems.append("last successful run: none recorded in scrape_runs")
+        if not never_ran:  # the "no run recorded" problem above already says it
+            problems.append("last successful run: none recorded in scrape_runs")
     elif success_age is not None:
         summary += f" ok:{success_age:.0f}h ago"
         if success_age > max_age_hours and not run_is_stale:
@@ -243,7 +279,7 @@ def check_last_run(city, max_age_hours, max_running_hours=3):
                 f" (> {max_age_hours}h)"
             )
     # None = run did not scrape (e.g. used cloud data); only 0 is a failure.
-    if status == "success" and run.get("urls_discovered") == 0:
+    if not never_ran and status == "success" and run.get("urls_discovered") == 0:
         problems.append(
             f"{ZERO_URLS_PROBLEM} in last run — list page parser broken"
             " or ss.lv is blocking the scraper"
@@ -270,26 +306,43 @@ def get_db_row_counts(city):
         return None
 
 
+def aws_error_reason(stderr, fallback="unknown error"):
+    """Turn aws CLI stderr into one actionable clause for an alert line.
+    "NoSuchBucket", "AccessDenied" and "PermanentRedirect" all used to arrive
+    as the same opaque failure, and they need three different fixes."""
+    stderr = (stderr or "").strip()
+    if not stderr:
+        return fallback
+    match = re.search(r"An error occurred \(([^)]+)\)", stderr)
+    if match:
+        code = match.group(1)
+        hint = AWS_ERROR_HINTS.get(code)
+        return f"{code}: {hint}" if hint else code
+    if "command not found" in stderr or "No such file or directory" in stderr:
+        return "aws CLI not available"
+    return stderr.splitlines()[-1][:160]
+
+
 def get_backup_freshness(bucket, region):
-    """Newest object under db-backups/ via aws s3api.
-    Returns (key, age_hours, size_bytes), 'empty', or 'error'."""
-    rc, out, _ = run_cmd([
+    """Newest object under db-backups/ via aws s3api. Returns
+    ("ok", (key, age_hours, size_bytes)), ("empty", None) or ("error", why)."""
+    rc, out, err = run_cmd([
         "aws", "s3api", "list-objects-v2",
         "--bucket", bucket, "--prefix", "db-backups/",
         "--query", "sort_by(Contents, &LastModified)[-1].{Key: Key, LastModified: LastModified, Size: Size}",
         "--output", "json", "--region", region,
     ], timeout=60)
     if rc != 0:
-        return "error"
+        return "error", aws_error_reason(err)
     try:
         newest = json.loads(out)
     except ValueError:
-        return "error"
+        return "error", "unparseable aws s3api output"
     if not newest:
-        return "empty"
+        return "empty", None
     last_modified = datetime.fromisoformat(newest["LastModified"].replace("Z", "+00:00"))
     age_hours = (datetime.now(timezone.utc) - last_modified).total_seconds() / 3600
-    return newest["Key"], age_hours, newest["Size"]
+    return "ok", (newest["Key"], age_hours, newest["Size"])
 
 
 def check_backup(city, env, region, max_age_hours, min_size_kb=10):
@@ -297,12 +350,14 @@ def check_backup(city, env, region, max_age_hours, min_size_kb=10):
     Size is checked here, from outside the backup container, because a dump
     of an empty or unreachable DB still uploads "successfully"."""
     bucket = f"sslv-{env}-{city.replace('_', '-')}-db-backups"
-    result = get_backup_freshness(bucket, region)
-    if result == "error":
-        return "bkp:unknown", [f"could not list s3://{bucket}"]
-    if result == "empty":
+    outcome, detail = get_backup_freshness(bucket, region)
+    if outcome == "error":
+        return "bkp:unknown", [
+            f"could not list s3://{bucket} in {region} ({detail})"
+        ]
+    if outcome == "empty":
         return "bkp:none", [f"NO backups in s3://{bucket}"]
-    key, age_hours, size = result
+    key, age_hours, size = detail
     summary = f"bkp:{age_hours:.0f}h {size // 1024}KB"
     problems = []
     if age_hours > max_age_hours:
@@ -517,8 +572,8 @@ def check_city(city, args):
         rows_summary = f"LA:{rows[0]} RA:{rows[1]}"
 
     backup_summary, backup_problems = check_backup(
-        city, args.env, args.aws_region, args.max_backup_age_hours,
-        args.min_backup_size_kb,
+        city, args.env, args.s3_region or args.aws_region,
+        args.max_backup_age_hours, args.min_backup_size_kb,
     )
     problems.extend(backup_problems)
 
@@ -686,7 +741,16 @@ def main(argv=None):
                              " (default); always: daily digest; never: stdout only")
     parser.add_argument("--src-email", default=os.getenv("SRC_EMAIL") or "info@propertydata.lv")
     parser.add_argument("--dest-email", default=os.getenv("DEST_EMAIL") or "info@propertydata.lv")
-    parser.add_argument("--aws-region", default="eu-west-1")
+    # SES stays pinned: the sender identity is verified in one region only.
+    parser.add_argument("--aws-region", default="eu-west-1",
+                        help="region for SES and, unless --s3-region says"
+                             " otherwise, for the backup buckets")
+    parser.add_argument("--s3-region",
+                        default=os.getenv("S3_REGION") or os.getenv("AWS_REGION"),
+                        help="region of the sslv-<env>-<city>-db-backups"
+                             " buckets when it differs from --aws-region; the"
+                             " wrong one fails with PermanentRedirect"
+                             " (default: $S3_REGION, else $AWS_REGION)")
     parser.add_argument("--max-run-age-hours", type=float, default=26)
     parser.add_argument("--max-backup-age-hours", type=float, default=26)
     parser.add_argument("--max-running-hours", type=float, default=3,
