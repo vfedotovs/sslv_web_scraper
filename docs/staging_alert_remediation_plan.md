@@ -118,12 +118,12 @@ mismatch is refused. Covered by `tests/test_28_backup_restore_env_isolation.py`
   ```
 - [ ] Confirm the watchdog clears: `make fleet-status M6_ENV=staging` should report no `bkp:` problems, and ntfy should send a "RESOLVED" push.
 
-### P0-2 — Fix `df_cleaner` on empty input (about half a day)
+### P0-2 — Fix `df_cleaner` on empty input  ✅ code fixed on `dev-1.7.9.14`
 
 - [ ] Get the real traceback to confirm the line: `make collect-logs CITY=ogre` and look for `df_cleaner` in the `ws` log, or `docker logs ogre-ws-1 | grep -A20 df_cleaner`.
-- [ ] **Fix:** treat an empty frame as a valid, empty result instead of an error. Either return early in `df_cleaner_main` when the input has no rows, or make each split tolerant (e.g. `split.get(0, pd.Series(dtype=str))` / `reindex(columns=[0, 1])`) at lines 87, 106, 111 and 124. The same guard also covers a price without `(`, which would fail with `"1"`.
-- [ ] Decide what an empty run should record: a `success` with `new_ads = 0`, not a failure. `alert_mailer` already alerts on a zero-new **streak**, which is the right place for that signal.
-- [ ] **Regression tests:** `df_cleaner` with (a) an empty frame, (b) one row whose `Price` has no `(`, (c) a normal row. These are pure-pandas tests and need no containers.
+- [x] **Fix:** all four splits go through `split_into_columns()`, which reindexes to the expected columns (missing ones become NaN) and casts to `object` so the next `.str` step still works. Covers both an empty frame and a price without `(`. `create_email_body` no longer leaves `filtered_by_room_count` unbound for an empty frame, and `df_cleaner_main` logs a warning when the input has no rows.
+- [x] An empty run now completes instead of failing the stage: `db_worker` already skips an empty frame and `analytics` has no empty-sensitive calls, so the pipeline records a normal run with zero rows. The zero-URL alert in `alert_mailer` is what flags a scrape that found nothing.
+- [x] **Regression tests:** `tests/test_29_df_cleaner_empty_input.py` (10 tests: the split helper, each cleaning step on an empty frame, a real ad end to end, and `df_cleaner_main` on a header-only CSV). 7 of them fail against the unfixed module.
 - [ ] Re-run the two failing cities and confirm they go green:
   ```bash
   docker exec ogre-ws-1 python -c "import urllib.request; urllib.request.urlopen('http://localhost:8000/run-task/ogre', timeout=600)"

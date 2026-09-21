@@ -63,6 +63,22 @@ stdout_handler.setFormatter(stdout_formatter)
 log.addHandler(stdout_handler)
 
 
+def split_into_columns(series, separator, max_splits, expected_columns):
+    """str.split(expand=True) that always yields the expected columns.
+
+    pandas returns a frame with NO columns for an empty series, and fewer
+    columns than asked for when no value contains the separator. The callers
+    below then did df[0] / df[1] and raised KeyError, whose message is just
+    "0" - which is how a night that scraped nothing failed the whole pipeline
+    with "FAILED at stage df_cleaner: 0" (2026-09-21, ogre + adazu_nov).
+    Missing columns come back as NaN, so an empty input stays empty instead.
+    """
+    split = series.str.split(separator, n=max_splits, expand=True)
+    # astype(object): a column added by reindex is float64 (all NaN), and
+    # pandas refuses .str on a float column in the next cleaning step.
+    return split.reindex(columns=list(range(expected_columns))).astype(object)
+
+
 def clean_data_frame(df_name):
     """Delete multiple latvian keywords from data frame to clean df"""
     log.info("Started latvian keyword remove from data frame")
@@ -81,8 +97,7 @@ def clean_sqm_column(df_name):
     """ Removes m2 charecter from each sqm value """
     # Sptitting column value in to new columns by separator
     log.info("Started sqm column cleanup from data frame")
-    df = df_name["Size_sq_m"].str.split(
-        " ", n=1, expand=True)  # n=1 == in 2 slices
+    df = split_into_columns(df_name["Size_sq_m"], " ", 1, 2)  # n=1 == in 2 slices
     # Create new column and sourcing data from 0th split index
     df_name["Size_sqm"] = df[0]  # 0 - index at separation
     df = df_name.loc[:, df_name.columns !=
@@ -101,12 +116,12 @@ def split_price_column(df_name):
     # Spitting and cleanup for price column
     # value in to new columns by separator
     log.info("Started price column split")
-    new = df_name["Price"].str.split("(", n=1, expand=True)
+    new = split_into_columns(df_name["Price"], "(", 1, 2)
     # Creating separate columns for price and SQM new data frame
     df_name["Price_EUR"] = new[0]
     df_name["SQ_M_EUR"] = new[1]
     # Remove EUR sign in price column and remove space (split at 3 slices)
-    no_euro_symb = df_name["Price_EUR"].str.split(" ", n=2, expand=True)
+    no_euro_symb = split_into_columns(df_name["Price_EUR"], " ", 2, 3)
     # Creates new column and combines 2 indexes
     df_name["Price_in_eur"] = no_euro_symb[0] + no_euro_symb[1]
     # drop old split columns
@@ -119,7 +134,7 @@ def clean_sqm_eur_col(df_name):
     """sqm price column value cleanup removal of non int characters"""
     # Split value at EUR  symbol
     log.info("Started EUR sqm column cleanup")
-    new = df_name["SQ_M_EUR"].str.split("€", n=1, expand=True)
+    new = split_into_columns(df_name["SQ_M_EUR"], "€", 1, 2)
     # Create new column with from split df  and use only 0 index
     df_name["SQ_meter_price"] = new[0]
     # Remvoe space from clumn value strings
@@ -220,6 +235,9 @@ def create_email_body(clean_data_frame, file_name: str) -> None:
     log.info(f"DataFrame Room_count column dtype: {rc_column_dtype}")
     email_body_txt = []
     for room_count in range(4):
+        # Empty frames (nothing scraped) have neither int64 nor object dtype,
+        # so start from an empty selection instead of leaving it unbound.
+        filtered_by_room_count = clean_data_frame.iloc[0:0]
         room_count_str = str(room_count + 1)
         section_line = str(room_count_str + " room apartment segment:")
         email_body_txt.append(section_line)
@@ -343,6 +361,13 @@ def df_cleaner_main(city_name: str = None):
         with open(RAW_DATA_FILE, 'r') as file:
             content = file.read()
             raw_data_frame = pd.read_csv(RAW_DATA_FILE)
+            if raw_data_frame.empty:
+                # Not an error: the scrape found nothing. Carry on so the run
+                # completes with zero rows - the zero-URL alert in
+                # alert_mailer is what should flag this, not a crashed stage.
+                log.warning(
+                    "%s has no rows: producing empty outputs for this run",
+                    RAW_DATA_FILE)
             clean_df = clean_data_frame(raw_data_frame)
             clean_sqm_col = clean_sqm_column(clean_df)
             clean_price_col = split_price_column(clean_sqm_col)
