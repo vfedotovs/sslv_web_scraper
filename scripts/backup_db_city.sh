@@ -4,7 +4,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 CONFIG_FILE="${SCRIPT_DIR}/../config/cities.yaml"
-LOG_FILE="${SCRIPT_DIR}/../backup_db_city.log"
+LOG_FILE="${LOG_FILE:-${SCRIPT_DIR}/../backup_db_city.log}"  # overridable (tests)
 
 # Logging
 log() {
@@ -28,7 +28,14 @@ Options:
   --city CITY          Backup specific city (e.g. salaspils, ogre)
   --all                Backup all cities from config/cities.yaml
   --env ENV            Environment (prod|staging|dev, default: prod)
+  --bucket BUCKET      Upload to this bucket instead of
+                       sslv-<env>-<city>-db-backups (rarely needed)
   --help               Show this help
+
+The destination is derived from --env and the city. .env.<city> is sourced for
+DB credentials only: its legacy S3_BUCKET/ENV values (which point at prod) can
+no longer redirect the upload, and a bucket that does not match --env is
+refused.
 
 Examples:
   $0 --city salaspils --env staging
@@ -40,6 +47,7 @@ EOF
 CITY=""
 ALL=false
 ENV="prod"
+BUCKET_OVERRIDE=""
 
 while [[ $# -gt 0 ]]; do
     case $1 in
@@ -53,6 +61,10 @@ while [[ $# -gt 0 ]]; do
             ;;
         --env)
             ENV="$2"
+            shift 2
+            ;;
+        --bucket)
+            BUCKET_OVERRIDE="$2"
             shift 2
             ;;
         --help|-h)
@@ -72,6 +84,10 @@ if [[ -z "$CITY" && "$ALL" == false ]]; then
     usage
     exit 1
 fi
+
+# The env asked for on the command line. Sourcing .env.<city> below overwrites
+# any variable it defines, including ENV, so keep the intended value here.
+readonly TARGET_ENV="$ENV"
 
 # Shared cities.yaml parser (provides parse_cities)
 source "${SCRIPT_DIR}/lib/cities.sh"
@@ -98,6 +114,16 @@ backup_city() {
         # shellcheck source=/dev/null
         source "$env_file"
         set +a
+        # .env.<city> still carries the legacy single-city values ENV=prod and
+        # S3_BUCKET=sslv-prod-<city>-db-backups. Sourced with `set -a` they
+        # overwrote this script's own ENV and redirected every upload to the
+        # prod bucket, whose retention then pruned real prod backups. Take
+        # credentials from the file, nothing else.
+        if [[ -n "${S3_BUCKET:-}" ]]; then
+            log_warn "Ignoring S3_BUCKET=$S3_BUCKET from $env_file (bucket comes from --env)"
+            unset S3_BUCKET
+        fi
+        ENV="$TARGET_ENV"
         log_info "Sourced $env_file for credentials"
     else
         log_warn "No $env_file found; relying on environment variables"
@@ -137,11 +163,16 @@ backup_city() {
     log_info "Compressing backup..."
     gzip -f "$backup_file"
 
-    # Determine S3 bucket
-    local bucket="${S3_BUCKET:-}"
-    if [[ -z "$bucket" ]]; then
-        local city_slug="${city//_/-}"
-        bucket="sslv-${env}-${city_slug}-db-backups"
+    # Determine S3 bucket: always from --env + city, never from the env file.
+    local city_slug="${city//_/-}"
+    local bucket="${BUCKET_OVERRIDE:-sslv-${env}-${city_slug}-db-backups}"
+
+    # Last line of defence: a staging run must never write into a prod bucket
+    # (the upload also prunes that bucket to the newest 5 objects).
+    if [[ "$bucket" != "sslv-${env}-"* ]]; then
+        log_error "Refusing to upload $city to $bucket: not an '${env}' bucket (sslv-${env}-...)"
+        rm -f "$gzip_file"
+        return 1
     fi
 
     # S3 key

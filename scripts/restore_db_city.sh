@@ -4,7 +4,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 CONFIG_FILE="${SCRIPT_DIR}/../config/cities.yaml"
-LOG_FILE="${SCRIPT_DIR}/../restore_db_city.log"
+LOG_FILE="${LOG_FILE:-${SCRIPT_DIR}/../restore_db_city.log}"  # overridable (tests)
 
 log() {
     local level="$1"
@@ -30,12 +30,18 @@ Options:
   --file PATH          Restore a local dump (.sql or .sql.gz) instead of S3; needs --city
                        (e.g. a restore-safety/ copy, to undo a restore)
   --env ENV            Environment (prod|staging|dev, default: prod)
+  --bucket BUCKET      Read from this bucket instead of
+                       sslv-<env>-<city>-db-backups (rarely needed)
   --prepare-init       Copy to src/db/ for fresh volume init instead of running restore
   --scratch            Test restore: load the dump into a throwaway postgres container,
                        report tables + row counts, then remove it. Never touches the
                        live <city>-db-1 (image: \$RESTORE_TEST_IMAGE, default postgres:15)
   --yes                Skip the confirmation for a restore into the live DB
   --help               Show help
+
+The source bucket comes from --env and the city. .env.<city> is sourced for DB
+credentials only: its legacy S3_BUCKET/ENV values (which point at prod) can no
+longer redirect the download, and a bucket that does not match --env is refused.
 
 A live restore REPLACES the city's data with the backup: it saves the current
 DB to restore-safety/, stops the city's ws/ts/backup containers, drops and
@@ -59,6 +65,7 @@ PREPARE_INIT=false
 SCRATCH=false
 ASSUME_YES=false
 FILE=""
+BUCKET_OVERRIDE=""
 RESTORE_TEST_IMAGE="${RESTORE_TEST_IMAGE:-postgres:15}"  # matches src/db/Dockerfile
 
 while [[ $# -gt 0 ]]; do
@@ -71,6 +78,7 @@ while [[ $# -gt 0 ]]; do
         --scratch) SCRATCH=true; shift ;;
         --yes) ASSUME_YES=true; shift ;;
         --file) FILE="$2"; shift 2 ;;
+        --bucket) BUCKET_OVERRIDE="$2"; shift 2 ;;
         --help|-h) usage; exit 0 ;;
         *) log_error "Unknown option $1"; usage; exit 1 ;;
     esac
@@ -89,6 +97,10 @@ if [[ "$SCRATCH" == true && "$PREPARE_INIT" == true ]]; then
     log_error "--scratch and --prepare-init are mutually exclusive"
     exit 1
 fi
+
+# The env asked for on the command line. Sourcing .env.<city> below overwrites
+# any variable it defines, including ENV, so keep the intended value here.
+readonly TARGET_ENV="$ENV"
 
 if [[ -n "$FILE" ]]; then
     if [[ -z "$CITY" || "$ALL" == true ]]; then
@@ -302,6 +314,16 @@ restore_city() {
     local env_file=".env.${city}"
     if [[ -f "$env_file" ]]; then
         set -a; source "$env_file"; set +a
+        # .env.<city> still carries the legacy single-city ENV=prod and
+        # S3_BUCKET=sslv-prod-<city>-db-backups. Sourced with `set -a` they
+        # overwrote this script's own ENV and would restore a PROD dump into
+        # this city's live DB. Take credentials from the file, nothing else.
+        if [[ -n "${S3_BUCKET:-}" ]]; then
+            log_warn "Ignoring S3_BUCKET=$S3_BUCKET from $env_file (bucket comes from --env)"
+            unset S3_BUCKET
+        fi
+        ENV="$TARGET_ENV"
+        env="$TARGET_ENV"
     fi
 
     local container="${city}-db-1"
@@ -310,7 +332,14 @@ restore_city() {
     local password="${POSTGRES_PASSWORD:-}"
 
     local city_slug="${city//_/-}"
-    local bucket="${S3_BUCKET:-sslv-${env}-${city_slug}-db-backups}"
+    local bucket="${BUCKET_OVERRIDE:-sslv-${env}-${city_slug}-db-backups}"
+
+    # Last line of defence: restoring a prod dump into a staging DB (or the
+    # reverse) must not be possible by accident.
+    if [[ -z "$FILE" && "$bucket" != "sslv-${env}-"* ]]; then
+        log_error "Refusing to restore $city from $bucket: not an '${env}' bucket (sslv-${env}-...)"
+        return 1
+    fi
 
     # restore_city runs as an `if` condition, where set -e is off: every step
     # that can fail must be checked explicitly.
