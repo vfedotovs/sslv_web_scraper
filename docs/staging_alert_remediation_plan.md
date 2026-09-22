@@ -139,6 +139,40 @@ mismatch is refused. Covered by `tests/test_28_backup_restore_env_isolation.py`
 - [ ] **Alert on a failing backup job, not only on a stale bucket.** Today a backup container that fails every night is invisible until the newest object is 26h old. `backup.py` writes no success marker and the `backup` service has no healthcheck, so "running" is its only health signal (M6 item A1): have the job write a marker on success and add a healthcheck that fails when the marker is older than `BACKUP_MAX_AGE_HOURS`.
 - [ ] **Decide whether staging needs `scraped-data` buckets** (`make list-m6-buckets` lists them as expected); nothing alerts on them today.
 
+### P1b — From the 2026-09-22 fleet-status review  ✅ implemented on `dev-1.7.9.15`
+
+`make fleet-status` (without `M6_ENV=staging`) reported on **prod**, because
+`M6_ENV ?= prod`. Its findings were real: the prod buckets' newest objects were
+the 2–4 KB staging dumps from the incident, and nothing had been written since
+(the backup containers are stopped).
+
+- [x] **Per-env backup size floor.** `MIN_BACKUP_SIZE_KB` now defaults to 1 for
+      staging/dev and 10 for prod, and is passed to `fleet-status` and
+      `verify-backup` and written into `/etc/sslv-watchdog.env` by
+      `watchdog-install`. Staging dumps are 2–4 KB, so the prod floor would have
+      flagged every staging city as "near-empty" forever.
+- [x] **Host/env guard.** Targets that write (`backup-*`, `restore-*`,
+      `test-restore`, `e2e-backup-restore`, `deploy-prod`, `undeploy-prod`)
+      refuse to act on an env other than the one in `/etc/sslv-watchdog.env`;
+      read-only targets warn and continue. `FORCE_ENV=1` overrides.
+      **This closes the remaining route into the 2026-09-21 incident:**
+      `make backup-all` on the staging host defaulted to prod.
+- [x] **Disk targets.** `disk-report` (read-only), `disk-cleanup` (dangling
+      images, build cache, log bundles older than `LOG_BUNDLE_KEEP_DAYS`) and
+      `docker-log-limits` (merges 10 MB × 3 into `/etc/docker/daemon.json`;
+      restarting docker is left to the operator). Disk was 71% used and rising.
+- [x] Tests: `tests/test_30_make_env_guard.py` (14) covers the guard, the
+      per-env floor and the no-config case.
+
+**On the host after deploying this branch:**
+
+```bash
+make fleet-status M6_ENV=staging          # or just `make fleet-status`: it now warns
+make watchdog-install M6_ENV=staging NTFY_TOPIC_URL=...   # records MIN_BACKUP_SIZE_KB=1
+make disk-report                          # check the 71% trend
+make docker-log-limits                    # then restart docker in a quiet window
+```
+
 ### P2 — Before production deployment
 
 Treat these as the gates for promoting this branch series:

@@ -42,6 +42,10 @@ M6_CITIES ?= salaspils sigulda marupes-pag adazu-nov ogre jurmala
 M6_PURPOSES ?= db-backups scraped-data
 M6_ENVS ?= prod staging dev
 
+# Smallest believable backup. Staging/dev DBs hold a few hundred rows, so their
+# dumps are 2-4 KB and would trip a prod-sized floor on every check.
+MIN_BACKUP_SIZE_KB ?= $(if $(filter staging dev,$(M6_ENV)),1,10)
+
 # Watchdog ntfy alerts (see "Monitoring & alerts")
 NTFY_STAGING_TOPIC_URL := https://ntfy.sh/staging-sslv-mc-alerts
 NTFY_TOPIC_URL ?= $(NTFY_STAGING_TOPIC_URL)
@@ -85,6 +89,30 @@ endef
 
 define log_step
 \033[35m▶\033[0m $(1)
+endef
+
+# Which env this host runs, as recorded by `make watchdog-install`. Empty on a
+# host without the watchdog (a dev machine), where the guards below stay quiet.
+WATCHDOG_ENV_FILE ?= /etc/sslv-watchdog.env
+HOST_ENV ?= $(shell sed -n 's/^ENV=//p' $(WATCHDOG_ENV_FILE) 2>/dev/null | head -1)
+
+# $(call host_env_guard,<env the target acts on>)
+# Refuse to act on another environment than the host runs: `make backup-all` on
+# the staging host defaults to M6_ENV=prod and would dump the staging DBs into
+# the prod buckets - exactly the 2026-09-21 incident, by a different route.
+define host_env_guard
+	@if [ -n "$(HOST_ENV)" ] && [ "$(HOST_ENV)" != "$(1)" ] && [ "$(FORCE_ENV)" != "1" ]; then \
+		printf "$(call log_error,This host runs '$(HOST_ENV)' ($(WATCHDOG_ENV_FILE)) but the target acts on '$(1)'.)\n"; \
+		printf "$(call log_info,Re-run with M6_ENV=$(HOST_ENV) - or FORCE_ENV=1 if you really mean '$(1)'.)\n"; \
+		exit 1; \
+	fi
+endef
+
+# Same check, read-only targets: say which env is being reported on, never block.
+define host_env_warn
+	@if [ -n "$(HOST_ENV)" ] && [ "$(HOST_ENV)" != "$(1)" ]; then \
+		printf "$(call log_warning,Reporting on '$(1)' while this host runs '$(HOST_ENV)' - pass M6_ENV=$(HOST_ENV) for this host.)\n"; \
+	fi
 endef
 
 # Refuse to point a non-staging env at the staging topic.
@@ -167,6 +195,7 @@ deploy-staging: ## deploy all cities to staging (sslv-staging-m6-cicd-files)
 	$(watchdog_timers_start)
 
 deploy-prod: ## deploy all cities to production (sslv-prod-m6-cicd-files)
+	$(call host_env_guard,prod)
 	@CICD_FILES_BUCKET=sslv-prod-m6-cicd-files M6_ENV=prod $(MAKE) _deploy-precheck
 	@printf "$(call log_step,Deploying all cities to production...)\n"
 	@printf "$(call log_info,Command: CICD_FILES_BUCKET=sslv-prod-m6-cicd-files M6_ENV=prod ./deploy-multi-city-ws.sh)\n"
@@ -178,6 +207,7 @@ undeploy-staging: ## remove all city containers on staging; keeps DB volumes (PU
 	M6_ENV=staging ./undeploy-multi-city.sh $(if $(filter 1 true yes,$(PURGE_DATA)),--purge-data)
 
 undeploy-prod: ## remove all city containers on production; keeps DB volumes (PURGE_DATA=1 deletes them, asks first)
+	$(call host_env_guard,prod)
 	$(watchdog_timers_stop)
 	M6_ENV=prod ./undeploy-multi-city.sh $(if $(filter 1 true yes,$(PURGE_DATA)),--purge-data)
 
@@ -258,7 +288,9 @@ _deploy-precheck:
 .PHONY: fleet-status watchdog-install watchdog-status watchdog-test-ntfy watchdog-drill watchdog-uninstall
 
 fleet-status: ## print the watchdog report once: containers, runs, DB rows, backups, host (read-only, M6_ENV=)
-	@python3 scripts/fleet_watchdog.py --email-mode never --env $(M6_ENV)
+	$(call host_env_warn,$(M6_ENV))
+	@python3 scripts/fleet_watchdog.py --email-mode never --env $(M6_ENV) \
+		--min-backup-size-kb $(MIN_BACKUP_SIZE_KB)
 
 watchdog-install: ## install ntfy alert timers: every 15 min + daily heartbeat (M6_ENV=, NTFY_TOPIC_URL=, HEARTBEAT_PING_URL=, S3_REGION=)
 	$(ntfy_topic_guard)
@@ -266,6 +298,7 @@ watchdog-install: ## install ntfy alert timers: every 15 min + daily heartbeat (
 	@{ printf 'ENV=%s\nNTFY_TOPIC_URL=%s\n' "$(M6_ENV)" "$(NTFY_TOPIC_URL)"; \
 		if [ -n "$(HEARTBEAT_PING_URL)" ]; then printf 'HEARTBEAT_PING_URL=%s\n' "$(HEARTBEAT_PING_URL)"; fi; \
 		if [ -n "$(S3_REGION)" ]; then printf 'S3_REGION=%s\n' "$(S3_REGION)"; fi; \
+		printf 'MIN_BACKUP_SIZE_KB=%s\n' "$(MIN_BACKUP_SIZE_KB)"; \
 	} | sudo tee /etc/sslv-watchdog.env > /dev/null
 	@sudo chmod 600 /etc/sslv-watchdog.env
 	@for unit in $(WATCHDOG_UNITS); do \
@@ -348,6 +381,54 @@ verify-scrape-all: ## run verify-scrape for jurmala, ogre, sigulda
 lt: ## list table sizes in the first *-db-1 container (check a restore)
 	@docker exec $(PG_CONTAINER_NAME) psql -U new_docker_user -d new_docker_db -c '\dt+'
 
+##@ Disk & logs
+# Container logs have no size limit by default and deploys rebuild images, so
+# /var/lib/docker grows until Postgres cannot write for any city. disk-report is
+# read-only; disk-cleanup removes only dangling images and build cache;
+# docker-log-limits writes the daemon config (restarting docker is left to you,
+# because it restarts every container).
+
+.PHONY: disk-report disk-cleanup docker-log-limits
+
+DOCKER_DAEMON_JSON ?= /etc/docker/daemon.json
+SUDO ?= sudo
+LOG_BUNDLE_KEEP_DAYS ?= 14
+
+disk-report: ## read-only: disk usage, what Docker holds, and the largest container logs
+	@printf "$(call log_step,Filesystem)\n"
+	@df -h / /var/lib/docker 2>/dev/null | sort -u
+	@printf "$(call log_step,Docker usage (RECLAIMABLE is what disk-cleanup can free))\n"
+	@docker system df
+	@printf "$(call log_step,Largest container logs)\n"
+	@$(SUDO) sh -c 'du -sh /var/lib/docker/containers/*/*-json.log 2>/dev/null | sort -h | tail -5' \
+		|| printf "$(call log_info,Could not read container logs (needs sudo))\n"
+	@printf "$(call log_step,Log bundles in $(CURDIR)/log-bundles)\n"
+	@du -sh log-bundles 2>/dev/null || printf "$(call log_info,none)\n"
+
+disk-cleanup: ## free space safely: dangling images, build cache, log bundles older than LOG_BUNDLE_KEEP_DAYS
+	@printf "$(call log_step,Removing dangling images and build cache...)\n"
+	@docker image prune -f
+	@docker builder prune -f
+	@printf "$(call log_step,Removing log bundles older than $(LOG_BUNDLE_KEEP_DAYS) days...)\n"
+	@find log-bundles -name 'sslv-logs-*.tar.gz' -mtime +$(LOG_BUNDLE_KEEP_DAYS) -print -delete 2>/dev/null || true
+	@printf "$(call log_success,Done - run 'make disk-report' to see the result)\n"
+	@printf "$(call log_info,Images in use are kept; 'docker system prune -a' would also delete those.)\n"
+
+docker-log-limits: ## cap container logs at 10MB x 3 in /etc/docker/daemon.json (needs a docker restart to apply)
+	@printf "$(call log_step,Merging log limits into $(DOCKER_DAEMON_JSON)...)\n"
+	@$(SUDO) python3 -c 'import json, os, sys; \
+path = sys.argv[1]; \
+cfg = json.load(open(path)) if os.path.exists(path) else {}; \
+cfg.setdefault("log-driver", "json-file"); \
+opts = cfg.setdefault("log-opts", {}); \
+opts.update({"max-size": "10m", "max-file": "3"}); \
+os.makedirs(os.path.dirname(path), exist_ok=True); \
+json.dump(cfg, open(path, "w"), indent=2); \
+print(json.dumps(cfg))' $(DOCKER_DAEMON_JSON)
+	@printf "$(call log_warning,Applies to containers created after a docker restart - it restarts every container:)\n"
+	@printf "  sudo systemctl restart docker\n"
+	@printf "$(call log_info,Existing logs keep their size until then; truncate one with: sudo truncate -s 0 <path from disk-report>)\n"
+
 ##@ Backup & restore (per city)
 # Backups live in sslv-<env>-<city>-db-backups (M6_ENV picks the env; CITY uses
 # the cities.yaml key, e.g. marupes_pag). verify-backup and test-restore are
@@ -360,24 +441,32 @@ lt: ## list table sizes in the first *-db-1 container (check a restore)
 .PHONY: backup-city backup-all verify-backup restore-city restore-all test-restore e2e-backup-restore fetch-last-db-dump fetch-dump fetch-dump-example
 
 backup-city: ## back up one city's DB to S3; bucket keeps the newest 5 (CITY=ogre M6_ENV=prod)
+	$(call host_env_guard,$(M6_ENV))
 	@./scripts/backup_db_city.sh --city $(CITY) --env $(M6_ENV)
 
 backup-all: ## back up every city's DB to S3; each bucket keeps the newest 5 (M6_ENV=)
+	$(call host_env_guard,$(M6_ENV))
 	@./scripts/backup_db_city.sh --all --env $(M6_ENV)
 
 verify-backup: ## read-only: newest S3 backup per city is < 26h old and >= MIN_BACKUP_SIZE_KB (CITY= or all, M6_ENV=)
-	@./scripts/verify_backup.sh $(if $(CITY),--city $(CITY),--all) --env $(M6_ENV)
+	$(call host_env_warn,$(M6_ENV))
+	@./scripts/verify_backup.sh $(if $(CITY),--city $(CITY),--all) --env $(M6_ENV) \
+		--min-size-kb $(MIN_BACKUP_SIZE_KB)
 
 restore-city: ## LIVE: replace one city's DB with its latest backup, atomically; asks first (CITY= M6_ENV=, FILE= to undo, YES=1)
+	$(call host_env_guard,$(M6_ENV))
 	@./scripts/restore_db_city.sh --city $(CITY) --env $(M6_ENV) $(if $(FILE),--file $(FILE)) $(if $(filter 1 true yes,$(YES)),--yes)
 
 restore-all: ## LIVE: replace every city's DB with its latest backup, atomically; asks first (M6_ENV=, YES=1)
+	$(call host_env_guard,$(M6_ENV))
 	@./scripts/restore_db_city.sh --all --env $(M6_ENV) $(if $(filter 1 true yes,$(YES)),--yes)
 
 test-restore: ## safe: restore the latest backup into a throwaway postgres container + count rows (CITY= or all, M6_ENV=)
+	$(call host_env_guard,$(M6_ENV))
 	@./scripts/restore_db_city.sh $(if $(CITY),--city $(CITY),--all) --env $(M6_ENV) --scratch
 
 e2e-backup-restore: ## take a fresh backup of CITY=, then prove it restores in a throwaway container (M6_ENV=)
+	$(call host_env_guard,$(M6_ENV))
 	@if [ -z "$(CITY)" ]; then printf "$(call log_error,CITY= is required (e.g. make e2e-backup-restore CITY=ogre M6_ENV=staging))\n"; exit 1; fi
 	@printf "$(call log_step,1/3 Backup $(CITY) (env $(M6_ENV)) to S3 — keeps the newest 5 backups...)\n"
 	@./scripts/backup_db_city.sh --city $(CITY) --env $(M6_ENV)
