@@ -55,9 +55,11 @@ log = setup_logging()
 AWS_REGION = os.environ.get("AWS_REGION", "eu-west-1")
 
 # M6 monitoring Item 4 thresholds
-# Minimum plausible size for a compressed backup; a near-empty dump means
-# pg_dump connected to an empty DB.
-MIN_BACKUP_SIZE_KB = int(os.environ.get("MIN_BACKUP_SIZE_KB", "10"))
+# Hard floor for a compressed backup: below it the dump is truncated or
+# failed. It cannot also catch an empty DB: the staging DBs (30-330 rows)
+# dump to 2-8 KB, so the old 10 KB default failed every good nightly backup.
+# fleet_watchdog.py checks the size against the live row count instead.
+MIN_BACKUP_SIZE_KB = int(os.environ.get("MIN_BACKUP_SIZE_KB", "1"))
 # Newest backup object older than this means the cron is silently dead
 # (daily backup at 02:00 + generous slack).
 BACKUP_MAX_AGE_HOURS = int(os.environ.get("BACKUP_MAX_AGE_HOURS", "26"))
@@ -199,9 +201,9 @@ def verify_backup_in_s3(bucket_name: str, key: str) -> None:
     """M6 monitoring Item 4 (in-process check): confirm the uploaded object
     actually exists in S3 with a plausible size.
 
-    A missing object or one below MIN_BACKUP_SIZE_KB (near-empty dump =
-    pg_dump connected to an empty DB) raises RuntimeError, which the main
-    block turns into an alert email + exit 1.
+    A missing object or one below MIN_BACKUP_SIZE_KB (truncated or failed
+    dump) raises RuntimeError, which the main block turns into an alert
+    email + exit 1.
     """
     s3_client = boto3.client('s3')
     log.info("Verifying uploaded backup s3://%s/%s", bucket_name, key)
@@ -217,8 +219,8 @@ def verify_backup_in_s3(bucket_name: str, key: str) -> None:
     if size_bytes < min_bytes:
         raise RuntimeError(
             f"backup verification failed: s3://{bucket_name}/{key} is only"
-            f" {size_bytes} bytes (< {MIN_BACKUP_SIZE_KB} KB minimum) —"
-            f" near-empty dump, DB was likely empty"
+            f" {size_bytes} bytes (< {MIN_BACKUP_SIZE_KB} KB hard floor) —"
+            f" the dump is truncated or failed"
         )
     log.info("Backup verified in S3: %s bytes (>= %s KB minimum)",
              size_bytes, MIN_BACKUP_SIZE_KB)

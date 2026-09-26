@@ -21,7 +21,8 @@ def isolated_watchdog_state(tmp_path, monkeypatch):
     """Never touch the real state file, host checks or ntfy/heartbeat env."""
     monkeypatch.setenv("WATCHDOG_STATE_FILE", str(tmp_path / "default-state.json"))
     for var in ("NTFY_TOPIC_URL", "NTFY_TOKEN", "HEARTBEAT_PING_URL",
-                "MIN_BACKUP_SIZE_KB", "S3_REGION", "AWS_REGION"):
+                "MIN_BACKUP_SIZE_KB", "BACKUP_MIN_BYTES_PER_ROW",
+                "BACKUP_SHRINK_RATIO", "BACKUP_HISTORY_N", "S3_REGION", "AWS_REGION"):
         monkeypatch.delenv(var, raising=False)
     # check_last_run's psql lookup: default to a healthy recent success.
     monkeypatch.setattr(watchdog, "get_last_success_age_hours", lambda city: 5.0)
@@ -113,19 +114,24 @@ def test_db_row_counts_error_returns_none():
 
 # --- backup freshness ---
 
+def listing(*objects):
+    """aws s3api output for check_backup: (hours_ago, size) pairs, oldest first."""
+    return json.dumps([
+        {"Key": f"db-backups/{i}.sql.gz", "LastModified": iso_hours_ago(hours) + "Z",
+         "Size": size}
+        for i, (hours, size) in enumerate(objects)
+    ])
+
+
 def test_backup_fresh_no_problem():
-    newest = {"Key": "db-backups/x.sql.gz",
-              "LastModified": iso_hours_ago(3) + "Z", "Size": 500 * 1024}
-    with patch.object(watchdog, "run_cmd", return_value=(0, json.dumps(newest), "")):
+    with patch.object(watchdog, "run_cmd", return_value=(0, listing((3, 500 * 1024)), "")):
         summary, problems = watchdog.check_backup("ogre", "prod", "eu-west-1", 26)
     assert problems == []
     assert summary.startswith("bkp:3h")
 
 
 def test_backup_stale_is_problem():
-    newest = {"Key": "db-backups/x.sql.gz",
-              "LastModified": iso_hours_ago(50) + "Z", "Size": 500 * 1024}
-    with patch.object(watchdog, "run_cmd", return_value=(0, json.dumps(newest), "")):
+    with patch.object(watchdog, "run_cmd", return_value=(0, listing((50, 500 * 1024)), "")):
         _, problems = watchdog.check_backup("ogre", "prod", "eu-west-1", 26)
     assert any("50h old" in p for p in problems)
 
@@ -575,13 +581,97 @@ def test_unreadable_success_age_is_not_extra_problem(monkeypatch):
         assert watchdog.check_last_run("ogre", 26)[1] == []
 
 
-def test_backup_below_min_size_is_urgent_problem():
-    newest = {"Key": "db-backups/x.sql.gz",
-              "LastModified": iso_hours_ago(3) + "Z", "Size": 4 * 1024}
-    with patch.object(watchdog, "run_cmd", return_value=(0, json.dumps(newest), "")):
-        _, problems = watchdog.check_backup("ogre", "prod", "eu-west-1", 26, min_size_kb=10)
-    assert problems[0].startswith("newest backup is only 4 KB (< 10 KB)")
+def test_backup_below_hard_floor_is_urgent_problem():
+    with patch.object(watchdog, "run_cmd", return_value=(0, listing((3, 600)), "")):
+        _, problems = watchdog.check_backup("ogre", "prod", "eu-west-1", 26, rows=(0, 0))
+    assert len(problems) == 1  # not also "does not contain the data"
+    assert problems[0].startswith("newest backup is only 0.6 KB (< 1 KB hard floor)")
     assert problems[0].startswith(watchdog.URGENT_PROBLEM_PREFIXES)
+
+
+def test_backup_history_query_asks_for_newest_plus_previous():
+    with patch.object(watchdog, "run_cmd", return_value=(0, listing((3, 3000)), "")) as mock_run:
+        watchdog.check_backup("ogre", "prod", "eu-west-1", 26, history=7)
+    cmd = mock_run.call_args[0][0]
+    assert cmd[cmd.index("--query") + 1].startswith("sort_by(Contents, &LastModified)[-8:]")
+
+
+def test_small_db_small_dump_is_ok():
+    """The 2026-09-26 staging fleet: 58 rows in 2.9 KB, 334 rows in 8 KB."""
+    for rows, size in [((49, 9), 2956), ((318, 16), 8 * 1024)]:
+        history = listing((74, size - 200), (50, size - 150), (26, size - 70), (2, size))
+        with patch.object(watchdog, "run_cmd", return_value=(0, history, "")):
+            _, problems = watchdog.check_backup("ogre", "staging", "eu-west-1", 26, rows=rows)
+        assert problems == []
+
+
+def test_large_db_small_dump_does_not_contain_the_data():
+    """2026-09-21: a 2.6 KB staging dump landed in a bucket for a DB with
+    thousands of rows."""
+    with patch.object(watchdog, "run_cmd", return_value=(0, listing((3, 2640)), "")):
+        _, problems = watchdog.check_backup("ogre", "prod", "eu-west-1", 26, rows=(900, 4100))
+    assert len(problems) == 1
+    assert problems[0].startswith("newest backup is 2.6 KB for 5000 DB rows"
+                                  " (expected >= 25.4 KB at 5 B/row)")
+    assert "does not contain the data" in problems[0]
+
+
+def test_unknown_row_count_skips_the_expected_size_check():
+    with patch.object(watchdog, "run_cmd", return_value=(0, listing((3, 2640)), "")):
+        assert watchdog.check_backup("ogre", "prod", "eu-west-1", 26, rows=None)[1] == []
+
+
+def test_backup_shrink_against_median_is_problem():
+    history = listing((98, 90 * 1024), (74, 100 * 1024), (50, 95 * 1024), (26, 400 * 1024),
+                      (2, 30 * 1024))
+    with patch.object(watchdog, "run_cmd", return_value=(0, history, "")):
+        _, problems = watchdog.check_backup("ogre", "prod", "eu-west-1", 26)
+    assert problems == ["newest backup shrank to 30.0 KB from a median of 97.5 KB over the"
+                        " previous 4 backups (< 50%): s3://sslv-prod-ogre-db-backups/"
+                        "db-backups/4.sql.gz"]
+
+
+def test_backup_shrink_needs_three_previous_backups():
+    history = listing((50, 100 * 1024), (26, 100 * 1024), (2, 30 * 1024))
+    with patch.object(watchdog, "run_cmd", return_value=(0, history, "")):
+        assert watchdog.check_backup("ogre", "prod", "eu-west-1", 26)[1] == []
+
+
+def test_check_city_passes_db_rows_to_backup_check():
+    healthy = dict(watchdog.CITY_SERVICES)
+    with patch.object(watchdog, "check_containers", return_value=(healthy, [])), \
+         patch.object(watchdog, "check_last_run", return_value=("run:success", [])), \
+         patch.object(watchdog, "get_db_row_counts", return_value=(49, 9)), \
+         patch.object(watchdog, "check_backup", return_value=("bkp:3h", [])) as backup:
+        watchdog.check_city("ogre", city_args(backup_min_bytes_per_row=7))
+    assert backup.call_args.kwargs["rows"] == (49, 9)
+    assert backup.call_args.kwargs["min_bytes_per_row"] == 7
+
+
+def test_report_header_names_env_and_thresholds(capsys):
+    with patch.object(watchdog, "parse_cities", return_value=["ogre"]), \
+         patch.object(watchdog, "check_city", return_value=("line", [])), \
+         patch.object(watchdog, "check_host", return_value=HOST_OK):
+        watchdog.main(["--env", "staging", "--email-mode", "never", "--ntfy-mode", "never"])
+    out = capsys.readouterr().out.splitlines()
+    assert out[0].startswith("SSLV fleet status [staging] — ")
+    assert out[1] == ("thresholds: run/backup age 26h/26h, backup floor 1 KB + 5 B/row,"
+                      " shrink < 50% of median")
+
+
+def test_backup_thresholds_default_from_env(monkeypatch):
+    monkeypatch.setenv("BACKUP_MIN_BYTES_PER_ROW", "9")
+    monkeypatch.setenv("BACKUP_SHRINK_RATIO", "0.3")
+    monkeypatch.setenv("BACKUP_HISTORY_N", "4")
+    seen = {}
+    with patch.object(watchdog, "parse_cities", return_value=["ogre"]), \
+         patch.object(watchdog, "check_city",
+                      side_effect=lambda c, a: seen.update(vars(a)) or ("l", [])), \
+         patch.object(watchdog, "check_host", return_value=HOST_OK):
+        watchdog.main(["--email-mode", "never", "--ntfy-mode", "never"])
+    assert (seen["backup_min_bytes_per_row"], seen["backup_shrink_ratio"],
+            seen["backup_history"]) == (9, 0.3, 4)
+    assert seen["min_backup_size_kb"] == 1
 
 
 def test_min_backup_size_defaults_from_env(monkeypatch):
@@ -679,7 +769,9 @@ def test_backup_listing_error_without_stderr_still_reports():
 def city_args(**overrides):
     args = MagicMock(env="staging", aws_region="eu-west-1", s3_region=None,
                      max_run_age_hours=26, max_running_hours=3,
-                     max_backup_age_hours=26, min_backup_size_kb=10)
+                     max_backup_age_hours=26, min_backup_size_kb=1,
+                     backup_min_bytes_per_row=5, backup_shrink_ratio=0.5,
+                     backup_history=7)
     for key, value in overrides.items():
         setattr(args, key, value)
     return args

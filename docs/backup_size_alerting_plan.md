@@ -12,20 +12,30 @@ Branch: `dev-1.7.9.16` · Source: `make fleet-status` on the preprod host, 2026-
 
 **Conclusion:** the size floor needs to change (items 1–6), but the age alert is not a false positive. Confirm which env this host runs (item 7, logs below) before changing anything about age.
 
-## 1. Quick fix: stop the noise now (no code change)
+### Update 2026-09-26 13:33: logs from the host
 
-- [ ] On the preprod/staging host, run `make fleet-status M6_ENV=staging`. This picks up `MIN_BACKUP_SIZE_KB=1` from the existing Makefile per-env default.
-- [ ] If the watchdog timers are installed, check the floor they use: `sudo cat /etc/sslv-watchdog.env`. If it is wrong, run `make watchdog-install M6_ENV=staging NTFY_TOPIC_URL=...` again.
-- [ ] Print the env and the thresholds in the report header, e.g. `SSLV fleet status — env=prod floor=10KB max-age=26h — ...`. Today you cannot tell from the output which buckets were checked (`scripts/fleet_watchdog.py:824`).
+- The host is **staging** (`/etc/sslv-watchdog.env`: `ENV=staging`, `MIN_BACKUP_SIZE_KB=1`). `make fleet-status M6_ENV=staging` reports 0 problems, and staging backups are 12h old. **The age alerts came from checking prod buckets from the staging host.** No prod host has written to them since the 2026-09-22 cleanup.
+- **The false positive that is still active is the backup container.** `ogre-backup-1` has no `MIN_BACKUP_SIZE_KB`, so `backup.py` used its 10 KB default. Every night since 2026-09-23 it uploads a good 2.7–3.0 KB dump, then logs `FAILED at s3_verify` and sends an SES alert. `docker-compose.yml` also defaulted it to 10.
+- Calibration from staging: ogre has 58 rows in 2,956 B and jurmala 334 rows in ~8 KB, so data costs ~19 B/row gzip'd on top of ~1.9 KB of schema. Size grows ~70 B/day.
+- Minor: `docker logs` shows every backup line twice, because both `cron.log` and `backup.log` are tailed to stdout. `pgrep` is missing from the image.
+
+## 1. Stop the noise now
+
+- [x] On the staging host, run `make fleet-status M6_ENV=staging`: 0 problems.
+- [x] Watchdog timers already use `ENV=staging` and `MIN_BACKUP_SIZE_KB=1`.
+- [x] **Stop the nightly `s3_verify` alert email.** `MIN_BACKUP_SIZE_KB` now defaults to 1 (a hard floor for a truncated or failed dump) in `backup.py`, `docker-compose.yml`, `env.example`, `verify_backup.sh`, the watchdog and the Makefile. The Makefile's per-env 1/10 switch is removed. The message now says "truncated or failed" instead of "near-empty dump, DB was likely empty". Takes effect on the next deploy, when the backup containers are recreated.
+- [x] The report header names the env and the thresholds: `SSLV fleet status [staging] — ...` followed by `thresholds: run/backup age 26h/26h, backup floor 1 KB + 5 B/row, shrink < 50% of median`. The email subject carries `[env]` too.
 
 ## 2. Make the size check depend on the data, not a constant
 
-Replace the single `size < MIN_BACKUP_SIZE_KB` test in `check_backup()` (`scripts/fleet_watchdog.py:348`) with three separate tests, each with its own message:
+`check_backup()` in `scripts/fleet_watchdog.py` now runs three separate tests, each with its own message. It reads the newest 1 + `BACKUP_HISTORY_N` objects in the same single `list-objects-v2` call as before.
 
-- [ ] **2a. Hard floor (CRIT):** alert when `size < 1 KB`. A gzip'd `--clean` dump with schema and no rows is about 1 KB, so anything smaller is truncated or failed. Keep `MIN_BACKUP_SIZE_KB` as this floor, default it to 1 for every env, and remove the 10 KB prod default.
-- [ ] **2b. Expected size from live row counts (WARN):** the watchdog already reads `LA`/`RA` per city (`fleet_watchdog.py:569-572`). Compute `expected = BASE_BYTES + (LA+RA) × BYTES_PER_ROW`, starting with BASE≈1.5 KB and ≈40 B/row compressed (calibrate in item 5). Alert only when `size < expected × 0.3`. A DB with 30 rows then expects about 2.7 KB and a 2 KB dump passes. A DB with 5,000 rows expects about 200 KB, so a 2 KB dump still alerts.
-- [ ] **2c. Shrink versus history (WARN):** list the last N=7 backups (one `list-objects-v2` call, which the function already makes). Alert when the newest is < 50% of their median. This catches "DB got wiped" whatever the absolute size. Skip this test when there are fewer than 3 prior backups.
-- [ ] Skip 2b when the row counts are unavailable (`LA:?`) and fall back to 2a+2c. Never alert just because a count is unknown.
+- [x] **2a. Hard floor:** `size < MIN_BACKUP_SIZE_KB` (default 1 KB) → "the dump is truncated or failed". When this fires, 2b is skipped so one bad dump does not raise two problems.
+- [x] **2b. Expected size from live row counts:** `size < floor + (LA+RA) × BACKUP_MIN_BYTES_PER_ROW` → "it likely does not contain the data". This uses one parameter, not the BASE/ratio pair first planned. The measured ~19 B/row (item 0) gives a 5 B/row default, about ¼ of what staging uses. Ogre (58 rows, 2.9 KB) expects ≥ 1.3 KB. The 2026-09-21 case (2.6 KB for thousands of rows) expects ≥ 25 KB for 5,000 rows.
+- [x] **2c. Shrink versus history:** newest < `BACKUP_SHRINK_RATIO` (0.5) × the median of the previous backups (up to `BACKUP_HISTORY_N`=7; the buckets keep the newest 5, so 4 in practice). Skipped with fewer than 3 previous backups.
+- [x] 2b is skipped when the row counts are unknown (`LA:?`). That case already raises its own "could not read table row counts" problem.
+- [ ] Severity: all three still use the `newest backup` prefix, so they push as **urgent**. Splitting them into CRIT/WARN is item 6.
+- [ ] Check the 5 B/row default against prod once prod runs again (item 5).
 
 ## 3. Record what went into the dump (backup side)
 
@@ -36,10 +46,10 @@ Replace the single `size < MIN_BACKUP_SIZE_KB` test in `check_backup()` (`script
 
 ## 4. Configuration
 
-- [ ] New env and CLI settings with defaults in `env.example`:
-  `BACKUP_HARD_FLOOR_KB=1`, `BACKUP_BYTES_PER_ROW=40`, `BACKUP_EXPECTED_RATIO=0.3`, `BACKUP_SHRINK_RATIO=0.5`, `BACKUP_HISTORY_N=7`.
+- [x] Env and CLI settings, with defaults in `env.example`: `MIN_BACKUP_SIZE_KB=1` (the hard floor, kept under its old name), `BACKUP_MIN_BYTES_PER_ROW=5`, `BACKUP_SHRINK_RATIO=0.5`, `BACKUP_HISTORY_N=7`. The CLI flags are `--min-backup-size-kb`, `--backup-min-bytes-per-row`, `--backup-shrink-ratio` and `--backup-history`.
 - [ ] Optional per-city override in `config/cities.yaml` (`backup: {min_size_kb: ..}`) for a city with unusual data. Leave it out unless calibration shows a need.
-- [ ] `watchdog-install` writes the new variables to `/etc/sslv-watchdog.env`. Remove the per-env `MIN_BACKUP_SIZE_KB` switch from `Makefile:47`, because the data-based check makes it redundant.
+- [x] Removed the per-env `MIN_BACKUP_SIZE_KB` switch from the Makefile.
+- [ ] `watchdog-install` writes only `MIN_BACKUP_SIZE_KB`. The watchdog reads the other variables from its environment, so add them to `/etc/sslv-watchdog.env` only to override a default. Hosts installed earlier already have `MIN_BACKUP_SIZE_KB=1` (staging) or `10` (prod): **re-run `make watchdog-install` on prod** to get 1.
 
 ## 5. Calibrate before release
 
@@ -56,8 +66,7 @@ Replace the single `size < MIN_BACKUP_SIZE_KB` test in `check_backup()` (`script
 
 ## 7. Age alert: find out why before tuning anything
 
-- [ ] Collect the logs listed below and find out why the 02:00 cron has written nothing since 2026-09-22. Possible causes: cron not running in the container, backups going to `sslv-staging-*` while prod buckets are checked, the host env guard, or an auth failure.
-- [ ] If this host is staging and its cron writes to staging buckets, the fix is item 1 (the env) and the age threshold stays at 26h.
+- [x] Answered by the 13:33 logs: the cron runs nightly and writes to `sslv-staging-*`. The 91h came from checking prod buckets from the staging host. The age threshold stays at 26h.
 - [ ] Improvement: `check_backup` should also report the age of the newest backup in the **other** env's bucket when the checked env is stale. That turns "91h old" into "91h old in prod, 11h old in staging → wrong M6_ENV?".
 
 ## 8. Tests

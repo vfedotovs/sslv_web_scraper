@@ -42,9 +42,10 @@ M6_CITIES ?= salaspils sigulda marupes-pag adazu-nov ogre jurmala
 M6_PURPOSES ?= db-backups scraped-data
 M6_ENVS ?= prod staging dev
 
-# Smallest believable backup. Staging/dev DBs hold a few hundred rows, so their
-# dumps are 2-4 KB and would trip a prod-sized floor on every check.
-MIN_BACKUP_SIZE_KB ?= $(if $(filter staging dev,$(M6_ENV)),1,10)
+# Hard floor for any backup: below it the dump is truncated or failed. The same
+# in every env - a small DB dumps to 2-8 KB, so a size floor cannot tell it from
+# a lost one; fleet_watchdog.py compares the size with the DB row count instead.
+MIN_BACKUP_SIZE_KB ?= 1
 
 # Watchdog ntfy alerts (see "Monitoring & alerts")
 NTFY_STAGING_TOPIC_URL := https://ntfy.sh/staging-sslv-mc-alerts

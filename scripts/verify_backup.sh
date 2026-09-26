@@ -8,8 +8,8 @@
 #   ./scripts/verify_backup.sh --all --env prod
 # Options:
 #   --max-age-hours N   newest backup older than this fails (default 26)
-#   --min-size-kb N     newest backup smaller than this fails
-#                       (default $MIN_BACKUP_SIZE_KB, else 10)
+#   --min-size-kb N     newest backup smaller than this fails: a truncated
+#                       or failed dump (default $MIN_BACKUP_SIZE_KB, else 1)
 #
 # Exit code: 0 when every checked city has a fresh, non-trivial backup.
 
@@ -23,7 +23,7 @@ CITY=""
 ALL=false
 ENV="prod"
 MAX_AGE_HOURS=26
-MIN_SIZE_KB="${MIN_BACKUP_SIZE_KB:-10}"
+MIN_SIZE_KB="${MIN_BACKUP_SIZE_KB:-1}"
 
 while [[ $# -gt 0 ]]; do
     case $1 in

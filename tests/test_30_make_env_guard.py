@@ -80,12 +80,12 @@ def test_read_only_targets_warn_but_still_run(staging_host):
     assert "fleet_watchdog.py" in result.stdout
 
 
-# --- per-environment minimum backup size ---
+# --- minimum backup size: one hard floor for every env ---
 
-@pytest.mark.parametrize("env,expected", [("staging", "1"), ("dev", "1"), ("prod", "10")])
-def test_min_backup_size_follows_the_environment(env, expected, staging_host):
+@pytest.mark.parametrize("env", ["staging", "dev", "prod"])
+def test_min_backup_size_is_the_same_hard_floor_everywhere(env, staging_host):
     result = make(["verify-backup", f"M6_ENV={env}", "FORCE_ENV=1"], staging_host, dry_run=True)
-    assert f"--min-size-kb {expected}" in result.stdout
+    assert "--min-size-kb 1" in result.stdout
 
 
 def test_min_backup_size_can_be_overridden(staging_host):

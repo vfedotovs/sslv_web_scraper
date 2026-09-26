@@ -323,53 +323,96 @@ def aws_error_reason(stderr, fallback="unknown error"):
     return stderr.splitlines()[-1][:160]
 
 
-def get_backup_freshness(bucket, region):
-    """Newest object under db-backups/ via aws s3api. Returns
-    ("ok", (key, age_hours, size_bytes)), ("empty", None) or ("error", why)."""
+def get_backup_history(bucket, region, count):
+    """The newest `count` objects under db-backups/ via aws s3api, oldest
+    first. Returns ("ok", [(key, age_hours, size_bytes), ...]),
+    ("empty", None) or ("error", why)."""
     rc, out, err = run_cmd([
         "aws", "s3api", "list-objects-v2",
         "--bucket", bucket, "--prefix", "db-backups/",
-        "--query", "sort_by(Contents, &LastModified)[-1].{Key: Key, LastModified: LastModified, Size: Size}",
+        "--query", f"sort_by(Contents, &LastModified)[-{count}:]"
+                   ".{Key: Key, LastModified: LastModified, Size: Size}",
         "--output", "json", "--region", region,
     ], timeout=60)
     if rc != 0:
         return "error", aws_error_reason(err)
     try:
-        newest = json.loads(out)
+        objects = json.loads(out)
     except ValueError:
         return "error", "unparseable aws s3api output"
-    if not newest:
+    if not objects:
         return "empty", None
-    last_modified = datetime.fromisoformat(newest["LastModified"].replace("Z", "+00:00"))
-    age_hours = (datetime.now(timezone.utc) - last_modified).total_seconds() / 3600
-    return "ok", (newest["Key"], age_hours, newest["Size"])
+    now = datetime.now(timezone.utc)
+    history = []
+    for obj in objects:
+        last_modified = datetime.fromisoformat(obj["LastModified"].replace("Z", "+00:00"))
+        history.append((obj["Key"], (now - last_modified).total_seconds() / 3600, obj["Size"]))
+    return "ok", history
 
 
-def check_backup(city, env, region, max_age_hours, min_size_kb=10):
+def format_size(size_bytes):
+    """Backups here are a few KB, so whole KB (2 KB vs 2.9 KB) hides the trend."""
+    return f"{size_bytes / 1024:.1f} KB"
+
+
+def check_backup(city, env, region, max_age_hours, min_size_kb=1, rows=None,
+                 min_bytes_per_row=5, shrink_ratio=0.5, history=7):
     """Evaluate S3 backup freshness and size; returns (summary, problems).
     Size is checked here, from outside the backup container, because a dump
-    of an empty or unreachable DB still uploads "successfully"."""
+    of an empty or unreachable DB still uploads "successfully".
+
+    A fixed floor cannot tell a small DB from a lost one: the staging DBs
+    (30-330 rows) dump to 2-8 KB, the same size as an empty prod DB. So the
+    floor only catches a broken dump, and two data-aware checks catch a dump
+    that is missing the data:
+      - expected size from the live row count (`rows` = (listed, removed);
+        skipped when unknown). Staging measures ~19 B/row gzip'd, so the
+        5 B/row default only fires when most of the data is gone.
+      - shrink against the median of the previous backups (needs 3)."""
     bucket = f"sslv-{env}-{city.replace('_', '-')}-db-backups"
-    outcome, detail = get_backup_freshness(bucket, region)
+    outcome, detail = get_backup_history(bucket, region, history + 1)
     if outcome == "error":
         return "bkp:unknown", [
             f"could not list s3://{bucket} in {region} ({detail})"
         ]
     if outcome == "empty":
         return "bkp:none", [f"NO backups in s3://{bucket}"]
-    key, age_hours, size = detail
+    key, age_hours, size = detail[-1]
+    location = f"s3://{bucket}/{key}"
     summary = f"bkp:{age_hours:.0f}h {size // 1024}KB"
     problems = []
     if age_hours > max_age_hours:
         problems.append(
-            f"newest backup is {age_hours:.0f}h old (> {max_age_hours}h):"
-            f" s3://{bucket}/{key}"
+            f"newest backup is {age_hours:.0f}h old (> {max_age_hours}h): {location}"
         )
-    if size < min_size_kb * 1024:
+
+    floor = min_size_kb * 1024
+    if size < floor:
         problems.append(
-            f"newest backup is only {size // 1024} KB (< {min_size_kb} KB),"
-            f" likely a near-empty dump: s3://{bucket}/{key}"
+            f"newest backup is only {format_size(size)} (< {min_size_kb} KB"
+            f" hard floor), the dump is truncated or failed: {location}"
         )
+    elif rows is not None:
+        row_count = sum(rows)
+        expected = floor + row_count * min_bytes_per_row
+        if size < expected:
+            problems.append(
+                f"newest backup is {format_size(size)} for {row_count} DB rows"
+                f" (expected >= {format_size(expected)} at {min_bytes_per_row}"
+                f" B/row), it likely does not contain the data: {location}"
+            )
+
+    previous = sorted(obj[2] for obj in detail[:-1])
+    if len(previous) >= 3:
+        middle = len(previous) // 2
+        median = (previous[middle] if len(previous) % 2
+                  else (previous[middle - 1] + previous[middle]) / 2)
+        if size < median * shrink_ratio:
+            problems.append(
+                f"newest backup shrank to {format_size(size)} from a median of"
+                f" {format_size(median)} over the previous {len(previous)}"
+                f" backups (< {shrink_ratio:.0%}): {location}"
+            )
     return summary, problems
 
 
@@ -573,7 +616,10 @@ def check_city(city, args):
 
     backup_summary, backup_problems = check_backup(
         city, args.env, args.s3_region or args.aws_region,
-        args.max_backup_age_hours, args.min_backup_size_kb,
+        args.max_backup_age_hours, args.min_backup_size_kb, rows=rows,
+        min_bytes_per_row=args.backup_min_bytes_per_row,
+        shrink_ratio=args.backup_shrink_ratio,
+        history=args.backup_history,
     )
     problems.extend(backup_problems)
 
@@ -756,9 +802,24 @@ def main(argv=None):
     parser.add_argument("--max-running-hours", type=float, default=3,
                         help="a run still 'running' after this long is stuck")
     parser.add_argument("--min-backup-size-kb", type=int,
-                        default=int(os.getenv("MIN_BACKUP_SIZE_KB", "10")),
-                        help="newest backup below this is a near-empty dump"
-                             " (default: $MIN_BACKUP_SIZE_KB or 10)")
+                        default=int(os.getenv("MIN_BACKUP_SIZE_KB", "1")),
+                        help="hard floor: newest backup below this is a"
+                             " truncated or failed dump"
+                             " (default: $MIN_BACKUP_SIZE_KB or 1)")
+    parser.add_argument("--backup-min-bytes-per-row", type=int,
+                        default=int(os.getenv("BACKUP_MIN_BYTES_PER_ROW", "5")),
+                        help="newest backup below floor + DB rows x this is"
+                             " missing data (default: $BACKUP_MIN_BYTES_PER_ROW"
+                             " or 5; staging measures ~19)")
+    parser.add_argument("--backup-shrink-ratio", type=float,
+                        default=float(os.getenv("BACKUP_SHRINK_RATIO", "0.5")),
+                        help="newest backup below this fraction of the previous"
+                             " backups' median has shrunk (default:"
+                             " $BACKUP_SHRINK_RATIO or 0.5)")
+    parser.add_argument("--backup-history", type=int,
+                        default=int(os.getenv("BACKUP_HISTORY_N", "7")),
+                        help="previous backups the shrink check compares with;"
+                             " it needs at least 3 (default: $BACKUP_HISTORY_N or 7)")
     parser.add_argument("--ntfy-mode", choices=["problems", "always", "never"],
                         default="problems",
                         help="problems: push on problem-set change + reminders"
@@ -821,8 +882,14 @@ def main(argv=None):
 
     bad_cities = sum(1 for city in cities if city in all_problems)
     now = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
-    report = [f"SSLV fleet status — {now} — {len(cities)} cities,"
-              f" {bad_cities} with problems", ""]
+    # Which buckets and thresholds: without them a prod report run on the
+    # staging host reads like a staging outage.
+    report = [f"SSLV fleet status [{args.env}] — {now} — {len(cities)} cities,"
+              f" {bad_cities} with problems",
+              f"thresholds: run/backup age {args.max_run_age_hours:g}h/"
+              f"{args.max_backup_age_hours:g}h, backup floor"
+              f" {args.min_backup_size_kb} KB + {args.backup_min_bytes_per_row}"
+              f" B/row, shrink < {args.backup_shrink_ratio:.0%} of median", ""]
     report.extend(lines)
     if all_problems:
         report.append("")
@@ -834,10 +901,10 @@ def main(argv=None):
     print(body)
 
     if all_problems:
-        subject = (f"SSLV FLEET ALERT: problems in"
+        subject = (f"SSLV FLEET ALERT [{args.env}]: problems in"
                    f" {', '.join(sorted(all_problems))}")
     else:
-        subject = f"SSLV FLEET: all {len(cities)} cities OK"
+        subject = f"SSLV FLEET [{args.env}]: all {len(cities)} cities OK"
     if args.email_mode == "always" or (args.email_mode == "problems" and all_problems):
         send_email(subject, body, args.src_email, args.dest_email, args.aws_region)
     notify_ntfy(args, all_problems, lines, cities, state)

@@ -170,7 +170,7 @@ All run on the 15-minute `sslv-watchdog.timer` as a `host` line in the report; h
 ### P2 — Tighten existing checks  ✅ implemented on `dev-1.7.9.3`
 - [x] **#1 stuck runs:** a last run still `running` after `--max-running-hours` (3) → `last run stuck in 'running'` **urgent** (the ws-OOM-mid-pipeline case). `src/ts/ts.py`'s 01:40 verification still ignores `running` (M6 A2); the watchdog now covers it from outside.
 - [x] **#1 last success:** age of the newest `status = 'success'` row per city, read with psql in the `db` container (`/status` only returns the newest run of any status). `last successful run is Xh old` > 26 h → **urgent**; `none recorded` when a city has never succeeded. Not repeated when the scheduler-dead alert already fired. Report shows `ok:Xh ago`.
-- [x] **#2 backup size:** newest object below `--min-backup-size-kb` (default `$MIN_BACKUP_SIZE_KB`, else 10) → `newest backup is only X KB` **urgent**, checked from S3 rather than trusting the backup container.
+- [x] **#2 backup size:** newest object below `--min-backup-size-kb` (default `$MIN_BACKUP_SIZE_KB`, else 1: a truncated or failed dump), below the floor + DB rows × `--backup-min-bytes-per-row`, or shrunk below half the previous backups' median → **urgent**, checked from S3 rather than trusting the backup container. See `docs/backup_size_alerting_plan.md`.
 - [x] Every `fleet_watchdog.py` problem goes through ntfy as well as SES — true since P0: `notify_ntfy()` pushes the full problem set, and the 06:35 heartbeat run still sends the SES email on problems.
 
 ### P3 — Verify the alerts actually fire  🛠 tooling on `dev-1.7.9.4`, run pending on staging

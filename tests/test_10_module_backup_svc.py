@@ -44,8 +44,16 @@ def test_verify_fails_when_object_missing():
 def test_verify_fails_when_object_too_small():
     client = make_s3_client(head_response={"ContentLength": 100})
     with patch.object(backup.boto3, "client", return_value=client):
-        with pytest.raises(RuntimeError, match="near-empty dump"):
+        with pytest.raises(RuntimeError, match="truncated or failed"):
             backup.verify_backup_in_s3("bucket", "db-backups/x.sql.gz")
+
+
+def test_verify_passes_small_db_dump():
+    """A 58-row staging DB dumps to 2.9 KB (2026-09-26); the old 10 KB
+    default failed it and emailed an alert every night."""
+    client = make_s3_client(head_response={"ContentLength": 2956})
+    with patch.object(backup.boto3, "client", return_value=client):
+        backup.verify_backup_in_s3("bucket", "db-backups/x.sql.gz")  # no raise
 
 
 # --- find_newest_backup ---
