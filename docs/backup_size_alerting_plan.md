@@ -1,6 +1,6 @@
 # Backup size alerting: fewer false positives — implementation plan
 
-Branch: `dev-1.7.9.16` · Source: `make fleet-status` on the preprod host, 2026-09-26 13:22 UTC
+Branches: `dev-1.7.9.16` (items 1, 2), `dev-1.7.9.17` (items 3, 6) · Source: `make fleet-status` on the preprod host, 2026-09-26 13:22 UTC
 
 ## 0. What the 2026-09-26 report actually says
 
@@ -37,12 +37,21 @@ Branch: `dev-1.7.9.16` · Source: `make fleet-status` on the preprod host, 2026-
 - [ ] Severity: all three still use the `newest backup` prefix, so they push as **urgent**. Splitting them into CRIT/WARN is item 6.
 - [ ] Check the 5 B/row default against prod once prod runs again (item 5).
 
-## 3. Record what went into the dump (backup side)
+## 3. Record what went into the dump (backup side)  ✅ `dev-1.7.9.17`
 
-- [ ] In `backup.py:backup_postgres()`, run `SELECT count(*)` on `listed_ads` and `removed_ads` before `pg_dump`.
-- [ ] Upload with `ExtraArgs={"Metadata": {"listed-ads": ..., "removed-ads": ..., "env": ..., "city": ...}}` (`backup.py:193`).
-- [ ] Change `verify_backup_in_s3()` to use the same rules as 2a/2b instead of the fixed floor. Also fail the backup when the row counts are 0 but the live DB was not expected to be empty.
-- [ ] Watchdog: when `head-object` metadata is present, compare the row counts in the dump with the live counts. For example, dump rows < 50% of live rows → "backup does not contain the data". This is the most exact test and it does not depend on size at all.
+- [x] `backup.py:count_db_rows()` counts `listed_ads`/`removed_ads` with `psql` just before `pg_dump`. It never raises: a failed count only skips the row checks.
+- [x] The upload carries S3 metadata `env`, `city`, `listed-ads` and `removed-ads`. The row counts are left out when the count failed.
+- [x] `verify_backup_in_s3(bucket, key, rows, previous)`:
+  - **CRIT (raise → email + exit 1):** object missing; below the 1 KB floor; or the DB has fewer than `BACKUP_SHRINK_RATIO` × the rows of the previous backup, read from that backup's metadata. `removed_ads` is history, so the total only grows. The alert says today's dump is stored but is of the damaged DB, and to restore from the previous one.
+  - **WARN (log only):** size < floor + rows × `BACKUP_MIN_BYTES_PER_ROW`.
+  - Previous backups made before this change have no metadata, so the row-drop check starts with the second backup after deploy.
+- [x] Watchdog `head-object` on the newest backup (CRIT):
+  - the metadata `env`/`city` differs from the checked env/city (the 2026-09-21 incident);
+  - live rows < ratio × dump rows: the DB lost data since the dump, restore before the next backup;
+  - dump rows < ratio × live rows: not a dump of this DB.
+  - The size-per-row warning uses the dump's own row count when recorded, else the live one.
+  - The `bkp:` summary shows the dump's row count (e.g. `bkp:3h 2KB 57r`). A missing `r` means head-object failed (needs `s3:GetObject`) or the dump predates this change. Those checks are then skipped.
+- [ ] Limitation: the backup.py row-drop alert fires once. The next night's "previous" is already the damaged dump. The watchdog's live-vs-dump check and the size-shrink warning cover the days after.
 
 ## 4. Configuration
 
@@ -57,12 +66,14 @@ Branch: `dev-1.7.9.16` · Source: `make fleet-status` on the preprod host, 2026-
 - [ ] Run it for staging and for prod. Set `BYTES_PER_ROW` to about the observed p10, so the rule stays conservative.
 - [ ] Check that the numbers would have flagged the 2026-09-21 incident: prod buckets received 2–4 KB staging dumps while prod holds thousands of rows. 2b, 2c and 3 should each fire for it.
 
-## 6. Severity and alert routing
+## 6. Severity and alert routing  ✅ `dev-1.7.9.17`
 
-- [ ] Split the problems into `CRIT` and `WARN`. CRIT: hard floor, missing, stale, row mismatch. WARN: below expected, shrink.
-- [ ] ntfy: CRIT uses the current priority and reminders. WARN gets low priority, no 6h reminders, and appears in the daily heartbeat digest.
-- [ ] `backup.py` SES alert: send email only for CRIT. Log WARN to `backup.log`.
-- [ ] Wording: stop saying "likely a near-empty dump" unless 2a or 3 fired. For 2b/2c, state the numbers, e.g. "2 KB for 31 rows, expected ≥ 0.8 KB".
+- [x] Watchdog warnings are problems prefixed `warning: ` (`WARNING_PREFIX`). They are the size-per-row check (2b) and the shrink check (2c). Everything else stays critical.
+- [x] Report: a city with only warnings shows `WRN` instead of `BAD`. The header says `N with problems, M with warnings only`. The exit code is 0 when there are only warnings, so the systemd unit does not fail.
+- [x] ntfy: only critical problems drive alert, reminder and resolved. A **new** warning pushes once at `low` priority (`[ENV] SSLV WARNING: ...`), with no reminders and no "resolved". A cleared warning is forgotten, so it pushes again if it returns. Alerts, resolved pushes and the daily heartbeat list current warnings under `Warnings:`.
+- [x] Email: warnings-only → `SSLV FLEET WARNING [env]` subject. With `--email-mode problems` that is the daily heartbeat run only; the 15-min timer does not email.
+- [x] `backup.py`: SES email only for CRIT; WARN goes to `backup.log`. The alert body now says whether the dump was uploaded (failed verification) or nothing was stored.
+- [x] Wording: "near-empty dump" is gone. Every message states its numbers (`2.6 KB for 5000 rows (expected >= 25.4 KB at 5 B/row)`).
 
 ## 7. Age alert: find out why before tuning anything
 

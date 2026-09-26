@@ -14,7 +14,7 @@ set -e
 ENV_SNAPSHOT=/app/container.env
 
 printenv \
-  | grep -E '^(POSTGRES_PASSWORD|DB_PASSWORD|DB_HOST|DB_USER|DB_NAME|S3_BUCKET|CITY|ENV|LOG_LEVEL|AWS_[A-Z_]+|DEST_EMAIL|SRC_EMAIL|MIN_BACKUP_SIZE_KB|BACKUP_MAX_AGE_HOURS)=' \
+  | grep -E '^(POSTGRES_PASSWORD|DB_PASSWORD|DB_HOST|DB_USER|DB_NAME|S3_BUCKET|CITY|ENV|LOG_LEVEL|AWS_[A-Z_]+|DEST_EMAIL|SRC_EMAIL|MIN_BACKUP_SIZE_KB|BACKUP_MIN_BYTES_PER_ROW|BACKUP_SHRINK_RATIO|BACKUP_MAX_AGE_HOURS)=' \
   | while IFS='=' read -r key value; do
       # Single-quote the value and escape embedded quotes so passwords with
       # shell metacharacters survive being sourced back in.

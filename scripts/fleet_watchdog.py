@@ -72,6 +72,10 @@ URGENT_PROBLEM_PREFIXES = (
     "last run", "last successful run", "newest backup", "NO backups",
     "OOM kill", "disk critical", "scraper collapse",
 )
+# Warnings: estimates that may be wrong (backup size per row, shrink). They
+# show in the report, push once at low priority and never on reminder, and do
+# not make the exit code or a city's verdict BAD.
+WARNING_PREFIX = "warning: "
 ZERO_URLS_PROBLEM = "zero URLs discovered"
 # get_ws_status: /status answered, but this city has no scrape_runs row yet
 # (fresh deploy). Empty so it stays falsy for callers that do `status or {}`.
@@ -350,6 +354,43 @@ def get_backup_history(bucket, region, count):
     return "ok", history
 
 
+def is_warning(problem):
+    return problem.startswith(WARNING_PREFIX)
+
+
+def split_problems(all_problems):
+    """({key: critical problems}, {key: warnings}), empty keys dropped."""
+    critical, warnings = {}, {}
+    for key, problems in all_problems.items():
+        for problem in problems:
+            (warnings if is_warning(problem) else critical).setdefault(key, []).append(problem)
+    return critical, warnings
+
+
+def get_backup_metadata(bucket, key, region):
+    """S3 metadata backup.py records on each dump (env, city, listed-ads,
+    removed-ads), or {} when unreadable or for an older dump without it."""
+    rc, out, _ = run_cmd([
+        "aws", "s3api", "head-object", "--bucket", bucket, "--key", key,
+        "--query", "Metadata", "--output", "json", "--region", region,
+    ], timeout=60)
+    if rc != 0:
+        return {}
+    try:
+        metadata = json.loads(out)
+    except ValueError:
+        return {}
+    return metadata if isinstance(metadata, dict) else {}
+
+
+def dump_rows(metadata):
+    """(listed, removed) recorded in the dump's metadata, or None."""
+    try:
+        return int(metadata["listed-ads"]), int(metadata["removed-ads"])
+    except (KeyError, TypeError, ValueError):
+        return None
+
+
 def format_size(size_bytes):
     """Backups here are a few KB, so whole KB (2 KB vs 2.9 KB) hides the trend."""
     return f"{size_bytes / 1024:.1f} KB"
@@ -357,18 +398,27 @@ def format_size(size_bytes):
 
 def check_backup(city, env, region, max_age_hours, min_size_kb=1, rows=None,
                  min_bytes_per_row=5, shrink_ratio=0.5, history=7):
-    """Evaluate S3 backup freshness and size; returns (summary, problems).
-    Size is checked here, from outside the backup container, because a dump
-    of an empty or unreachable DB still uploads "successfully".
+    """Evaluate S3 backup freshness, origin and size; returns (summary, problems).
+    Checked here, from outside the backup container, because a dump of an
+    empty, wrong or unreachable DB still uploads "successfully".
 
-    A fixed floor cannot tell a small DB from a lost one: the staging DBs
-    (30-330 rows) dump to 2-8 KB, the same size as an empty prod DB. So the
-    floor only catches a broken dump, and two data-aware checks catch a dump
-    that is missing the data:
-      - expected size from the live row count (`rows` = (listed, removed);
-        skipped when unknown). Staging measures ~19 B/row gzip'd, so the
-        5 B/row default only fires when most of the data is gone.
-      - shrink against the median of the previous backups (needs 3)."""
+    Critical:
+      - older than max_age_hours, or no backup at all;
+      - below the hard floor (min_size_kb): the dump is truncated or failed;
+      - the dump's metadata says another env or city (the 2026-09-21
+        incident: staging dumps in the prod buckets);
+      - the dump's row count and the live DB's (`rows` = (listed, removed))
+        differ by more than shrink_ratio either way: the DB lost data since
+        the dump, or the dump is not of this DB.
+    Warnings (estimates; see WARNING_PREFIX):
+      - smaller than floor + rows x min_bytes_per_row. A fixed floor cannot
+        tell a small DB from a lost one - the staging DBs (30-330 rows) dump
+        to 2-8 KB - so size is judged against the row count: the dump's own
+        when recorded, else the live DB's; skipped when neither is known.
+        Staging measures ~19 B/row gzip'd, so the default 5 only fires when
+        most of the data is gone.
+      - shrunk below shrink_ratio x the median of the previous backups
+        (needs 3)."""
     bucket = f"sslv-{env}-{city.replace('_', '-')}-db-backups"
     outcome, detail = get_backup_history(bucket, region, history + 1)
     if outcome == "error":
@@ -386,20 +436,51 @@ def check_backup(city, env, region, max_age_hours, min_size_kb=1, rows=None,
             f"newest backup is {age_hours:.0f}h old (> {max_age_hours}h): {location}"
         )
 
+    metadata = get_backup_metadata(bucket, key, region)
+    for field, expected_value in (("env", env), ("city", city)):
+        recorded = metadata.get(field)
+        # CITY comes from the host's .env.<city>: marupes-pag and
+        # marupes_pag are the same city.
+        if recorded and recorded.replace("-", "_") != expected_value.replace("-", "_"):
+            problems.append(
+                f"newest backup was made by {field}={recorded}, not"
+                f" {expected_value}: it is another DB's dump: {location}"
+            )
+    in_dump = dump_rows(metadata)
+    if in_dump is not None:
+        # Shows the metadata checks ran: without s3:GetObject, head-object
+        # fails and they are skipped without a word.
+        summary += f" {sum(in_dump)}r"
+    if in_dump is not None and rows is not None:
+        dumped, live = sum(in_dump), sum(rows)
+        if dumped and live < dumped * shrink_ratio:
+            problems.append(
+                f"newest backup holds {dumped} rows but the DB now has {live}:"
+                f" the DB lost data since the dump - restore it before the"
+                f" next backup replaces it: {location}"
+            )
+        elif live and dumped < live * shrink_ratio:
+            problems.append(
+                f"newest backup holds {dumped} rows but the DB has {live}:"
+                f" it is not a dump of this DB: {location}"
+            )
+
     floor = min_size_kb * 1024
+    size_rows = in_dump if in_dump is not None else rows
     if size < floor:
         problems.append(
             f"newest backup is only {format_size(size)} (< {min_size_kb} KB"
             f" hard floor), the dump is truncated or failed: {location}"
         )
-    elif rows is not None:
-        row_count = sum(rows)
+    elif size_rows is not None:
+        row_count = sum(size_rows)
         expected = floor + row_count * min_bytes_per_row
         if size < expected:
             problems.append(
-                f"newest backup is {format_size(size)} for {row_count} DB rows"
-                f" (expected >= {format_size(expected)} at {min_bytes_per_row}"
-                f" B/row), it likely does not contain the data: {location}"
+                f"{WARNING_PREFIX}newest backup is {format_size(size)} for"
+                f" {row_count} rows (expected >= {format_size(expected)} at"
+                f" {min_bytes_per_row} B/row), it may not contain the data:"
+                f" {location}"
             )
 
     previous = sorted(obj[2] for obj in detail[:-1])
@@ -409,9 +490,9 @@ def check_backup(city, env, region, max_age_hours, min_size_kb=1, rows=None,
                   else (previous[middle - 1] + previous[middle]) / 2)
         if size < median * shrink_ratio:
             problems.append(
-                f"newest backup shrank to {format_size(size)} from a median of"
-                f" {format_size(median)} over the previous {len(previous)}"
-                f" backups (< {shrink_ratio:.0%}): {location}"
+                f"{WARNING_PREFIX}newest backup shrank to {format_size(size)}"
+                f" from a median of {format_size(median)} over the previous"
+                f" {len(previous)} backups (< {shrink_ratio:.0%}): {location}"
             )
     return summary, problems
 
@@ -623,7 +704,8 @@ def check_city(city, args):
     )
     problems.extend(backup_problems)
 
-    verdict = "OK " if not problems else "BAD"
+    verdict = ("OK " if not problems
+               else "WRN" if all(map(is_warning, problems)) else "BAD")
     line = (
         f"{city:<12} {verdict} | {run_summary} | {rows_summary}"
         f" | {backup_summary} | {ctr_summary}"
@@ -726,53 +808,79 @@ def ntfy_decision(all_problems, state, reminder_hours, now):
     return None, []
 
 
+def fingerprints(problems_by_key):
+    return {
+        f"{key}: {problem_fingerprint(p)}": f"{key}: {p}"
+        for key, problems in problems_by_key.items() for p in problems
+    }
+
+
 def notify_ntfy(args, all_problems, lines, cities, state):
     """Push the fleet status to ntfy according to --ntfy-mode. Records the
     pushed problem set in state only when the push succeeded, so a failed
-    push is retried on the next run."""
+    push is retried on the next run.
+
+    Critical problems alert, remind every --ntfy-reminder-hours and resolve.
+    Warnings push once, at low priority, when a new one appears; after that
+    they only ride along in other pushes and the daily heartbeat."""
     if args.ntfy_mode == "never":
         return
     if not args.ntfy_url:
         print("ntfy: no --ntfy-url / NTFY_TOPIC_URL set, skipping push")
         return
 
+    critical, warnings = split_problems(all_problems)
+    current_warnings = fingerprints(warnings)
+    new_warnings = set(current_warnings) - set(state.get("warnings", {}))
+
     now = datetime.now(timezone.utc)
-    kind, resolved = ntfy_decision(all_problems, state, args.ntfy_reminder_hours, now)
+    kind, resolved = ntfy_decision(critical, state, args.ntfy_reminder_hours, now)
     if args.ntfy_mode == "always" and kind is None:
-        kind = "reminder" if all_problems else "heartbeat"
+        kind = "reminder" if critical else "heartbeat"
+    if kind is None and new_warnings:
+        kind = "warning"
     if kind is None:
+        # Forget cleared warnings, so one that comes back pushes again.
+        state["warnings"] = current_warnings
         return
 
     env = args.env.upper()
-    problem_lines = [f"- {city}: {p}" for city, ps in all_problems.items() for p in ps]
+    problem_lines = [f"- {key}: {p}" for key, ps in critical.items() for p in ps]
+    warning_lines = [f"- {key}: {p}" for key, ps in warnings.items() for p in ps]
+    warning_block = ["", "Warnings:"] + warning_lines if warning_lines else []
     if kind == "heartbeat":
         title = f"[{env}] SSLV fleet OK: {len(cities)}/{len(cities)} cities"
+        if warnings:
+            title += f", {len(warning_lines)} warning(s)"
         priority, tags = "low", ["white_check_mark"]
-        body = "\n".join(lines)
+        body = "\n".join(lines + warning_block)
+    elif kind == "warning":
+        title = f"[{env}] SSLV WARNING: {', '.join(sorted(warnings))}"
+        priority, tags = "low", ["warning"]
+        body = "\n".join(warning_block[1:] + [""] + lines)
     elif kind == "resolved":
         title = f"[{env}] SSLV RESOLVED: all {len(cities)} cities OK"
         priority, tags = "default", ["white_check_mark"]
-        body = "\n".join(["Resolved:"] + [f"- {r}" for r in resolved] + [""] + lines)
+        body = "\n".join(["Resolved:"] + [f"- {r}" for r in resolved]
+                         + warning_block + [""] + lines)
     else:
         urgent = any(
             p.startswith(URGENT_PROBLEM_PREFIXES)
-            for ps in all_problems.values() for p in ps
+            for ps in critical.values() for p in ps
         )
         prefix = "SSLV ALERT" if kind == "alert" else "SSLV STILL FAILING"
-        title = f"[{env}] {prefix}: {', '.join(sorted(all_problems))}"
+        title = f"[{env}] {prefix}: {', '.join(sorted(critical))}"
         priority = "urgent" if urgent else "high"
         tags = ["rotating_light"] if urgent else ["warning"]
         body_lines = ["Problems:"] + problem_lines
         if resolved:
             body_lines += ["", "Resolved:"] + [f"- {r}" for r in resolved]
-        body = "\n".join(body_lines + [""] + lines)
+        body = "\n".join(body_lines + warning_block + [""] + lines)
 
     title = args.ntfy_title_prefix + title
     if send_ntfy(args.ntfy_url, title, body, priority, tags, args.ntfy_token):
-        state["problems"] = {
-            f"{city}: {problem_fingerprint(p)}": f"{city}: {p}"
-            for city, ps in all_problems.items() for p in ps
-        }
+        state["problems"] = fingerprints(critical)
+        state["warnings"] = current_warnings
         state["last_sent"] = now.isoformat()
 
 
@@ -880,12 +988,15 @@ def main(argv=None):
     if host_problems:
         all_problems[HOST_KEY] = host_problems
 
-    bad_cities = sum(1 for city in cities if city in all_problems)
+    critical, warnings = split_problems(all_problems)
+    bad_cities = sum(1 for city in cities if city in critical)
+    warn_cities = sum(1 for city in cities if city in warnings and city not in critical)
     now = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
     # Which buckets and thresholds: without them a prod report run on the
     # staging host reads like a staging outage.
     report = [f"SSLV fleet status [{args.env}] — {now} — {len(cities)} cities,"
-              f" {bad_cities} with problems",
+              f" {bad_cities} with problems"
+              + (f", {warn_cities} with warnings only" if warn_cities else ""),
               f"thresholds: run/backup age {args.max_run_age_hours:g}h/"
               f"{args.max_backup_age_hours:g}h, backup floor"
               f" {args.min_backup_size_kb} KB + {args.backup_min_bytes_per_row}"
@@ -900,9 +1011,12 @@ def main(argv=None):
     body = "\n".join(report)
     print(body)
 
-    if all_problems:
+    if critical:
         subject = (f"SSLV FLEET ALERT [{args.env}]: problems in"
-                   f" {', '.join(sorted(all_problems))}")
+                   f" {', '.join(sorted(critical))}")
+    elif warnings:
+        subject = (f"SSLV FLEET WARNING [{args.env}]: warnings in"
+                   f" {', '.join(sorted(warnings))}")
     else:
         subject = f"SSLV FLEET [{args.env}]: all {len(cities)} cities OK"
     if args.email_mode == "always" or (args.email_mode == "problems" and all_problems):
@@ -915,7 +1029,7 @@ def main(argv=None):
         if args.heartbeat_ping_url:
             ping_heartbeat(args.heartbeat_ping_url)
 
-    return 1 if all_problems else 0
+    return 1 if critical else 0
 
 
 if __name__ == "__main__":

@@ -123,6 +123,23 @@ def listing(*objects):
     ])
 
 
+def s3(history, metadata=None):
+    """run_cmd stand-in: `history` for the listing, `metadata` for
+    head-object (None = the call fails, as for a missing object)."""
+    def fake(cmd, timeout=60):
+        if "head-object" in cmd:
+            return (0, json.dumps(metadata), "") if metadata is not None else (254, "", "404")
+        return 0, history, ""
+    return fake
+
+
+def meta(env="prod", city="ogre", listed=None, removed=None):
+    data = {"env": env, "city": city}
+    if listed is not None:
+        data.update({"listed-ads": str(listed), "removed-ads": str(removed)})
+    return data
+
+
 def test_backup_fresh_no_problem():
     with patch.object(watchdog, "run_cmd", return_value=(0, listing((3, 500 * 1024)), "")):
         summary, problems = watchdog.check_backup("ogre", "prod", "eu-west-1", 26)
@@ -299,6 +316,65 @@ def test_main_ntfy_always_mode_sends_low_priority_heartbeat(tmp_path):
     ntfy = run_main_ntfy([], "always", tmp_path / "s.json")
     title, _, priority = ntfy.call_args[0][1:4]
     assert "fleet OK" in title and priority == "low"
+
+
+WARNING = "warning: newest backup shrank to 1.0 KB from a median of 3.0 KB"
+
+
+def test_main_warnings_only_exit_0_and_email_as_warning(capsys):
+    email = MagicMock(return_value=True)
+    with patch.object(watchdog, "parse_cities", return_value=["ogre"]), \
+         patch.object(watchdog, "check_city", return_value=("line", [WARNING])), \
+         patch.object(watchdog, "check_host", return_value=HOST_OK), \
+         patch.object(watchdog, "send_email", email):
+        assert watchdog.main(["--email-mode", "problems", "--ntfy-mode", "never"]) == 0
+    assert email.call_args[0][0] == "SSLV FLEET WARNING [prod]: warnings in ogre"
+    header = capsys.readouterr().out.splitlines()[0]
+    assert header.endswith("1 cities, 0 with problems, 1 with warnings only")
+
+
+def test_main_ntfy_new_warning_pushes_once_at_low_priority(tmp_path):
+    state_file = tmp_path / "state.json"
+    ntfy = run_main_ntfy([WARNING], "problems", state_file)
+    title, body, priority = ntfy.call_args[0][1:4]
+    assert title == "[STAGING] SSLV WARNING: ogre" and priority == "low"
+    assert body.startswith("Warnings:\n- ogre: " + WARNING)
+
+    # Unchanged: no push, and no reminder even after the reminder interval.
+    state = json.loads(state_file.read_text())
+    state["last_sent"] = (datetime.now(timezone.utc) - timedelta(hours=24)).isoformat()
+    state_file.write_text(json.dumps(state))
+    run_main_ntfy([WARNING], "problems", state_file).assert_not_called()
+
+
+def test_main_ntfy_cleared_warning_is_forgotten_and_pushes_again(tmp_path):
+    state_file = tmp_path / "state.json"
+    run_main_ntfy([WARNING], "problems", state_file)
+    run_main_ntfy([], "problems", state_file).assert_not_called()  # no "resolved"
+    assert json.loads(state_file.read_text())["warnings"] == {}
+    run_main_ntfy([WARNING], "problems", state_file).assert_called_once()
+
+
+def test_main_ntfy_alert_carries_warnings_but_only_critical_in_title(tmp_path):
+    ntfy = run_main_ntfy(["newest backup is 30h old (> 26.0h): s3://b/k", WARNING],
+                         "problems", tmp_path / "s.json")
+    title, body, priority = ntfy.call_args[0][1:4]
+    assert title == "[STAGING] SSLV ALERT: ogre" and priority == "urgent"
+    assert "Problems:\n- ogre: newest backup is 30h old" in body
+    assert "Warnings:\n- ogre: " + WARNING in body
+
+
+def test_main_ntfy_warning_does_not_trigger_alert_state(tmp_path):
+    state_file = tmp_path / "state.json"
+    run_main_ntfy([WARNING], "problems", state_file)
+    assert json.loads(state_file.read_text())["problems"] == {}
+
+
+def test_main_ntfy_heartbeat_lists_warnings(tmp_path):
+    ntfy = run_main_ntfy([WARNING], "always", tmp_path / "s.json")
+    title, body, priority = ntfy.call_args[0][1:4]
+    assert title == "[STAGING] SSLV fleet OK: 1/1 cities, 1 warning(s)"
+    assert priority == "low" and "Warnings:\n- ogre: " + WARNING in body
 
 
 def test_main_ntfy_without_url_is_noop(tmp_path):
@@ -592,7 +668,7 @@ def test_backup_below_hard_floor_is_urgent_problem():
 def test_backup_history_query_asks_for_newest_plus_previous():
     with patch.object(watchdog, "run_cmd", return_value=(0, listing((3, 3000)), "")) as mock_run:
         watchdog.check_backup("ogre", "prod", "eu-west-1", 26, history=7)
-    cmd = mock_run.call_args[0][0]
+    cmd = mock_run.call_args_list[0][0][0]
     assert cmd[cmd.index("--query") + 1].startswith("sort_by(Contents, &LastModified)[-8:]")
 
 
@@ -610,10 +686,9 @@ def test_large_db_small_dump_does_not_contain_the_data():
     thousands of rows."""
     with patch.object(watchdog, "run_cmd", return_value=(0, listing((3, 2640)), "")):
         _, problems = watchdog.check_backup("ogre", "prod", "eu-west-1", 26, rows=(900, 4100))
-    assert len(problems) == 1
-    assert problems[0].startswith("newest backup is 2.6 KB for 5000 DB rows"
-                                  " (expected >= 25.4 KB at 5 B/row)")
-    assert "does not contain the data" in problems[0]
+    assert problems == ["warning: newest backup is 2.6 KB for 5000 rows (expected"
+                        " >= 25.4 KB at 5 B/row), it may not contain the data:"
+                        " s3://sslv-prod-ogre-db-backups/db-backups/0.sql.gz"]
 
 
 def test_unknown_row_count_skips_the_expected_size_check():
@@ -626,7 +701,7 @@ def test_backup_shrink_against_median_is_problem():
                       (2, 30 * 1024))
     with patch.object(watchdog, "run_cmd", return_value=(0, history, "")):
         _, problems = watchdog.check_backup("ogre", "prod", "eu-west-1", 26)
-    assert problems == ["newest backup shrank to 30.0 KB from a median of 97.5 KB over the"
+    assert problems == ["warning: newest backup shrank to 30.0 KB from a median of 97.5 KB over the"
                         " previous 4 backups (< 50%): s3://sslv-prod-ogre-db-backups/"
                         "db-backups/4.sql.gz"]
 
@@ -635,6 +710,86 @@ def test_backup_shrink_needs_three_previous_backups():
     history = listing((50, 100 * 1024), (26, 100 * 1024), (2, 30 * 1024))
     with patch.object(watchdog, "run_cmd", return_value=(0, history, "")):
         assert watchdog.check_backup("ogre", "prod", "eu-west-1", 26)[1] == []
+
+
+# --- backup metadata written by backup.py ---
+
+def test_backup_metadata_matching_db_is_ok():
+    with patch.object(watchdog, "run_cmd",
+                      side_effect=s3(listing((3, 2956)), meta("staging", listed=48, removed=9))):
+        summary, problems = watchdog.check_backup("ogre", "staging", "eu-west-1", 26, rows=(49, 9))
+    assert problems == []
+    assert summary == "bkp:3h 2KB 57r"  # the dump's row count: metadata was read
+
+
+def test_backup_head_object_is_asked_for_the_newest_key():
+    with patch.object(watchdog, "run_cmd",
+                      side_effect=s3(listing((26, 2900), (3, 2956)), meta())) as mock_run:
+        watchdog.check_backup("ogre", "prod", "eu-west-1", 26)
+    cmd = mock_run.call_args_list[1][0][0]
+    assert "head-object" in cmd and cmd[cmd.index("--key") + 1] == "db-backups/1.sql.gz"
+
+
+@pytest.mark.parametrize("metadata,expected", [
+    (meta(env="staging"), "newest backup was made by env=staging, not prod"),
+    (meta(city="sigulda"), "newest backup was made by city=sigulda, not ogre"),
+])
+def test_backup_from_another_env_or_city_is_urgent(metadata, expected):
+    """2026-09-21: staging dumps landed in the prod buckets."""
+    with patch.object(watchdog, "run_cmd", side_effect=s3(listing((3, 50 * 1024)), metadata)):
+        _, problems = watchdog.check_backup("ogre", "prod", "eu-west-1", 26)
+    assert len(problems) == 1 and problems[0].startswith(expected)
+    assert problems[0].startswith(watchdog.URGENT_PROBLEM_PREFIXES)
+
+
+def test_backup_city_spelled_with_dash_is_the_same_city():
+    with patch.object(watchdog, "run_cmd",
+                      side_effect=s3(listing((3, 50 * 1024)), meta(city="marupes-pag"))):
+        assert watchdog.check_backup("marupes_pag", "prod", "eu-west-1", 26)[1] == []
+
+
+def test_db_lost_data_since_the_dump_is_urgent():
+    with patch.object(watchdog, "run_cmd",
+                      side_effect=s3(listing((3, 100 * 1024)), meta(listed=900, removed=4100))):
+        _, problems = watchdog.check_backup("ogre", "prod", "eu-west-1", 26, rows=(30, 0))
+    assert problems == ["newest backup holds 5000 rows but the DB now has 30: the DB lost"
+                        " data since the dump - restore it before the next backup replaces"
+                        " it: s3://sslv-prod-ogre-db-backups/db-backups/0.sql.gz"]
+
+
+def test_dump_with_far_fewer_rows_than_db_is_not_of_this_db():
+    with patch.object(watchdog, "run_cmd",
+                      side_effect=s3(listing((3, 100 * 1024)), meta(listed=40, removed=10))):
+        _, problems = watchdog.check_backup("ogre", "prod", "eu-west-1", 26, rows=(900, 4100))
+    assert len(problems) == 1
+    assert problems[0].startswith("newest backup holds 50 rows but the DB has 5000:"
+                                  " it is not a dump of this DB")
+
+
+def test_size_check_prefers_the_dumps_own_row_count():
+    """Live rows unknown (db container down): the dump's metadata still says
+    how much data it should hold."""
+    with patch.object(watchdog, "run_cmd",
+                      side_effect=s3(listing((3, 2640)), meta(listed=900, removed=4100))):
+        _, problems = watchdog.check_backup("ogre", "prod", "eu-west-1", 26, rows=None)
+    assert len(problems) == 1 and problems[0].startswith(
+        "warning: newest backup is 2.6 KB for 5000 rows")
+
+
+def test_unreadable_metadata_skips_metadata_checks():
+    with patch.object(watchdog, "run_cmd", side_effect=s3(listing((3, 2956)), None)):
+        assert watchdog.check_backup("ogre", "prod", "eu-west-1", 26, rows=(49, 9))[1] == []
+
+
+def test_city_with_only_warnings_is_wrn_not_bad():
+    healthy = dict(watchdog.CITY_SERVICES)
+    warning = "warning: newest backup shrank to 1.0 KB"
+    with patch.object(watchdog, "check_containers", return_value=(healthy, [])), \
+         patch.object(watchdog, "check_last_run", return_value=("run:success", [])), \
+         patch.object(watchdog, "get_db_row_counts", return_value=(49, 9)), \
+         patch.object(watchdog, "check_backup", return_value=("bkp:3h", [warning])):
+        line, problems = watchdog.check_city("ogre", city_args())
+    assert line.startswith("ogre         WRN |") and problems == [warning]
 
 
 def test_check_city_passes_db_rows_to_backup_check():
