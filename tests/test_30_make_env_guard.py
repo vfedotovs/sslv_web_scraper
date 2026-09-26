@@ -28,6 +28,7 @@ def staging_host(tmp_path):
 # Variables the outer `make test` may have exported (and MAKEFLAGS, which
 # carries its command-line overrides) would otherwise leak into these runs.
 AMBIENT = {"FORCE_ENV", "M6_ENV", "MIN_BACKUP_SIZE_KB", "HOST_ENV",
+           "BACKUP_MIN_BYTES_PER_ROW", "BACKUP_SHRINK_RATIO", "BACKUP_HISTORY_N",
            "WATCHDOG_ENV_FILE", "MAKEFLAGS", "MAKELEVEL", "MFLAGS"}
 
 
@@ -92,3 +93,35 @@ def test_min_backup_size_can_be_overridden(staging_host):
     result = make(["fleet-status", "M6_ENV=staging", "MIN_BACKUP_SIZE_KB=7"],
                   staging_host, dry_run=True)
     assert "--min-backup-size-kb 7" in result.stdout
+
+
+# --- backup size calibration (docs/backup_size_alerting_plan.md items 4-5) ---
+
+def test_backup_sizes_is_read_only_and_warns_on_env_mismatch(staging_host):
+    result = make(["backup-sizes", "CITY=ogre", "COUNT=5"], staging_host, dry_run=True)
+    assert result.returncode == 0
+    assert "Reporting on 'prod' while this host runs 'staging'" in result.stdout
+    assert "scripts/backup_sizes.py --env prod --city ogre" in result.stdout
+    assert "--count 5" in result.stdout
+
+
+def test_watchdog_install_records_backup_thresholds_only_when_set(staging_host):
+    result = make(["watchdog-install", "M6_ENV=staging", "BACKUP_MIN_BYTES_PER_ROW=7"],
+                  staging_host, dry_run=True)
+    assert result.returncode == 0
+    # The recipe skips the empty ones (VAR=) at run time.
+    assert "BACKUP_MIN_BYTES_PER_ROW=7" in result.stdout
+    assert "BACKUP_SHRINK_RATIO= BACKUP_HISTORY_N=" in result.stdout
+
+
+def test_watchdog_status_flags_a_floor_left_from_an_older_install(tmp_path):
+    env_file = tmp_path / "sslv-watchdog.env"
+    env_file.write_text("ENV=prod\nMIN_BACKUP_SIZE_KB=10\n")
+    result = make(["watchdog-status"], env_file)  # systemctl may fail; the check runs first
+    assert "sets MIN_BACKUP_SIZE_KB=10; the default is now 1" in result.stdout
+    assert "make watchdog-install M6_ENV=prod" in result.stdout
+
+
+def test_watchdog_status_quiet_about_a_current_floor(staging_host):
+    staging_host.write_text("ENV=staging\nMIN_BACKUP_SIZE_KB=1\n")
+    assert "MIN_BACKUP_SIZE_KB" not in make(["watchdog-status"], staging_host).stdout

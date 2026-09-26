@@ -1,6 +1,6 @@
 # Backup size alerting: fewer false positives — implementation plan
 
-Branches: `dev-1.7.9.16` (items 1, 2), `dev-1.7.9.17` (items 3, 6) · Source: `make fleet-status` on the preprod host, 2026-09-26 13:22 UTC
+Branches: `dev-1.7.9.16` (items 1, 2), `dev-1.7.9.17` (items 3, 6), `dev-1.7.9.18` (items 4, 5) · Source: `make fleet-status` on the preprod host, 2026-09-26 13:22 UTC
 
 ## 0. What the 2026-09-26 report actually says
 
@@ -53,18 +53,21 @@ Branches: `dev-1.7.9.16` (items 1, 2), `dev-1.7.9.17` (items 3, 6) · Source: `m
   - The `bkp:` summary shows the dump's row count (e.g. `bkp:3h 2KB 57r`). A missing `r` means head-object failed (needs `s3:GetObject`) or the dump predates this change. Those checks are then skipped.
 - [ ] Limitation: the backup.py row-drop alert fires once. The next night's "previous" is already the damaged dump. The watchdog's live-vs-dump check and the size-shrink warning cover the days after.
 
-## 4. Configuration
+## 4. Configuration  ✅ `dev-1.7.9.18`
 
 - [x] Env and CLI settings, with defaults in `env.example`: `MIN_BACKUP_SIZE_KB=1` (the hard floor, kept under its old name), `BACKUP_MIN_BYTES_PER_ROW=5`, `BACKUP_SHRINK_RATIO=0.5`, `BACKUP_HISTORY_N=7`. The CLI flags are `--min-backup-size-kb`, `--backup-min-bytes-per-row`, `--backup-shrink-ratio` and `--backup-history`.
-- [ ] Optional per-city override in `config/cities.yaml` (`backup: {min_size_kb: ..}`) for a city with unusual data. Leave it out unless calibration shows a need.
+- [x] Per-city override in `config/cities.yaml`: `backup_min_bytes_per_row: N` as a key under the city. Only this setting can be overridden: the floor and the ratios mean the same in every city. The watchdog uses it, and the report header names it (`+ 5 B/row (jurmala 3)`). A malformed value is reported and ignored. None is set, because calibration has not shown a need. For the backup container, set `BACKUP_MIN_BYTES_PER_ROW` in that city's `.env.<city>`; its size check only logs a warning.
 - [x] Removed the per-env `MIN_BACKUP_SIZE_KB` switch from the Makefile.
-- [ ] `watchdog-install` writes only `MIN_BACKUP_SIZE_KB`. The watchdog reads the other variables from its environment, so add them to `/etc/sslv-watchdog.env` only to override a default. Hosts installed earlier already have `MIN_BACKUP_SIZE_KB=1` (staging) or `10` (prod): **re-run `make watchdog-install` on prod** to get 1.
+- [x] `watchdog-install` also writes `BACKUP_MIN_BYTES_PER_ROW`, `BACKUP_SHRINK_RATIO` and `BACKUP_HISTORY_N` to `/etc/sslv-watchdog.env` when they are passed (`make watchdog-install M6_ENV=prod BACKUP_MIN_BYTES_PER_ROW=4`). Omitted ones keep the script default.
+- [x] `watchdog-status` warns when `/etc/sslv-watchdog.env` has a `MIN_BACKUP_SIZE_KB` other than the current default, and names the command to fix it.
+- [ ] **Operator:** re-run `make watchdog-install M6_ENV=prod NTFY_TOPIC_URL=...` on prod. It still has `MIN_BACKUP_SIZE_KB=10` from before `dev-1.7.9.16`, and `make watchdog-status` will now say so.
 
-## 5. Calibrate before release
+## 5. Calibrate before release  🟡 tooling on `dev-1.7.9.18`, numbers pending
 
-- [ ] Add a `make backup-sizes M6_ENV=...` target (read-only). For each city it prints the last 14 backups (size, date) next to the current LA/RA counts, and the derived bytes/row.
-- [ ] Run it for staging and for prod. Set `BYTES_PER_ROW` to about the observed p10, so the rule stays conservative.
-- [ ] Check that the numbers would have flagged the 2026-09-21 incident: prod buckets received 2–4 KB staging dumps while prod holds thousands of rows. 2b, 2c and 3 should each fire for it.
+- [x] `make backup-sizes M6_ENV=... [CITY=] [COUNT=14]` runs `scripts/backup_sizes.py` (read-only, stdlib only). For each city it prints the live LA/RA counts and the city's threshold. For each backup, newest first, it prints the date, size, the row count from the dump's metadata (or the live count for the newest backup made before row counts existed, marked `live`), `B/row = (size - floor) / rows`, `WARN` where that is below the threshold, and `env=…!`/`city=…!` when the metadata names another env or city.
+- [x] Summary: min, p10 and median B/row over backups with a recorded row count. The suggested `BACKUP_MIN_BYTES_PER_ROW` is **¼ of p10**, not p10 itself: at p10, one real backup in ten would warn. The summary also names any city whose own minimum is below the suggestion, which is a candidate for a per-city override. It needs 5 recorded row counts, so it waits for a few nightly backups on `dev-1.7.9.17`+.
+- [ ] **Operator:** after ≥ 5 nightly backups with row counts, run `make backup-sizes M6_ENV=staging` (and prod once it runs again). Set the default or per-city overrides from the suggestion. Staging's estimate from the 2026-09-26 logs is ~33 B/row by this formula (ogre: (2956 − 1024) / 58), so 5 should stand.
+- [x] The 2026-09-21 incident is covered by tests: `test_large_db_small_dump_does_not_contain_the_data` (2b), `test_backup_from_another_env_or_city_is_urgent` (3, metadata), `test_dump_with_far_fewer_rows_than_db_is_not_of_this_db` (3, rows) and `test_backup_from_another_env_is_flagged` (the calibration report). 2c (shrink) would not have fired: those prod buckets held only staging-sized dumps, so the median was small too.
 
 ## 6. Severity and alert routing  ✅ `dev-1.7.9.17`
 

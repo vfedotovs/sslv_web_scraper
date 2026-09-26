@@ -792,6 +792,59 @@ def test_city_with_only_warnings_is_wrn_not_bad():
     assert line.startswith("ogre         WRN |") and problems == [warning]
 
 
+CITIES_WITH_SETTINGS = """cities:
+  ogre:
+    display_name: "Ogre"
+  jurmala:
+    display_name: "Jūrmala"
+    backup_min_bytes_per_row: 3   # long descriptions compress well
+  sigulda:
+    backup_min_bytes_per_row: lots
+other:
+  backup_min_bytes_per_row: 9
+"""
+
+
+def test_parse_city_settings_reads_overrides(tmp_path, capsys):
+    path = tmp_path / "cities.yaml"
+    path.write_text(CITIES_WITH_SETTINGS, encoding="utf-8")
+    assert watchdog.parse_city_settings(str(path)) == {
+        "jurmala": {"backup_min_bytes_per_row": 3}}
+    assert "ignoring sigulda.backup_min_bytes_per_row='lots'" in capsys.readouterr().out
+
+
+def test_parse_city_settings_real_cities_yaml_has_none():
+    assert watchdog.parse_city_settings(str(CITIES_YAML)) == {}
+
+
+def test_parse_city_settings_missing_file_is_empty(tmp_path):
+    assert watchdog.parse_city_settings(str(tmp_path / "nope.yaml")) == {}
+
+
+def test_check_city_uses_per_city_bytes_per_row():
+    healthy = dict(watchdog.CITY_SERVICES)
+    args = city_args(city_settings={"jurmala": {"backup_min_bytes_per_row": 3}})
+    seen = {}
+    for city in ("jurmala", "ogre"):
+        with patch.object(watchdog, "check_containers", return_value=(healthy, [])), \
+             patch.object(watchdog, "check_last_run", return_value=("run:success", [])), \
+             patch.object(watchdog, "get_db_row_counts", return_value=(1, 2)), \
+             patch.object(watchdog, "check_backup", return_value=("bkp:3h", [])) as backup:
+            watchdog.check_city(city, args)
+        seen[city] = backup.call_args.kwargs["min_bytes_per_row"]
+    assert seen == {"jurmala": 3, "ogre": 5}
+
+
+def test_report_header_names_per_city_overrides(tmp_path, capsys):
+    path = tmp_path / "cities.yaml"
+    path.write_text(CITIES_WITH_SETTINGS, encoding="utf-8")
+    with patch.object(watchdog, "check_city", return_value=("line", [])), \
+         patch.object(watchdog, "check_host", return_value=HOST_OK):
+        watchdog.main(["--cities-file", str(path), "--email-mode", "never",
+                       "--ntfy-mode", "never"])
+    assert "backup floor 1 KB + 5 B/row (jurmala 3), shrink" in capsys.readouterr().out
+
+
 def test_check_city_passes_db_rows_to_backup_check():
     healthy = dict(watchdog.CITY_SERVICES)
     with patch.object(watchdog, "check_containers", return_value=(healthy, [])), \
@@ -926,7 +979,7 @@ def city_args(**overrides):
                      max_run_age_hours=26, max_running_hours=3,
                      max_backup_age_hours=26, min_backup_size_kb=1,
                      backup_min_bytes_per_row=5, backup_shrink_ratio=0.5,
-                     backup_history=7)
+                     backup_history=7, city_settings={})
     for key, value in overrides.items():
         setattr(args, key, value)
     return args

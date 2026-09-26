@@ -128,6 +128,45 @@ def parse_cities(yaml_path):
     return cities
 
 
+# Per-city threshold overrides, set as a key under the city in cities.yaml:
+#   jurmala:
+#     backup_min_bytes_per_row: 3
+# For a city whose data compresses unusually well (see `make backup-sizes`).
+CITY_SETTINGS = {"backup_min_bytes_per_row": int}
+
+
+def parse_city_settings(yaml_path):
+    """{city: {setting: value}} for the CITY_SETTINGS keys in cities.yaml.
+    Same minimal parsing as parse_cities; a malformed value is reported and
+    ignored so one typo cannot stop the watchdog."""
+    settings, city = {}, None
+    try:
+        with open(yaml_path, "r", encoding="utf-8") as fh:
+            in_cities = False
+            for line in fh:
+                if re.match(r"^cities:\s*$", line):
+                    in_cities = True
+                    continue
+                if not in_cities:
+                    continue
+                if re.match(r"^\S", line):
+                    break  # left the cities: block
+                match = re.match(r"^  ([A-Za-z0-9_-]+):\s*$", line)
+                if match:
+                    city = match.group(1)
+                    continue
+                match = re.match(r"^    ([a-z_]+):\s*(\S+)\s*(#.*)?$", line)
+                if city and match and match.group(1) in CITY_SETTINGS:
+                    key, raw = match.group(1), match.group(2).strip("\"'")
+                    try:
+                        settings.setdefault(city, {})[key] = CITY_SETTINGS[key](raw)
+                    except ValueError:
+                        print(f"WARNING: {yaml_path}: ignoring {city}.{key}={raw!r}")
+    except OSError:
+        pass  # parse_cities already reported it
+    return settings
+
+
 def container_state(name):
     """Return 'healthy' / 'unhealthy' / 'starting' / 'running' / 'exited' /
     'missing' for a container."""
@@ -698,7 +737,8 @@ def check_city(city, args):
     backup_summary, backup_problems = check_backup(
         city, args.env, args.s3_region or args.aws_region,
         args.max_backup_age_hours, args.min_backup_size_kb, rows=rows,
-        min_bytes_per_row=args.backup_min_bytes_per_row,
+        min_bytes_per_row=args.city_settings.get(city, {}).get(
+            "backup_min_bytes_per_row", args.backup_min_bytes_per_row),
         shrink_ratio=args.backup_shrink_ratio,
         history=args.backup_history,
     )
@@ -964,6 +1004,7 @@ def main(argv=None):
     if not cities:
         print(f"ERROR: no cities found in {args.cities_file}")
         return 1
+    args.city_settings = parse_city_settings(args.cities_file)
 
     # --ntfy-mode never (manual `make fleet-status`) is read-only: it must not
     # consume the restart/OOM baselines the timer-driven runs alert from.
@@ -992,6 +1033,12 @@ def main(argv=None):
     bad_cities = sum(1 for city in cities if city in critical)
     warn_cities = sum(1 for city in cities if city in warnings and city not in critical)
     now = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
+    bpr_overrides = "".join(
+        f", {city} {values['backup_min_bytes_per_row']}"
+        for city, values in args.city_settings.items()
+        if "backup_min_bytes_per_row" in values
+    )
+    bpr_overrides = f" ({bpr_overrides[2:]})" if bpr_overrides else ""
     # Which buckets and thresholds: without them a prod report run on the
     # staging host reads like a staging outage.
     report = [f"SSLV fleet status [{args.env}] — {now} — {len(cities)} cities,"
@@ -1000,7 +1047,8 @@ def main(argv=None):
               f"thresholds: run/backup age {args.max_run_age_hours:g}h/"
               f"{args.max_backup_age_hours:g}h, backup floor"
               f" {args.min_backup_size_kb} KB + {args.backup_min_bytes_per_row}"
-              f" B/row, shrink < {args.backup_shrink_ratio:.0%} of median", ""]
+              f" B/row{bpr_overrides}, shrink < {args.backup_shrink_ratio:.0%}"
+              f" of median", ""]
     report.extend(lines)
     if all_problems:
         report.append("")

@@ -57,7 +57,7 @@ VENV ?= .venv
 HOST_VENV ?= .venv-host
 TEST_DEPS := pytest coverage httpx  # httpx: FastAPI TestClient (tests/test_11_status_endpoint.py)
 # Tests of the stdlib-only host scripts; the only ones that run on the EC2 host
-HOST_TESTS := tests/test_12_fleet_watchdog.py tests/test_27_watchdog_drill.py
+HOST_TESTS := tests/test_12_fleet_watchdog.py tests/test_27_watchdog_drill.py tests/test_31_backup_sizes.py
 
 # Legacy single-project flow (see "Legacy single-project")
 SETUP_STATE_FILE := .setup_state
@@ -293,13 +293,17 @@ fleet-status: ## print the watchdog report once: containers, runs, DB rows, back
 	@python3 scripts/fleet_watchdog.py --email-mode never --env $(M6_ENV) \
 		--min-backup-size-kb $(MIN_BACKUP_SIZE_KB)
 
-watchdog-install: ## install ntfy alert timers: every 15 min + daily heartbeat (M6_ENV=, NTFY_TOPIC_URL=, HEARTBEAT_PING_URL=, S3_REGION=)
+watchdog-install: ## install ntfy alert timers: every 15 min + daily heartbeat (M6_ENV=, NTFY_TOPIC_URL=, HEARTBEAT_PING_URL=, S3_REGION=, BACKUP_*=)
 	$(ntfy_topic_guard)
 	@printf "$(call log_step,Writing /etc/sslv-watchdog.env (ENV=$(M6_ENV), topic $(NTFY_TOPIC_URL))...)\n"
 	@{ printf 'ENV=%s\nNTFY_TOPIC_URL=%s\n' "$(M6_ENV)" "$(NTFY_TOPIC_URL)"; \
 		if [ -n "$(HEARTBEAT_PING_URL)" ]; then printf 'HEARTBEAT_PING_URL=%s\n' "$(HEARTBEAT_PING_URL)"; fi; \
 		if [ -n "$(S3_REGION)" ]; then printf 'S3_REGION=%s\n' "$(S3_REGION)"; fi; \
 		printf 'MIN_BACKUP_SIZE_KB=%s\n' "$(MIN_BACKUP_SIZE_KB)"; \
+		for var in BACKUP_MIN_BYTES_PER_ROW=$(BACKUP_MIN_BYTES_PER_ROW) \
+			BACKUP_SHRINK_RATIO=$(BACKUP_SHRINK_RATIO) BACKUP_HISTORY_N=$(BACKUP_HISTORY_N); do \
+			case "$$var" in *=) ;; *) printf '%s\n' "$$var" ;; esac; \
+		done; \
 	} | sudo tee /etc/sslv-watchdog.env > /dev/null
 	@sudo chmod 600 /etc/sslv-watchdog.env
 	@for unit in $(WATCHDOG_UNITS); do \
@@ -321,6 +325,10 @@ watchdog-status: ## show watchdog timers and recent run output
 			printf "$(call log_info,Resume with: sudo systemctl start $$unit)\n"; \
 		fi; \
 	done
+	@floor=$$(sed -n 's/^MIN_BACKUP_SIZE_KB=//p' $(WATCHDOG_ENV_FILE) 2>/dev/null | head -1); \
+	if [ -n "$$floor" ] && [ "$$floor" != "$(MIN_BACKUP_SIZE_KB)" ]; then \
+		printf "$(call log_warning,$(WATCHDOG_ENV_FILE) sets MIN_BACKUP_SIZE_KB=$$floor; the default is now $(MIN_BACKUP_SIZE_KB) (a hard floor - size is judged per row). Re-run: make watchdog-install M6_ENV=$(HOST_ENV))\n"; \
+	fi
 	@systemctl list-timers 'sslv-watchdog*' --all
 	@journalctl -u sslv-watchdog.service -u sslv-watchdog-heartbeat.service -n 60 --no-pager
 
@@ -439,7 +447,7 @@ print(json.dumps(cfg))' $(DOCKER_DAEMON_JSON)
 # in one transaction (any error rolls back) and restart them. Undo a restore with
 # make restore-city CITY=<city> FILE=restore-safety/<file>. Run test-restore first.
 
-.PHONY: backup-city backup-all verify-backup restore-city restore-all test-restore e2e-backup-restore fetch-last-db-dump fetch-dump fetch-dump-example
+.PHONY: backup-city backup-all verify-backup backup-sizes restore-city restore-all test-restore e2e-backup-restore fetch-last-db-dump fetch-dump fetch-dump-example
 
 backup-city: ## back up one city's DB to S3; bucket keeps the newest 5 (CITY=ogre M6_ENV=prod)
 	$(call host_env_guard,$(M6_ENV))
@@ -453,6 +461,11 @@ verify-backup: ## read-only: newest S3 backup per city is < 26h old and >= MIN_B
 	$(call host_env_warn,$(M6_ENV))
 	@./scripts/verify_backup.sh $(if $(CITY),--city $(CITY),--all) --env $(M6_ENV) \
 		--min-size-kb $(MIN_BACKUP_SIZE_KB)
+
+backup-sizes: ## read-only: newest backups per city with row counts and bytes/row, to calibrate BACKUP_MIN_BYTES_PER_ROW (M6_ENV=, CITY=, COUNT=14)
+	$(call host_env_warn,$(M6_ENV))
+	@python3 scripts/backup_sizes.py --env $(M6_ENV) $(if $(CITY),--city $(CITY)) \
+		$(if $(COUNT),--count $(COUNT)) --min-backup-size-kb $(MIN_BACKUP_SIZE_KB)
 
 restore-city: ## LIVE: replace one city's DB with its latest backup, atomically; asks first (CITY= M6_ENV=, FILE= to undo, YES=1)
 	$(call host_env_guard,$(M6_ENV))
