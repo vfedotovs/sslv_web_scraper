@@ -56,6 +56,16 @@ def test_verify_passes_small_db_dump():
         backup.verify_backup_in_s3("bucket", "db-backups/x.sql.gz")  # no raise
 
 
+@pytest.mark.parametrize("size,rows", [(2 * 1024, (24, 7)), (2956, (49, 9)), (8 * 1024, (318, 16))])
+def test_verify_passes_the_2026_09_26_staging_dumps(size, rows):
+    """Sizes and row counts from the staging host that the 10 KB floor
+    failed every night: no error and no warning."""
+    client = make_s3_client(head_response={"ContentLength": size})
+    with patch.object(backup.boto3, "client", return_value=client):
+        assert backup.verify_backup_in_s3("bucket", "k", rows=rows,
+                                          previous=("prev", rows)) == []
+
+
 def test_verify_small_db_dump_with_rows_has_no_warnings():
     client = make_s3_client(head_response={"ContentLength": 2956})
     with patch.object(backup.boto3, "client", return_value=client):
@@ -207,7 +217,8 @@ def test_staleness_listing_failure_alerts_and_exits():
 
 def test_run_backup_failure_sends_alert_and_exits():
     alert = MagicMock(return_value=True)
-    with patch.object(backup, "backup_postgres", side_effect=Exception("pg_dump: connection refused")), \
+    with patch.object(backup, "count_db_rows", return_value=None), \
+         patch.object(backup, "backup_postgres", side_effect=Exception("pg_dump: connection refused")), \
          patch.object(backup, "send_alert_email", alert):
         with pytest.raises(SystemExit) as excinfo:
             backup.run_backup()
@@ -296,3 +307,79 @@ def test_pg_dump_uses_clean_if_exists(monkeypatch):
     assert pg_dump_args[0] == "pg_dump"
     assert "--clean" in pg_dump_args and "--if-exists" in pg_dump_args
     assert run.call_args_list[0][1]["env"]["PGPASSWORD"] == "secret"
+
+
+# --- run_backup end to end: count -> dump -> upload with metadata -> verify ---
+
+def s3_with_previous(previous_rows, size):
+    """One boto3 client for every call: the previous backup is listed and
+    its metadata read; the uploaded object reports `size`."""
+    now = datetime.datetime.now(datetime.timezone.utc)
+    client = make_s3_client(
+        head_response={"ContentLength": size, "Metadata": {
+            "env": "prod", "city": "ogre",
+            "listed-ads": str(previous_rows[0]), "removed-ads": str(previous_rows[1])}},
+        pages=[{"Contents": [{"Key": "db-backups/prev.sql.gz",
+                              "LastModified": now - datetime.timedelta(days=1),
+                              "Size": size}]}])
+    return client
+
+
+def run_backup_for_real(tmp_path, client, rows):
+    backup_file = tmp_path / "pg_backup_test.sql.gz"
+    backup_file.write_bytes(b"x")
+    alert = MagicMock(return_value=True)
+    with patch.object(backup.boto3, "client", return_value=client), \
+         patch.object(backup, "count_db_rows", return_value=rows), \
+         patch.object(backup, "backup_postgres", return_value=str(backup_file)), \
+         patch.object(backup, "send_alert_email", alert), \
+         patch.dict(os.environ, {"S3_BUCKET": "sslv-prod-ogre-db-backups",
+                                 "ENV": "prod", "CITY": "ogre"}):
+        try:
+            backup.run_backup()
+            exit_code = 0
+        except SystemExit as e:
+            exit_code = e.code
+    return exit_code, alert
+
+
+def test_run_backup_growing_db_passes_and_records_rows(tmp_path):
+    client = s3_with_previous((48, 9), size=2956)
+    exit_code, alert = run_backup_for_real(tmp_path, client, rows=(49, 9))
+    assert exit_code == 0
+    alert.assert_not_called()
+    assert client.upload_file.call_args[1]["ExtraArgs"]["Metadata"] == {
+        "env": "prod", "city": "ogre", "listed-ads": "49", "removed-ads": "9"}
+
+
+def test_run_backup_db_lost_data_alerts_after_upload(tmp_path):
+    client = s3_with_previous((900, 4100), size=50 * 1024)
+    exit_code, alert = run_backup_for_real(tmp_path, client, rows=(20, 10))
+    assert exit_code == 1
+    client.upload_file.assert_called_once()  # the dump is still stored
+    subject, body = alert.call_args[0]
+    assert subject == "SSLV BACKUP ALERT: ogre backup FAILED at s3_verify"
+    assert "the DB lost data: it had 30 rows" in body
+    assert "s3://sslv-prod-ogre-db-backups/db-backups/prev.sql.gz" in body
+    assert "The dump was uploaded but failed verification." in body
+
+
+# --- thresholds must reach the cron job ---
+
+def test_backup_thresholds_reach_the_cron_environment():
+    """cron does not inherit the container env: a threshold backup.py reads
+    must be set in docker-compose.yml AND kept by entrypoint.sh's snapshot,
+    or it silently falls back to the default - how the 10 KB floor stayed
+    in force on staging (2026-09-26)."""
+    import re
+    root = BACKUP_PY.parent.parent.parent
+    names = set(re.findall(r'os\.environ\.get\("((?:MIN_)?BACKUP_[A-Z_]+|MIN_BACKUP_[A-Z_]+)"',
+                           BACKUP_PY.read_text()))
+    assert {"MIN_BACKUP_SIZE_KB", "BACKUP_MIN_BYTES_PER_ROW", "BACKUP_SHRINK_RATIO",
+            "BACKUP_MAX_AGE_HOURS"} <= names
+    compose = (root / "docker-compose.yml").read_text()
+    entrypoint = (root / "src" / "backup-svc" / "entrypoint.sh").read_text()
+    snapshot = re.search(r"grep -E '\^\(([^)]*)\)='", entrypoint).group(1).split("|")
+    for name in names:
+        assert re.search(rf"^\s+{name}: \$\{{{name}:-", compose, re.M), f"{name} not in compose"
+        assert name in snapshot, f"{name} not kept by entrypoint.sh"

@@ -1,6 +1,6 @@
 # Backup size alerting: fewer false positives — implementation plan
 
-Branches: `dev-1.7.9.16` (items 1, 2), `dev-1.7.9.17` (items 3, 6), `dev-1.7.9.18` (items 4, 5) · Source: `make fleet-status` on the preprod host, 2026-09-26 13:22 UTC
+Branches: `dev-1.7.9.16` (items 1, 2), `dev-1.7.9.17` (items 3, 6), `dev-1.7.9.18` (items 4, 5), `dev-1.7.9.19` (item 8) · Source: `make fleet-status` on the preprod host, 2026-09-26 13:22 UTC
 
 ## 0. What the 2026-09-26 report actually says
 
@@ -83,12 +83,27 @@ Branches: `dev-1.7.9.16` (items 1, 2), `dev-1.7.9.17` (items 3, 6), `dev-1.7.9.1
 - [x] Answered by the 13:33 logs: the cron runs nightly and writes to `sslv-staging-*`. The 91h came from checking prod buckets from the staging host. The age threshold stays at 26h.
 - [ ] Improvement: `check_backup` should also report the age of the newest backup in the **other** env's bucket when the checked env is stale. That turns "91h old" into "91h old in prod, 11h old in staging → wrong M6_ENV?".
 
-## 8. Tests
+## 8. Tests  ✅ `dev-1.7.9.19`
 
-- [ ] `tests/test_12_fleet_watchdog.py`: cover a small DB with a small dump (no alert), a large DB with a small dump (alert), shrink versus median (alert), fewer than 3 prior backups (shrink skipped), `LA:?` (fallback), metadata row mismatch (CRIT), and the header showing the env and thresholds.
-- [ ] `tests/test_10_module_backup_svc.py`: metadata is uploaded, verify uses the new rules, and a 2 KB dump of a 30-row DB passes.
-- [ ] `tests/test_30_make_env_guard.py`: update it for the removed per-env `MIN_BACKUP_SIZE_KB` default.
-- [ ] Update `docs/staging_alert_remediation_plan.md` P1b with a pointer to this plan.
+The per-item tests landed with items 1–6. This item checked them against the list below and added the missing integration tests.
+
+- [x] `tests/test_12_fleet_watchdog.py`:
+  - **Checks:** small DB with a small dump (no alert); large DB with a small dump (warning); shrink versus median (warning); fewer than 3 prior backups (shrink skipped); `LA:?` (size check without rows, and `check_city` passes `rows=None`); metadata env/city/row mismatch (critical); a dashed city spelling is the same city; per-city override; the header with env, thresholds and overrides.
+  - **Routing:** a warning pushes once; a warning whose numbers change is not new; a cleared warning is forgotten.
+  - **Replay of the 2026-09-26 staging host:** `main()` over the six cities with only docker and aws faked. Against the staging buckets it reports 0 problems. Against the prod buckets it reports exactly the six 91h age problems and no size problems.
+- [x] `tests/test_10_module_backup_svc.py`:
+  - **Verify rules:** the 2026-09-26 staging dumps (2 KB / 31 rows, 2.9 KB / 58, 8 KB / 334) pass with no warning; the new verify rules each have a test.
+  - **`run_backup` end to end,** with only boto3, the row count and the dump faked: metadata is uploaded; a DB that lost rows alerts after the upload and says the dump was stored.
+  - **Config plumbing:** every `MIN_BACKUP_*`/`BACKUP_*` variable `backup.py` reads must be set in `docker-compose.yml` and kept by `entrypoint.sh`'s snapshot. A missing setting in the container is how the 10 KB floor stayed on staging.
+  - **Hermetic:** the pg_dump-failure test no longer runs a real `psql`.
+- [x] `tests/test_30_make_env_guard.py`: one floor for every env; `backup-sizes` is read-only and warns on an env mismatch; `watchdog-install` passes thresholds only when set; `watchdog-status` flags a stale floor.
+- [x] `tests/test_31_backup_sizes.py`: the calibration report. It runs on the EC2 host via `make test-host`.
+- [x] Checked that the tests catch regressions by reintroducing the old bugs one at a time:
+  - watchdog floor back to 10 → the replay tests fail;
+  - `backup.py` floor back to 10 → 4 fail;
+  - a threshold dropped from `entrypoint.sh` or from `docker-compose.yml` → the plumbing test fails;
+  - warnings treated as critical → 7 fail.
+- [x] `docs/staging_alert_remediation_plan.md` P1b points here and marks the per-env floor as superseded.
 
 ## Logs needed from the staging/preprod EC2 host
 

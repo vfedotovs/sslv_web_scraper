@@ -1018,3 +1018,79 @@ def test_s3_region_defaults_from_env(monkeypatch, env_var):
         watchdog.main(["--email-mode", "never", "--ntfy-mode", "never"])
     assert seen["s3"] == "eu-north-1"
     assert seen["ses"] == "eu-west-1"  # SES identity is verified in one region
+
+
+# --- replay: the 2026-09-26 staging host (docs/backup_size_alerting_plan.md) ---
+
+# city: (listed, removed, newest dump bytes) from `make fleet-status`
+STAGING_2026_09_26 = {
+    "salaspils": (24, 7, 2300), "sigulda": (42, 16, 2500), "marupes_pag": (52, 6, 3100),
+    "adazu_nov": (39, 6, 2400), "ogre": (49, 9, 2956), "jurmala": (318, 16, 8400),
+}
+
+
+def replay_fleet(env, newest_age_hours, with_metadata, capsys):
+    """main() over the six cities with only docker and aws faked: five
+    nightly backups per city growing ~70 B/day, as the staging bucket did."""
+    def aws(cmd, timeout=60):
+        bucket = cmd[cmd.index("--bucket") + 1]
+        city = next(c for c in STAGING_2026_09_26 if c.replace("_", "-") in bucket)
+        listed, removed, size = STAGING_2026_09_26[city]
+        if "head-object" in cmd:
+            if not with_metadata:
+                return 254, "", "404"
+            return 0, json.dumps(meta(env, city, listed, removed)), ""
+        ages = [newest_age_hours + 24 * n for n in (4, 3, 2, 1, 0)]
+        return 0, listing(*[(age, size - 70 * n) for n, age in zip((4, 3, 2, 1, 0), ages)]), ""
+
+    healthy = dict(watchdog.CITY_SERVICES)
+    with patch.object(watchdog, "run_cmd", side_effect=aws), \
+         patch.object(watchdog, "check_containers", return_value=(healthy, [])), \
+         patch.object(watchdog, "check_last_run", return_value=("run:success 13h ago", [])), \
+         patch.object(watchdog, "get_db_row_counts",
+                      side_effect=lambda c: STAGING_2026_09_26[c][:2]), \
+         patch.object(watchdog, "check_host", return_value=HOST_OK):
+        exit_code = watchdog.main(["--env", env, "--email-mode", "never", "--ntfy-mode", "never"])
+    return exit_code, capsys.readouterr().out
+
+
+def test_replay_staging_fleet_is_clean(capsys):
+    """The report that showed 6 BAD cities for 2-8 KB dumps: now all OK."""
+    exit_code, out = replay_fleet("staging", 12, with_metadata=True, capsys=capsys)
+    assert exit_code == 0
+    assert "6 cities, 0 with problems" in out
+    assert "warning" not in out and "BAD" not in out and "WRN" not in out
+    assert "ogre         OK  |" in out and "bkp:12h 2KB 58r" in out
+
+
+def test_replay_prod_buckets_from_staging_host_keeps_only_the_age_signal(capsys):
+    """Same fleet, checked against the prod buckets the staging host never
+    writes to (91h-old dumps, no metadata): the age problem is real and
+    stays; the size false positives are gone."""
+    exit_code, out = replay_fleet("prod", 91, with_metadata=False, capsys=capsys)
+    assert exit_code == 1
+    problems = [line for line in out.splitlines() if line.startswith("- ")]
+    assert len(problems) == 6
+    assert all("newest backup is 91h old (> 26h)" in p for p in problems)
+
+
+def test_warning_with_changing_size_does_not_push_again(tmp_path):
+    """The dump grows ~70 B/day, so the numbers in a warning change; that is
+    the same warning, not a new one."""
+    state_file = tmp_path / "state.json"
+    first = "warning: newest backup is 2.6 KB for 5000 rows (expected >= 25.4 KB at 5 B/row)"
+    later = "warning: newest backup is 2.7 KB for 5003 rows (expected >= 25.4 KB at 5 B/row)"
+    run_main_ntfy([first], "problems", state_file).assert_called_once()
+    run_main_ntfy([later], "problems", state_file).assert_not_called()
+
+
+def test_check_city_unreadable_rows_still_checks_backup_without_them():
+    healthy = dict(watchdog.CITY_SERVICES)
+    with patch.object(watchdog, "check_containers", return_value=(healthy, [])), \
+         patch.object(watchdog, "check_last_run", return_value=("run:success", [])), \
+         patch.object(watchdog, "get_db_row_counts", return_value=None), \
+         patch.object(watchdog, "check_backup", return_value=("bkp:3h", [])) as backup:
+        line, problems = watchdog.check_city("ogre", city_args())
+    assert backup.call_args.kwargs["rows"] is None
+    assert "LA:? RA:?" in line
+    assert problems == ["could not read table row counts from db container"]

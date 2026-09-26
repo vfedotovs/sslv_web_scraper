@@ -146,7 +146,9 @@ mismatch is refused. Covered by `tests/test_28_backup_restore_env_isolation.py`
 the 2–4 KB staging dumps from the incident, and nothing had been written since
 (the backup containers are stopped).
 
-- [x] **Per-env backup size floor.** `MIN_BACKUP_SIZE_KB` now defaults to 1 for
+- [x] **Per-env backup size floor.** *Superseded on `dev-1.7.9.16`–`.18`: the
+      floor is now 1 KB in every env, and backup size is judged against the row
+      count. See `docs/backup_size_alerting_plan.md`.* `MIN_BACKUP_SIZE_KB` now defaults to 1 for
       staging/dev and 10 for prod, and is passed to `fleet-status` and
       `verify-backup` and written into `/etc/sslv-watchdog.env` by
       `watchdog-install`. Staging dumps are 2–4 KB, so the prod floor would have
