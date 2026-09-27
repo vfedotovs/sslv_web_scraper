@@ -55,7 +55,7 @@ def percentile(values, fraction):
 
 def report_city(city, args, floor, now):
     """Print one city's table; returns [(city, B/row)] for the summary."""
-    bucket = f"sslv-{args.env}-{city.replace('_', '-')}-db-backups"
+    bucket = wd.backup_bucket(args.env, city)
     live_rows = wd.get_db_row_counts(city)
     live = (f"live LA:{live_rows[0]} RA:{live_rows[1]} = {sum(live_rows)} rows"
             if live_rows is not None else "live rows: unknown (db container?)")

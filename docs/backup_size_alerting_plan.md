@@ -1,6 +1,6 @@
 # Backup size alerting: fewer false positives — implementation plan
 
-Branches: `dev-1.7.9.16` (items 1, 2), `dev-1.7.9.17` (items 3, 6), `dev-1.7.9.18` (items 4, 5), `dev-1.7.9.19` (item 8) · Source: `make fleet-status` on the preprod host, 2026-09-26 13:22 UTC
+Branches: `dev-1.7.9.16` (items 1, 2), `dev-1.7.9.17` (items 3, 6), `dev-1.7.9.18` (items 4, 5), `dev-1.7.9.19` (item 8), `dev-1.7.9.21` (item 7) · Source: `make fleet-status` on the preprod host, 2026-09-26 13:22 UTC
 
 ## 0. What the 2026-09-26 report actually says
 
@@ -81,7 +81,11 @@ Branches: `dev-1.7.9.16` (items 1, 2), `dev-1.7.9.17` (items 3, 6), `dev-1.7.9.1
 ## 7. Age alert: find out why before tuning anything
 
 - [x] Answered by the 13:33 logs: the cron runs nightly and writes to `sslv-staging-*`. The 91h came from checking prod buckets from the staging host. The age threshold stays at 26h.
-- [ ] Improvement: `check_backup` should also report the age of the newest backup in the **other** env's bucket when the checked env is stale. That turns "91h old" into "91h old in prod, 11h old in staging → wrong M6_ENV?".
+- [x] Improvement (`dev-1.7.9.21`): when the newest backup is stale, the bucket is empty, or it cannot be listed, `check_backup` looks for the same city's backup in the other envs' buckets (`BACKUP_ENVS` = prod, staging, dev, as in the Makefile's `M6_ENVS`). When one is fresh, the problem ends with ` - but s3://sslv-staging-ogre-db-backups has one 12h old: wrong env (--env/M6_ENV=staging?)`.
+  - The extra listing runs only for a city that already has a backup problem.
+  - A failed lookup (e.g. no dev buckets) adds nothing.
+  - The alert stays urgent, and its fingerprint is stable as the hours tick.
+  - `tests/test_12_fleet_watchdog.py` replays the 2026-09-26 report (prod 91h, staging 12h), and every city's problem names staging.
 
 ## 8. Tests  ✅ `dev-1.7.9.19`
 

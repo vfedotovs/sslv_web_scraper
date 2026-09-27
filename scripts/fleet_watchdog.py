@@ -434,6 +434,32 @@ def dump_rows(metadata):
         return None
 
 
+# Envs with db-backups buckets (Makefile M6_ENVS). A stale or missing backup
+# is looked up in the others: a fresh one there means the report checked the
+# wrong env, not that backups stopped.
+BACKUP_ENVS = ("prod", "staging", "dev")
+
+
+def backup_bucket(env, city):
+    return f"sslv-{env}-{city.replace('_', '-')}-db-backups"
+
+
+def other_env_hint(city, env, region, max_age_hours):
+    """" - but s3://<other env's bucket> has one 11h old: wrong env?" when
+    another env holds a fresh backup for this city, else "". On 2026-09-26
+    the staging host checked the prod buckets and reported "91h old" for
+    every city while staging's were 12h old."""
+    for other in BACKUP_ENVS:
+        if other == env:
+            continue
+        bucket = backup_bucket(other, city)
+        outcome, detail = get_backup_history(bucket, region, 1)
+        if outcome == "ok" and detail[-1][1] <= max_age_hours:
+            return (f" - but s3://{bucket} has one {detail[-1][1]:.0f}h old:"
+                    f" wrong env (--env/M6_ENV={other}?)")
+    return ""
+
+
 def format_size(size_bytes):
     """Backups here are a few KB, so whole KB (2 KB vs 2.9 KB) hides the trend."""
     return f"{size_bytes / 1024:.1f} KB"
@@ -462,14 +488,16 @@ def check_backup(city, env, region, max_age_hours, min_size_kb=1, rows=None,
         most of the data is gone.
       - shrunk below shrink_ratio x the median of the previous backups
         (needs 3)."""
-    bucket = f"sslv-{env}-{city.replace('_', '-')}-db-backups"
+    bucket = backup_bucket(env, city)
     outcome, detail = get_backup_history(bucket, region, history + 1)
     if outcome == "error":
         return "bkp:unknown", [
             f"could not list s3://{bucket} in {region} ({detail})"
+            + other_env_hint(city, env, region, max_age_hours)
         ]
     if outcome == "empty":
-        return "bkp:none", [f"NO backups in s3://{bucket}"]
+        return "bkp:none", [f"NO backups in s3://{bucket}"
+                            + other_env_hint(city, env, region, max_age_hours)]
     key, age_hours, size = detail[-1]
     location = f"s3://{bucket}/{key}"
     summary = f"bkp:{age_hours:.0f}h {size // 1024}KB"
@@ -477,6 +505,7 @@ def check_backup(city, env, region, max_age_hours, min_size_kb=1, rows=None,
     if age_hours > max_age_hours:
         problems.append(
             f"newest backup is {age_hours:.0f}h old (> {max_age_hours}h): {location}"
+            + other_env_hint(city, env, region, max_age_hours)
         )
 
     metadata = get_backup_metadata(bucket, key, region)

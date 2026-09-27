@@ -156,8 +156,8 @@ def test_backup_stale_is_problem():
 def test_backup_bucket_name_convention_for_underscore_city():
     with patch.object(watchdog, "run_cmd", return_value=(0, "null", "")) as mock_run:
         _, problems = watchdog.check_backup("marupes_pag", "prod", "eu-west-1", 26)
-    bucket = mock_run.call_args[0][0][mock_run.call_args[0][0].index("--bucket") + 1]
-    assert bucket == "sslv-prod-marupes-pag-db-backups"
+    cmd = mock_run.call_args_list[0][0][0]
+    assert cmd[cmd.index("--bucket") + 1] == "sslv-prod-marupes-pag-db-backups"
     assert any("NO backups" in p for p in problems)
 
 
@@ -1029,12 +1029,20 @@ STAGING_2026_09_26 = {
 }
 
 
-def replay_fleet(env, newest_age_hours, with_metadata, capsys):
+def replay_fleet(env, newest_age_hours, with_metadata, capsys, other_env_ages=None):
     """main() over the six cities with only docker and aws faked: five
-    nightly backups per city growing ~70 B/day, as the staging bucket did."""
+    nightly backups per city growing ~70 B/day, as the staging bucket did.
+    other_env_ages: {env: newest age} for the other envs' buckets; an env
+    left out has no buckets."""
     def aws(cmd, timeout=60):
         bucket = cmd[cmd.index("--bucket") + 1]
         city = next(c for c in STAGING_2026_09_26 if c.replace("_", "-") in bucket)
+        bucket_env = bucket.split("-")[1]
+        if bucket_env != env:
+            age = (other_env_ages or {}).get(bucket_env)
+            if age is None:
+                return 254, "", "An error occurred (NoSuchBucket)"
+            return 0, listing((age, 2956)), ""
         listed, removed, size = STAGING_2026_09_26[city]
         if "head-object" in cmd:
             if not with_metadata:
@@ -1072,6 +1080,21 @@ def test_replay_prod_buckets_from_staging_host_keeps_only_the_age_signal(capsys)
     problems = [line for line in out.splitlines() if line.startswith("- ")]
     assert len(problems) == 6
     assert all("newest backup is 91h old (> 26h)" in p for p in problems)
+    assert "wrong env" not in out  # no other env has a fresh backup
+
+
+def test_replay_prod_buckets_from_staging_host_names_the_wrong_env(capsys):
+    """The 2026-09-26 report as it happened: prod buckets 91h old, staging's
+    12h old. Each problem now says which env holds the fresh backup."""
+    _, out = replay_fleet("prod", 91, with_metadata=False, capsys=capsys,
+                          other_env_ages={"staging": 12})
+    problems = [line for line in out.splitlines() if line.startswith("- ")]
+    assert len(problems) == 6
+    assert problems[4] == (
+        "- ogre: newest backup is 91h old (> 26h):"
+        " s3://sslv-prod-ogre-db-backups/db-backups/4.sql.gz"
+        " - but s3://sslv-staging-ogre-db-backups has one 12h old:"
+        " wrong env (--env/M6_ENV=staging?)")
 
 
 def test_warning_with_changing_size_does_not_push_again(tmp_path):
@@ -1176,3 +1199,76 @@ def test_systemd_units_treat_only_exit_1_as_success():
         text = (units / name).read_text()
         assert "SuccessExitStatus=1\n" in text, name
         assert "scripts/fleet_watchdog.py" in text
+
+
+# --- stale/missing backup: is there a fresh one in another env? (item 7) ---
+
+def aws_by_env(responses):
+    """run_cmd stand-in answering list-objects-v2 per bucket env; head-object fails."""
+    def run(cmd, timeout=60):
+        if "head-object" in cmd:
+            return 254, "", "404"
+        bucket_env = cmd[cmd.index("--bucket") + 1].split("-")[1]
+        return responses.get(bucket_env, (254, "", "An error occurred (NoSuchBucket)"))
+    return run
+
+
+def listed_buckets(mock_run):
+    return [call[0][0][call[0][0].index("--bucket") + 1] for call in mock_run.call_args_list
+            if "list-objects-v2" in call[0][0]]
+
+
+def test_fresh_backup_does_not_look_in_other_envs():
+    with patch.object(watchdog, "run_cmd",
+                      side_effect=aws_by_env({"prod": (0, listing((3, 50 * 1024)), "")})) as run:
+        assert watchdog.check_backup("ogre", "prod", "eu-west-1", 26)[1] == []
+    assert listed_buckets(run) == ["sslv-prod-ogre-db-backups"]
+
+
+def test_stale_backup_names_the_env_with_a_fresh_one():
+    with patch.object(watchdog, "run_cmd", side_effect=aws_by_env({
+            "prod": (0, listing((91, 2656)), ""),
+            "staging": (0, listing((12, 2956)), "")})) as run:
+        _, problems = watchdog.check_backup("ogre", "prod", "eu-west-1", 26)
+    assert problems == ["newest backup is 91h old (> 26h): s3://sslv-prod-ogre-db-backups/"
+                        "db-backups/0.sql.gz - but s3://sslv-staging-ogre-db-backups has one"
+                        " 12h old: wrong env (--env/M6_ENV=staging?)"]
+    assert problems[0].startswith(watchdog.URGENT_PROBLEM_PREFIXES)
+    assert listed_buckets(run) == ["sslv-prod-ogre-db-backups", "sslv-staging-ogre-db-backups"]
+
+
+def test_stale_everywhere_adds_no_hint():
+    with patch.object(watchdog, "run_cmd", side_effect=aws_by_env({
+            "prod": (0, listing((91, 2656)), ""), "staging": (0, listing((40, 2956)), ""),
+            "dev": (0, listing((500, 2000)), "")})):
+        _, problems = watchdog.check_backup("ogre", "prod", "eu-west-1", 26)
+    assert problems == ["newest backup is 91h old (> 26h):"
+                        " s3://sslv-prod-ogre-db-backups/db-backups/0.sql.gz"]
+
+
+def test_missing_bucket_names_the_env_with_a_fresh_one():
+    """`make fleet-status M6_ENV=dev` on the staging host: no dev buckets."""
+    with patch.object(watchdog, "run_cmd", side_effect=aws_by_env({
+            "staging": (0, listing((12, 2956)), "")})):
+        summary, problems = watchdog.check_backup("ogre", "dev", "eu-west-1", 26)
+    assert summary == "bkp:unknown"
+    assert problems == ["could not list s3://sslv-dev-ogre-db-backups in eu-west-1"
+                        " (NoSuchBucket: bucket does not exist) - but"
+                        " s3://sslv-staging-ogre-db-backups has one 12h old:"
+                        " wrong env (--env/M6_ENV=staging?)"]
+
+
+def test_empty_bucket_names_the_env_with_a_fresh_one():
+    with patch.object(watchdog, "run_cmd", side_effect=aws_by_env({
+            "prod": (0, "null", ""), "staging": (0, listing((12, 2956)), "")})):
+        summary, problems = watchdog.check_backup("ogre", "prod", "eu-west-1", 26)
+    assert summary == "bkp:none"
+    assert problems[0].startswith("NO backups in s3://sslv-prod-ogre-db-backups - but"
+                                  " s3://sslv-staging-ogre-db-backups has one 12h old")
+
+
+def test_hint_keeps_the_alert_fingerprint_stable():
+    """The hint's age changes every hour; that is the same ongoing problem."""
+    first = "newest backup is 91h old (> 26h): s3://b/k - but s3://o has one 12h old: wrong env"
+    later = "newest backup is 92h old (> 26h): s3://b/k - but s3://o has one 13h old: wrong env"
+    assert watchdog.problem_fingerprint(first) == watchdog.problem_fingerprint(later)
