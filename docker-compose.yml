@@ -32,7 +32,7 @@ services:
       CITY_MAIN_URL: ${CITY_MAIN_URL}
       EMAIL_CITY_TITLE: ${EMAIL_CITY_TITLE}
       # Scraper control variables (can be set per-city in .env.<city>)
-      SCRAPE_URL_LIMIT: ${SCRAPE_URL_LIMIT:-5}
+      SCRAPE_URL_LIMIT: ${SCRAPE_URL_LIMIT:-500}
       SCRAPE_DELAY_SEC: ${SCRAPE_DELAY_SEC:-5}
       SCRAPE_LIST_DELAY_SEC: ${SCRAPE_LIST_DELAY_SEC:-1}
       # Monitoring alert thresholds (M6 Item 3, see alert_mailer.py)

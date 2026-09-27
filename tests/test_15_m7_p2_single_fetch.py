@@ -120,3 +120,31 @@ def test_own_session_created_and_closed_when_none_given(tmp_path):
          patch.object(web_scraper, "URL_LIMIT", 0):
         web_scraper.extract_data_from_url([URL_1], dest)
     session_cls.return_value.close.assert_called_once()
+
+
+# --- SCRAPE_URL_LIMIT: default covers the largest city's first run ---
+
+def test_default_url_limit_covers_the_largest_city(monkeypatch):
+    """jurmala lists ~320 ads (LA:319 on 2026-09-27); the old default 5
+    filled an empty DB at 5 new ads a day."""
+    import importlib
+    monkeypatch.delenv("SCRAPE_URL_LIMIT", raising=False)
+    try:
+        reloaded = importlib.reload(web_scraper)
+        assert reloaded.URL_LIMIT == reloaded.DEFAULT_URL_LIMIT == 500
+    finally:
+        importlib.reload(web_scraper)
+
+
+def test_limit_below_new_ads_warns_and_leaves_the_rest(tmp_path, caplog):
+    urls = [f"https://ss.lv/msg/lv/real-estate/flats/jurmala/{i}.html" for i in range(3)]
+    with caplog.at_level("WARNING"):
+        fetch, _, _ = run_extract(urls, tmp_path, url_limit=2)
+    assert fetch.call_count == 2
+    assert "SCRAPE_URL_LIMIT=2: 1 new ads left for later runs" in caplog.text
+
+
+def test_limit_above_new_ads_does_not_warn(tmp_path, caplog):
+    with caplog.at_level("WARNING"):
+        run_extract([URL_1, URL_2], tmp_path, url_limit=500)
+    assert "left for later runs" not in caplog.text

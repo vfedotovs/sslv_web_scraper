@@ -112,21 +112,25 @@ SCRAPE_DELAY_SEC = int(os.getenv("SCRAPE_DELAY_SEC", "5"))
 # Delay between fetching list pages (for politeness when scraping multiple pages)
 SCRAPE_LIST_DELAY_SEC = int(os.getenv("SCRAPE_LIST_DELAY_SEC", "1"))
 
-# URL_LIMIT controls how many individual ad pages are fully scraped per run.
-# Default = 5 (safe dev default to keep runs fast).
-# Set SCRAPE_URL_LIMIT=0 (or a very high number) in env to process ALL ads.
-# This is the recommended dev toggle / config for full vs limited scraping.
-_raw_limit = os.getenv("SCRAPE_URL_LIMIT", "5")
+# URL_LIMIT caps how many NEW ads (not yet in listed_ads) get their detail
+# page fetched per run; ads over the cap are fetched on later runs. Known ads
+# and the still/removed diff use the full discovered set and ignore it.
+# Default 500 covers a first run into an empty DB for every city - the
+# largest, jurmala, lists ~320 ads - so a fresh deploy fills in one run
+# instead of the old default 5 taking ~65 days. 0 = no cap; set a small
+# value (e.g. 5) for quick dev runs.
+DEFAULT_URL_LIMIT = 500
+_raw_limit = os.getenv("SCRAPE_URL_LIMIT", str(DEFAULT_URL_LIMIT))
 try:
-    URL_LIMIT = int(_raw_limit) if _raw_limit else 5
+    URL_LIMIT = int(_raw_limit) if _raw_limit else DEFAULT_URL_LIMIT
 except (ValueError, TypeError):
-    logger.warning("Invalid SCRAPE_URL_LIMIT value, falling back to 5")
-    URL_LIMIT = 5
+    logger.warning("Invalid SCRAPE_URL_LIMIT value, falling back to %s", DEFAULT_URL_LIMIT)
+    URL_LIMIT = DEFAULT_URL_LIMIT
 
 if URL_LIMIT <= 0:
     logger.info("SCRAPE_URL_LIMIT=%s → will process ALL discovered ads", _raw_limit)
 else:
-    logger.info("SCRAPE_URL_LIMIT=%s (dev safety limit)", URL_LIMIT)
+    logger.info("SCRAPE_URL_LIMIT=%s (cap on new ads fetched per run)", URL_LIMIT)
 
 # true
 SKIP_LAMBDA_FILE = True
@@ -247,7 +251,7 @@ def scrape_website(main_url: str = None, report_file: str = None, city_slug: str
     new_urls = select_new_urls(valid_msg_urls, known_hashes)
 
     if URL_LIMIT > 0:
-        logger.info("Dev limit active: only first %s new ads will be processed for details", URL_LIMIT)
+        logger.info("URL limit active: at most %s new ads will be processed for details", URL_LIMIT)
     else:
         logger.info("No dev limit: processing all %s new ads for details", len(new_urls))
 
@@ -334,6 +338,13 @@ def extract_data_from_url(nondup_urls: list, dest_file: str, session: requests.S
         num_to_process = min(URL_LIMIT, len(nondup_urls))
     else:
         num_to_process = len(nondup_urls)
+    if num_to_process < len(nondup_urls):
+        # Not an error - they are fetched on later runs - but a run that
+        # keeps hitting the cap means SCRAPE_URL_LIMIT is too low.
+        logger.warning(
+            "SCRAPE_URL_LIMIT=%s: %s new ads left for later runs"
+            " (raise the limit if this repeats)",
+            URL_LIMIT, len(nondup_urls) - num_to_process)
 
     logger.info("Processing %s of %s discovered ads (URL_LIMIT=%s)",
                 num_to_process, len(nondup_urls), URL_LIMIT)
