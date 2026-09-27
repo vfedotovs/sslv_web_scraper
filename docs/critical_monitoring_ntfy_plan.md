@@ -191,6 +191,36 @@ All run on the 15-minute `sslv-watchdog.timer` as a `host` line in the report; h
 - [ ] Confirm on the phone that every `[DRILL]` push arrived (the script only sees that ntfy accepted them) — alert + recovery per drill, 15 in total on a healthy fleet.
 - [ ] Stop the heartbeat timer for a day (`sudo systemctl stop sslv-watchdog-heartbeat.timer`) and confirm the missing 06:35 push is noticed — or the dead-man's-switch alert fires if `HEARTBEAT_PING_URL` is set (then also stop `sslv-watchdog.timer`, which does the pinging). Restart both afterwards.
 
+### Fix — every push crashed on staging (2026-09-27)  ✅ `dev-1.7.9.20`
+
+`/etc/sslv-watchdog.env` had `NTFY_TOPIC_URL=ntfy.sh/staging-sslv-mc-alerts`
+with no `https://`. `curl`, and so `make watchdog-test-ntfy`, accepted it, but
+`urllib.request.Request()` raises `ValueError` on it.
+
+- **The crash went unnoticed.** `send_ntfy()` built the request outside its
+  `try`, so the error escaped. The run then aborted before saving the state,
+  pinging the heartbeat or storing the restart/OOM baselines. The same
+  RESOLVED push was retried, and crashed, every 15 minutes, and the daily
+  heartbeat push crashed too.
+- **systemd showed it as a clean run.** The units list exit 1 ("problems
+  found") in `SuccessExitStatus`, and an uncaught exception also exits 1, so
+  the journal said "Deactivated successfully".
+
+Fixes:
+
+- [x] `send_ntfy()` builds the request inside the `try`: a bad URL returns
+      `False`. The push is retried on the next run, and the run still saves
+      its state and pings the heartbeat.
+- [x] The watchdog adds `https://` to a scheme-less `NTFY_TOPIC_URL` or
+      `HEARTBEAT_PING_URL` and prints a note. `make watchdog-install` does the
+      same before writing the env file, which also makes the "prod on the
+      staging topic" guard see through a bare `ntfy.sh/staging-...`.
+- [x] The units run `cli()`, which exits `2` on a crash, so systemd marks the
+      unit failed. `make watchdog-status` names a failed unit, and flags a
+      scheme-less topic in the env file.
+- [x] Tests in `tests/test_12_fleet_watchdog.py` and
+      `tests/test_30_make_env_guard.py` fail when either fix is reverted.
+
 ### Related, not monitoring (reduces how often these alerts fire)
 - [ ] Add 2 GB swap on the host (memory headroom; see #3).
 - [ ] Stagger `TASK_TIME` per city and make the backup cron time configurable.

@@ -51,6 +51,7 @@ import shutil
 import subprocess
 import time
 import sys
+import traceback
 import urllib.request
 from datetime import datetime, timezone
 
@@ -93,6 +94,9 @@ AWS_ERROR_HINTS = {
 HOST_KEY = "host"
 FLEET_KEY = "fleet"
 NTFY_MAX_BODY_BYTES = 3800  # ntfy.sh message limit is 4096 bytes
+# The systemd units list exit 1 ("problems found") in SuccessExitStatus, and
+# an uncaught exception also exits 1 - so a crash looked like a clean run.
+EXIT_CRASH = 2
 
 
 def run_cmd(args, timeout=60):
@@ -810,8 +814,10 @@ def send_ntfy(url, title, message, priority="default", tags=None, token=None):
         headers["Tags"] = ",".join(tags)
     if token:
         headers["Authorization"] = f"Bearer {token}"
-    request = urllib.request.Request(url, data=body, headers=headers, method="POST")
+    # Request() is inside the try too: it raises ValueError on a malformed URL,
+    # which used to escape and abort the run before the state was saved.
     try:
+        request = urllib.request.Request(url, data=body, headers=headers, method="POST")
         with urllib.request.urlopen(request, timeout=15) as response:
             ok = 200 <= response.status < 300
     except Exception as e:
@@ -820,6 +826,17 @@ def send_ntfy(url, title, message, priority="default", tags=None, token=None):
     if ok:
         print(f"ntfy notification sent: {title}")
     return ok
+
+
+def with_scheme(url, name):
+    """curl (and so `make watchdog-test-ntfy`) assumes https:// for a bare
+    host; urllib rejects it. /etc/sslv-watchdog.env with
+    NTFY_TOPIC_URL=ntfy.sh/<topic> passed the test push and then crashed
+    every watchdog push (2026-09-27)."""
+    if url and "://" not in url:
+        print(f"NOTE: {name} has no scheme, using https://{url}")
+        return f"https://{url}"
+    return url
 
 
 def ntfy_decision(all_problems, state, reminder_hours, now):
@@ -999,6 +1016,8 @@ def main(argv=None):
                              " (default: $HEARTBEAT_PING_URL; skipped with"
                              " --ntfy-mode never)")
     args = parser.parse_args(argv)
+    args.ntfy_url = with_scheme(args.ntfy_url, "NTFY_TOPIC_URL")
+    args.heartbeat_ping_url = with_scheme(args.heartbeat_ping_url, "HEARTBEAT_PING_URL")
 
     cities = parse_cities(args.cities_file)
     if not cities:
@@ -1080,5 +1099,16 @@ def main(argv=None):
     return 1 if critical else 0
 
 
+def cli(argv=None):
+    """Entry point for the systemd units: an unexpected exception exits
+    EXIT_CRASH, so the unit shows as failed instead of "problems found"."""
+    try:
+        return main(argv)
+    except Exception:
+        traceback.print_exc()
+        print(f"ERROR: fleet_watchdog crashed; exiting {EXIT_CRASH}")
+        return EXIT_CRASH
+
+
 if __name__ == "__main__":
-    sys.exit(main())
+    sys.exit(cli())

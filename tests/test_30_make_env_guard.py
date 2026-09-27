@@ -125,3 +125,35 @@ def test_watchdog_status_flags_a_floor_left_from_an_older_install(tmp_path):
 def test_watchdog_status_quiet_about_a_current_floor(staging_host):
     staging_host.write_text("ENV=staging\nMIN_BACKUP_SIZE_KB=1\n")
     assert "MIN_BACKUP_SIZE_KB" not in make(["watchdog-status"], staging_host).stdout
+
+
+# --- 2026-09-27: NTFY_TOPIC_URL without https:// ---
+
+def test_watchdog_install_adds_https_to_a_bare_topic(staging_host):
+    result = make(["watchdog-install", "M6_ENV=staging",
+                   "NTFY_TOPIC_URL=ntfy.sh/staging-sslv-mc-alerts",
+                   "HEARTBEAT_PING_URL=hc-ping.com/uuid"], staging_host, dry_run=True)
+    assert result.returncode == 0
+    assert '"https://ntfy.sh/staging-sslv-mc-alerts"' in result.stdout
+    assert "https://hc-ping.com/uuid" in result.stdout
+    assert '"ntfy.sh/' not in result.stdout
+
+
+def test_prod_install_refuses_the_bare_staging_topic(staging_host):
+    """Without the scheme the topic did not equal the staging default, so
+    the guard against prod pushing to the staging topic let it through."""
+    result = make(["watchdog-install", "M6_ENV=prod",
+                   "NTFY_TOPIC_URL=ntfy.sh/staging-sslv-mc-alerts"], staging_host)
+    assert result.returncode != 0
+    assert "would push to the staging topic" in result.stdout
+
+
+def test_watchdog_status_flags_a_bare_topic_in_the_env_file(staging_host):
+    staging_host.write_text("ENV=staging\nNTFY_TOPIC_URL=ntfy.sh/staging-sslv-mc-alerts\n")
+    out = make(["watchdog-status"], staging_host).stdout
+    assert "has NTFY_TOPIC_URL=ntfy.sh/staging-sslv-mc-alerts without https://" in out
+    assert "make watchdog-install M6_ENV=staging" in out
+
+
+def test_watchdog_status_quiet_about_an_https_topic(staging_host):
+    assert "without https://" not in make(["watchdog-status"], staging_host).stdout

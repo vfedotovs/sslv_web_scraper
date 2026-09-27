@@ -1094,3 +1094,85 @@ def test_check_city_unreadable_rows_still_checks_backup_without_them():
     assert backup.call_args.kwargs["rows"] is None
     assert "LA:? RA:?" in line
     assert problems == ["could not read table row counts from db container"]
+
+
+# --- 2026-09-27: NTFY_TOPIC_URL without https:// crashed every push ---
+
+def test_send_ntfy_malformed_url_returns_false_not_raises(capsys):
+    """Request() itself raises ValueError on a URL without a scheme; it used
+    to escape send_ntfy and abort the run before the state was saved."""
+    with patch.object(watchdog.urllib.request, "urlopen") as urlopen:
+        assert watchdog.send_ntfy("ntfy.sh/staging-sslv-mc-alerts", "T", "b") is False
+    urlopen.assert_not_called()
+    assert "unknown url type" in capsys.readouterr().out
+
+
+@pytest.mark.parametrize("url,expected", [
+    ("ntfy.sh/staging-sslv-mc-alerts", "https://ntfy.sh/staging-sslv-mc-alerts"),
+    ("https://ntfy.sh/t", "https://ntfy.sh/t"),
+    ("http://10.0.0.5:8080/t", "http://10.0.0.5:8080/t"),
+    (None, None),
+    ("", ""),
+])
+def test_with_scheme(url, expected):
+    assert watchdog.with_scheme(url, "NTFY_TOPIC_URL") == expected
+
+
+def test_main_adds_https_to_a_bare_topic_and_ping_url(tmp_path, monkeypatch):
+    monkeypatch.setenv("NTFY_TOPIC_URL", "ntfy.sh/staging-sslv-mc-alerts")
+    monkeypatch.setenv("HEARTBEAT_PING_URL", "hc-ping.com/uuid")
+    ntfy, ping = MagicMock(return_value=True), MagicMock(return_value=True)
+    with patch.object(watchdog, "parse_cities", return_value=["ogre"]), \
+         patch.object(watchdog, "check_city", return_value=("line", ["boom"])), \
+         patch.object(watchdog, "check_host", return_value=HOST_OK), \
+         patch.object(watchdog, "send_ntfy", ntfy), \
+         patch.object(watchdog, "ping_heartbeat", ping):
+        watchdog.main(["--email-mode", "never", "--env", "staging",
+                       "--state-file", str(tmp_path / "s.json")])
+    assert ntfy.call_args[0][0] == "https://ntfy.sh/staging-sslv-mc-alerts"
+    ping.assert_called_once_with("https://hc-ping.com/uuid")
+
+
+def test_failed_push_still_saves_state_and_pings_heartbeat(tmp_path):
+    """The staging host: problems recorded earlier, all clear now, so the
+    run pushes RESOLVED - and the push fails. The run must still finish."""
+    state_file = tmp_path / "state.json"
+    state_file.write_text(json.dumps({
+        "problems": {"ogre: boom": "ogre: boom"}, "last_sent": "2026-09-26T10:00:00+00:00"}))
+    ping = MagicMock(return_value=True)
+    with patch.object(watchdog, "parse_cities", return_value=["ogre"]), \
+         patch.object(watchdog, "check_city", return_value=("line", [])), \
+         patch.object(watchdog, "check_host", return_value=HOST_OK), \
+         patch.object(watchdog.urllib.request, "urlopen", side_effect=OSError("down")), \
+         patch.object(watchdog, "ping_heartbeat", ping):
+        exit_code = watchdog.main([
+            "--email-mode", "never", "--env", "staging", "--ntfy-url", "https://ntfy.sh/t",
+            "--heartbeat-ping-url", "https://hc-ping.com/uuid",
+            "--state-file", str(state_file)])
+    assert exit_code == 0
+    state = json.loads(state_file.read_text())
+    assert "last_check_epoch" in state                    # the run was recorded
+    assert state["problems"] == {"ogre: boom": "ogre: boom"}  # RESOLVED retried next run
+    ping.assert_called_once()
+
+
+def test_cli_crash_exits_2_so_systemd_marks_the_unit_failed(capsys):
+    with patch.object(watchdog, "main", side_effect=RuntimeError("boom")):
+        assert watchdog.cli([]) == watchdog.EXIT_CRASH == 2
+    out = capsys.readouterr()
+    assert "RuntimeError: boom" in out.err and "crashed; exiting 2" in out.out
+
+
+@pytest.mark.parametrize("code", [0, 1])
+def test_cli_passes_main_exit_codes_through(code):
+    with patch.object(watchdog, "main", return_value=code):
+        assert watchdog.cli([]) == code
+
+
+def test_systemd_units_treat_only_exit_1_as_success():
+    """If a unit also listed 2, a crash would look like a clean run again."""
+    units = Path(WATCHDOG_PY).parent / "systemd"
+    for name in ("sslv-watchdog.service", "sslv-watchdog-heartbeat.service"):
+        text = (units / name).read_text()
+        assert "SuccessExitStatus=1\n" in text, name
+        assert "scripts/fleet_watchdog.py" in text

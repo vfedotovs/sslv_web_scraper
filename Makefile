@@ -50,6 +50,11 @@ MIN_BACKUP_SIZE_KB ?= 1
 # Watchdog ntfy alerts (see "Monitoring & alerts")
 NTFY_STAGING_TOPIC_URL := https://ntfy.sh/staging-sslv-mc-alerts
 NTFY_TOPIC_URL ?= $(NTFY_STAGING_TOPIC_URL)
+# curl adds https:// to a bare host, Python's urllib does not: a topic given as
+# ntfy.sh/<topic> passed watchdog-test-ntfy, then crashed every watchdog push.
+with_scheme = $(if $(1),$(if $(findstring ://,$(1)),$(1),https://$(1)))
+override NTFY_TOPIC_URL := $(call with_scheme,$(NTFY_TOPIC_URL))
+override HEARTBEAT_PING_URL := $(call with_scheme,$(HEARTBEAT_PING_URL))
 WATCHDOG_UNITS := sslv-watchdog.service sslv-watchdog.timer sslv-watchdog-heartbeat.service sslv-watchdog-heartbeat.timer
 
 # Tests (see "Tests"): project venv for the full suite, pytest-only venv for the host
@@ -329,6 +334,15 @@ watchdog-status: ## show watchdog timers and recent run output
 	if [ -n "$$floor" ] && [ "$$floor" != "$(MIN_BACKUP_SIZE_KB)" ]; then \
 		printf "$(call log_warning,$(WATCHDOG_ENV_FILE) sets MIN_BACKUP_SIZE_KB=$$floor; the default is now $(MIN_BACKUP_SIZE_KB) (a hard floor - size is judged per row). Re-run: make watchdog-install M6_ENV=$(HOST_ENV))\n"; \
 	fi
+	@for svc in sslv-watchdog.service sslv-watchdog-heartbeat.service; do \
+		if systemctl is-failed --quiet $$svc 2>/dev/null; then \
+			printf "$(call log_error,$$svc: last run CRASHED - see the traceback in the journal below)\n"; \
+		fi; \
+	done
+	@url=$$(sed -n 's/^NTFY_TOPIC_URL=//p' $(WATCHDOG_ENV_FILE) 2>/dev/null | head -1); \
+	case "$$url" in ""|*://*) ;; *) \
+		printf "$(call log_warning,$(WATCHDOG_ENV_FILE) has NTFY_TOPIC_URL=$$url without https:// (the watchdog adds it now). Rewrite it: make watchdog-install M6_ENV=$(HOST_ENV))\n" ;; \
+	esac
 	@systemctl list-timers 'sslv-watchdog*' --all
 	@journalctl -u sslv-watchdog.service -u sslv-watchdog-heartbeat.service -n 60 --no-pager
 
