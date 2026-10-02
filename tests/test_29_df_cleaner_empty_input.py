@@ -89,7 +89,7 @@ def test_cleaning_chain_still_works_on_a_real_ad():
     frame = df_cleaner.clean_sqm_eur_col(frame)
     row = frame.iloc[0]
     assert row["Size_sqm"] == "54"
-    assert row["Price_in_eur"] == "175000"
+    assert row["Price_in_eur"] == 175000  # a number since dev-1.7.9.23, not "175000"
     assert row["SQ_meter_price"] == pytest.approx(3241.0)
 
 

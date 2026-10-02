@@ -461,7 +461,7 @@ print(json.dumps(cfg))' $(DOCKER_DAEMON_JSON)
 # in one transaction (any error rolls back) and restart them. Undo a restore with
 # make restore-city CITY=<city> FILE=restore-safety/<file>. Run test-restore first.
 
-.PHONY: backup-city backup-all verify-backup backup-sizes restore-city restore-all test-restore e2e-backup-restore fetch-last-db-dump fetch-dump fetch-dump-example
+.PHONY: backup-city backup-all verify-backup backup-sizes repair-prices restore-city restore-all test-restore e2e-backup-restore fetch-last-db-dump fetch-dump fetch-dump-example
 
 backup-city: ## back up one city's DB to S3; bucket keeps the newest 5 (CITY=ogre M6_ENV=prod)
 	$(call host_env_guard,$(M6_ENV))
@@ -480,6 +480,9 @@ backup-sizes: ## read-only: newest backups per city with row counts and bytes/ro
 	$(call host_env_warn,$(M6_ENV))
 	@python3 scripts/backup_sizes.py --env $(M6_ENV) $(if $(CITY),--city $(CITY)) \
 		$(if $(COUNT),--count $(COUNT)) --min-backup-size-kb $(MIN_BACKUP_SIZE_KB)
+
+repair-prices: ## one-off: fix 1M+ prices stored as 1/1000 before dev-1.7.9.23; dry run unless APPLY=1 (CITY= or all; back up first)
+	@./scripts/repair_truncated_prices.sh $(if $(CITY),--city $(CITY),--all) $(if $(filter 1,$(APPLY)),--apply)
 
 restore-city: ## LIVE: replace one city's DB with its latest backup, atomically; asks first (CITY= M6_ENV=, FILE= to undo, YES=1)
 	$(call host_env_guard,$(M6_ENV))

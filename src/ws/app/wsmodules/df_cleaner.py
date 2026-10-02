@@ -120,10 +120,13 @@ def split_price_column(df_name):
     # Creating separate columns for price and SQM new data frame
     df_name["Price_EUR"] = new[0]
     df_name["SQ_M_EUR"] = new[1]
-    # Remove EUR sign in price column and remove space (split at 3 slices)
-    no_euro_symb = split_into_columns(df_name["Price_EUR"], " ", 2, 3)
-    # Creates new column and combines 2 indexes
-    df_name["Price_in_eur"] = no_euro_symb[0] + no_euro_symb[1]
+    # Drop every space and the € sign, then make it a number. Joining the
+    # first two space-separated groups kept 1 130 000 € as "1130", and left
+    # a string column that sorted 145000 before 59000.
+    df_name["Price_in_eur"] = pd.to_numeric(
+        df_name["Price_EUR"].astype(str).str.replace(r"[\s€]", "", regex=True),
+        errors="coerce",
+    ).astype("Int64")
     # drop old split columns
     df = df_name.loc[:, df_name.columns != 'Price']
     final_df = df.loc[:, df.columns != 'Price_EUR']
@@ -234,19 +237,18 @@ def create_email_body(clean_data_frame, file_name: str) -> None:
     rc_column_dtype = clean_data_frame['Room_count'].dtype
     log.info(f"DataFrame Room_count column dtype: {rc_column_dtype}")
     email_body_txt = []
-    for room_count in range(4):
-        # Empty frames (nothing scraped) have neither int64 nor object dtype,
-        # so start from an empty selection instead of leaving it unbound.
-        filtered_by_room_count = clean_data_frame.iloc[0:0]
-        room_count_str = str(room_count + 1)
+    # Room count as a number whatever the column dtype; empty frames (nothing
+    # scraped) and non-numeric values ("Citi") match no segment.
+    room_counts = pd.to_numeric(clean_data_frame['Room_count'], errors='coerce')
+    # Segments 1-4 always (an empty one shows there was nothing new), plus any
+    # larger room count present: range(4) left 5- and 6-room ads out of the
+    # email while the analytics table still counted them.
+    present = {int(rc) for rc in room_counts.dropna()}
+    for room_count in sorted(present | {1, 2, 3, 4}):
+        filtered_by_room_count = clean_data_frame.loc[room_counts == room_count]
+        room_count_str = str(room_count)
         section_line = str(room_count_str + " room apartment segment:")
         email_body_txt.append(section_line)
-        if rc_column_dtype == 'int64':
-            filtered_by_room_count = clean_data_frame.loc[clean_data_frame['Room_count'] == int(
-                room_count_str)]
-        if rc_column_dtype == 'object':
-            filtered_by_room_count = clean_data_frame.loc[clean_data_frame['Room_count'] == str(
-                room_count_str)]
         colum_line = "[Rooms, Floor, Size, Price, SQM Price, Apartment Street, Pub_date,  URL]"
         email_body_txt.append(colum_line)
         for index, row in filtered_by_room_count.iterrows():
