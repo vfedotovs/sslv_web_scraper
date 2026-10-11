@@ -77,4 +77,4 @@ All of these describe the **single-city** deployment. The rollback guide is the 
 - Full suite: **392 passed** (384 existing + 8 in `tests/test_33_release_2_0_0_merge.py` for the combined subject, report header, `[NEW]`/`EUR` rows, street normaliser, and per-stage gc).
 - `docker compose config` valid. `make help`, `make -n build up down logs` OK.
 - `ws` and `ts` images build on `python:3.11-slim-bookworm`. All ws modules and `ts` import on 3.11.17, and `ws` answers `/health`.
-- **Not done yet:** staging deploy of `release-2.0.0` and the 3-night soak (V-2, V-3, V-6), memory check on 3.11 (V-7), and backup image B-3 (separate branch `bugfix/backup-python-3.11`, stashed).
+- **Not done yet:** staging deploy of `release-2.0.0` and the 3-night soak (V-2, V-3, V-6), memory check on 3.11 (V-7), and a staging run of the B-3 backup image (now on this branch: `python:3.11-slim-bookworm`, `pg_dump` 15).

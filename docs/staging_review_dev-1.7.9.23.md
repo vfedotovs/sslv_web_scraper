@@ -51,6 +51,9 @@ These must be closed before production. Where an item already exists in
 - [ ] **B-3 — Backup image runs Python 3.9, which boto3 no longer supports.**
   - The backup logs print `PythonDeprecationWarning: Boto3 will no longer support Python 3.9 starting April 29, 2026` 150 times. That date has passed, so the backup service, the one that protects production data, gets no SDK security fixes.
   - **Action:** move the backup image to Python 3.11 too, then rerun `make e2e-backup-restore CITY=ogre M6_ENV=staging`.
+  - **Found while fixing it: live restores of current backups fail.** `python:3.9-slim` is now Debian trixie, whose `postgresql-client` is **17.11**, while the city databases run Postgres **15.19**. The `pg_dump` 17 dumps in S3 contain `SET transaction_timeout = 0;`, and Postgres 15 rejects that line with `unrecognized configuration parameter "transaction_timeout"`. The live restore in `restore_db_city.sh` (`ON_ERROR_STOP`, single transaction) therefore rolls back on line 13. `make test-restore` misses it because it only counts errors and warns.
+  - **Fix:** on `release-2.0.0`. The image is now `python:3.11-slim-bookworm`, with `pg_dump` 15.19 matching the server, and the build fails if the client major is not 15. Checked locally: a dump made with the new image loads through the live-restore command with exit 0 and identical row counts.
+  - **Still open:** backups already taken with `pg_dump` 17 can't be live-restored until `restore_db_city.sh` drops `SET transaction_timeout` when loading into Postgres 15, or until enough new pg15 backups replace them.
 
 - [ ] **B-4 — No release traceability.** (RELEASE plan R-2)
   - The running containers carry `RELEASE_VERSION=v1.6.0`, from a `.env.prod` dated 2026-07-10, so every email subject reads `web_scraper_v1.6.0_…`. Images are untagged (`<none>`) and carry no git SHA label. Today the only proof of what runs on a host is SSHing in and running `git log`.
