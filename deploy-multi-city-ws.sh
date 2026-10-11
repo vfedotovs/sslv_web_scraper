@@ -36,6 +36,8 @@ fi
 
 # Shared cities.yaml parser (provides parse_cities)
 source "${SCRIPT_DIR}/scripts/lib/cities.sh"
+# Post-deploy trigger + wait (provides post_deploy_verify)
+source "${SCRIPT_DIR}/scripts/lib/post_deploy.sh"
 
 # Get list of cities (portable, works on macOS bash 3.2+)
 CITIES=()
@@ -271,8 +273,8 @@ for city in "${CITIES[@]}"; do
     # profiles: ["backup"] in docker-compose.yml.
     #
     # Note: The old "curl" debug one-shot trigger is no longer used.
-    # Immediate post-deploy trigger is now performed directly in this script
-    # (see below) using a temporary curl container with the correct city.
+    # The immediate post-deploy trigger runs below via post_deploy_verify
+    # (scripts/lib/post_deploy.sh), from inside the city's ws container.
     PROFILE_ARGS=(--profile backup)
 
     # --build: without it compose reuses any existing sslv-ws/ts/backup image,
@@ -280,15 +282,47 @@ for city in "${CITIES[@]}"; do
     # already has the images. Unchanged images are rebuilt from cache quickly.
     if $COMPOSE_CMD --project-name "$city" "${ENV_FILE_ARGS[@]}" "${PROFILE_ARGS[@]}" up -d --build; then
         log_info "Successfully deployed $city (including backup container)"
-        SUCCESS_COUNT=$((SUCCESS_COUNT + 1))
 
-        # Immediate post-deploy trigger (replaces the old debug "curl" container)
-        # This ensures the scrape job runs right after deploy, not only at 00:40 schedule.
-        # The old curl service was hardcoded to ogre and explicitly disabled in multi-city.
-        log_info "Triggering immediate /run-task/${city} for post-deploy verification..."
-        $COMPOSE_CMD --project-name "$city" "${ENV_FILE_ARGS[@]}" run --rm --no-deps \
-            curlimages/curl sh -c "sleep 20 && curl -s --max-time 180 http://ws:8000/run-task/${city} || echo 'Immediate trigger completed or failed (non-fatal)'" \
-            > /dev/null 2>&1 || true
+        # Immediate post-deploy trigger: run the pipeline now instead of waiting
+        # for the 00:40 schedule, and fail the city if the run fails.
+        # POST_DEPLOY_VERIFY=false skips it (e.g. redeploying during the nightly run).
+        if [[ "${POST_DEPLOY_VERIFY:-true}" =~ ^(false|0|no)$ ]]; then
+            log_warn "[$city] Post-deploy verification skipped (POST_DEPLOY_VERIFY=${POST_DEPLOY_VERIFY})"
+            SUCCESS_COUNT=$((SUCCESS_COUNT + 1))
+            continue
+        fi
+
+        log_info "Triggering immediate /run-task/${city} and waiting for the run (timeout ${POST_DEPLOY_VERIFY_TIMEOUT:-1200}s)..."
+        verify_rc=0
+        # shellcheck disable=SC2086  # COMPOSE_CMD may be two words ("docker compose")
+        verify_msg=$(post_deploy_verify "$city" $COMPOSE_CMD --project-name "$city" "${ENV_FILE_ARGS[@]}") || verify_rc=$?
+        case "$verify_rc" in
+            "$PDV_OK")
+                log_info "[$city] Post-deploy verification OK: $verify_msg"
+                SUCCESS_COUNT=$((SUCCESS_COUNT + 1))
+                ;;
+            "$PDV_SKIPPED")
+                log_warn "[$city] Post-deploy verification $verify_msg"
+                SUCCESS_COUNT=$((SUCCESS_COUNT + 1))
+                ;;
+            "$PDV_TIMEOUT")
+                log_error "[$city] Post-deploy verification timed out: $verify_msg"
+                log_error "  The run may still finish; check: $COMPOSE_CMD --project-name $city exec ws python -c \"import urllib.request; print(urllib.request.urlopen('http://localhost:8000/status').read().decode())\""
+                log_error "  A fresh volume fetches every ad; raise POST_DEPLOY_VERIFY_TIMEOUT if that is expected."
+                FAIL_COUNT=$((FAIL_COUNT + 1))
+                FAILED_CITIES+=("$city")
+                ;;
+            "$PDV_FAILED")
+                log_error "[$city] Post-deploy run FAILED: $verify_msg"
+                FAIL_COUNT=$((FAIL_COUNT + 1))
+                FAILED_CITIES+=("$city")
+                ;;
+            *)
+                log_error "[$city] Post-deploy verification could not run (exit $verify_rc): $verify_msg"
+                FAIL_COUNT=$((FAIL_COUNT + 1))
+                FAILED_CITIES+=("$city")
+                ;;
+        esac
     else
         log_error "Failed to deploy $city"
         FAIL_COUNT=$((FAIL_COUNT + 1))
