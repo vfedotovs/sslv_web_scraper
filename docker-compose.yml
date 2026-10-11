@@ -88,8 +88,9 @@ services:
     networks:
       - postgresql
   # One-shot debug trigger (kept for manual single-city testing only).
-  # In multi-city deploys, immediate post-deploy trigger is handled inside
-  # deploy-multi-city-ws.sh using a temporary container (with correct CITY).
+  # In multi-city deploys, the immediate post-deploy trigger is run by
+  # deploy-multi-city-ws.sh from inside each city's ws container
+  # (scripts/lib/post_deploy.sh), and the deploy waits for the run's result.
   # To run manually: docker compose --profile debug up -d curl
   # (Note: still hardcoded to ogre in the compose definition)
   curl:
