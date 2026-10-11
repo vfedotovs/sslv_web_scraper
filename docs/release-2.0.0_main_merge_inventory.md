@@ -63,6 +63,13 @@ All of these describe the **single-city** deployment. The rollback guide is the 
 ## 5. New blockers found during the merge
 
 - [ ] **R-0 — `main.yml` would deploy single-city code to production on the first push after R-1.** It triggers on every push to `main`. It force-removes **all** containers **and images** on the production host, clones `main`, and runs `make setup && make build && make up`, the single-project stack. Merging `release-2.0.0` into `main` as-is would replace production with a one-city deployment. Before R-1, either make `Deploy` `workflow_dispatch`-only, or rewrite it around `deploy-multi-city-ws.sh` with per-city rollout (R-5). Its `Test` job also runs pytest with `continue-on-error: true` on Python 3.9, so tests never gate the deploy: set it to 3.11 and let failures fail.
+  - **Fixed on `release-2.0.0`:**
+    - `Test` runs on push and PR to `main`, on Python 3.11, and a failing test fails the job.
+    - `Deploy` runs only from **Run workflow** with `confirm = deploy-prod`, on the exact commit `Test` passed. It clones that commit into `~/sslv-prod/<time>-<sha>` on the host and runs `make deploy-prod`. Nothing else on the host is removed.
+    - `deploy-multi-city-ws.sh` exports `RELEASE_VERSION`/`APP_ENV`: from CI (`DEPLOY_RELEASE_VERSION`, `DEPLOY_APP_ENV`), otherwise `git describe` and `M6_ENV`. They now override the stale `v1.6.0` in `.env.prod` and every `.env.<city>`, which closes the subject half of B-4.
+    - Guarded by `tests/test_34_main_workflow_guard.py`, which fails on the old workflow.
+  - **Still manual:** the **first** production run is the R-4 migration. Production still runs the single-city stack, which `make deploy-prod` does not stop, so follow the cutover runbook (backup, per-city rollout R-5) before pressing **Run workflow**.
+  - **`staging.yml`** (manual only) still has the old single-city deploy: it removes all containers and images on the staging host. Don't run it. Use `make deploy-staging` on the host until it is rewritten the same way.
 - [ ] **README (M-7):** the top half, auto-merged from `main`, still describes the single-city `make setup/build/up` flow. The multi-city sections below it are current.
 
 ## 6. Verification on the merge result

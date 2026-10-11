@@ -27,6 +27,7 @@ DEPLOY_SCRIPT = REPO / "deploy-multi-city-ws.sh"
 # Every call is recorded so tests can check the compose invocation.
 DOCKER_STUB = """#!/bin/bash
 echo "$@" >> "$DOCKER_CALLS"
+[[ " $* " == *" up "* ]] && echo "up-env RELEASE_VERSION=${RELEASE_VERSION:-} APP_ENV=${APP_ENV:-}" >> "$DOCKER_CALLS"
 [[ "$1 $2" == "compose version" ]] && exit 0
 args=("$@")
 for i in "${!args[@]}"; do
@@ -266,3 +267,31 @@ def test_deploy_can_skip_verification(deploy_dir, stub_host, serve):
     assert result.returncode == 0
     assert "Post-deploy verification skipped (POST_DEPLOY_VERIFY=false)" in log
     assert fake.calls == []
+
+
+# --- RELEASE_VERSION / APP_ENV reach compose (R-0: set by main.yml) ---
+
+def up_env_lines(stub_host):
+    return [l for l in Path(stub_host[1]["DOCKER_CALLS"]).read_text().splitlines()
+            if l.startswith("up-env ")]
+
+
+def test_deploy_exports_ci_release_version_and_env(deploy_dir, stub_host, serve):
+    fake = FakeWs(run_task=[(200, {"message": "already has run"})],
+                  status=[{"ogre": run_row(4, "success"), "jurmala": run_row(4, "success", "jurmala")}])
+    result, log = deploy(deploy_dir, stub_host, serve(fake),
+                         DEPLOY_RELEASE_VERSION="v2.0.1-rc", DEPLOY_APP_ENV="production",
+                         RELEASE_VERSION="v1.6.0", APP_ENV="stale")   # stale exports are replaced
+    assert result.returncode == 0, log
+    assert "Release version: v2.0.1-rc  App env: production" in log
+    assert up_env_lines(stub_host) == ["up-env RELEASE_VERSION=v2.0.1-rc APP_ENV=production"] * 2
+
+
+def test_deploy_without_ci_values_uses_m6_env(deploy_dir, stub_host, serve):
+    fake = FakeWs(run_task=[(200, {"message": "already has run"})],
+                  status=[{"ogre": run_row(4, "success"), "jurmala": run_row(4, "success", "jurmala")}])
+    result, log = deploy(deploy_dir, stub_host, serve(fake), M6_ENV="staging")
+    assert result.returncode == 0, log
+    # deploy_dir is not a git checkout, so the version is left to the env files
+    assert "Release version: <from env files>  App env: staging" in log
+    assert up_env_lines(stub_host) == ["up-env RELEASE_VERSION= APP_ENV=staging"] * 2

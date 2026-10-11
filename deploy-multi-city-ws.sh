@@ -86,7 +86,17 @@ fi
 # Compose gives shell env precedence over --env-file when interpolating ${VAR}, so
 # clear variables the env files must own. Otherwise a stale or empty export (e.g.
 # S3_BUCKET="" from a failed Secrets Manager lookup) silently overrides every city.
-unset S3_BUCKET DEST_EMAIL SRC_EMAIL RELEASE_VERSION SENDGRID_API_KEY
+unset S3_BUCKET DEST_EMAIL SRC_EMAIL RELEASE_VERSION APP_ENV SENDGRID_API_KEY
+
+# Release version and environment shown in report emails (RELEASE_VERSION, APP_ENV).
+# Exported, so they win over the stale values in .env.prod / .env.<city>.
+#   DEPLOY_RELEASE_VERSION  set by CI (.github/workflows/main.yml); else `git describe`
+#   DEPLOY_APP_ENV          set by CI; else M6_ENV (staging | prod)
+RELEASE_VERSION="${DEPLOY_RELEASE_VERSION:-$(git -C "$SCRIPT_DIR" describe --tags --always --dirty 2>/dev/null || true)}"
+APP_ENV="${DEPLOY_APP_ENV:-${M6_ENV:-}}"
+[[ -n "$RELEASE_VERSION" ]] && export RELEASE_VERSION
+[[ -n "$APP_ENV" ]] && export APP_ENV
+log_info "Release version: ${RELEASE_VERSION:-<from env files>}  App env: ${APP_ENV:-<from env files>}"
 
 # Optional: allow overriding the cicd files bucket
 # For M6 staging deployments, default to the dedicated staging CICD bucket
