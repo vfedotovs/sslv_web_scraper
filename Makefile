@@ -25,6 +25,7 @@
 SHELL := /bin/bash
 OS := $(shell uname -s)
 ARCH := $(shell uname -m)
+COMPOSE := $(shell if command -v docker compose >/dev/null 2>&1; then echo "docker compose"; elif command -v docker-compose >/dev/null 2>&1; then echo "docker-compose"; else echo "docker compose"; fi)
 
 # Deployment environment for bucket names, backups and alerts: prod | staging | dev
 M6_ENV ?= prod
@@ -59,6 +60,8 @@ WATCHDOG_UNITS := sslv-watchdog.service sslv-watchdog.timer sslv-watchdog-heartb
 
 # Tests (see "Tests"): project venv for the full suite, pytest-only venv for the host
 VENV ?= .venv
+# Compose v2 plugin if present, else legacy docker-compose (main b336259, 0ab93c2).
+COMPOSE ?= $(shell docker compose version >/dev/null 2>&1 && echo "docker compose" || echo docker-compose)
 HOST_VENV ?= .venv-host
 TEST_DEPS := pytest coverage httpx  # httpx: FastAPI TestClient (tests/test_11_status_endpoint.py)
 # Tests of the stdlib-only host scripts; the only ones that run on the EC2 host
@@ -729,7 +732,7 @@ test-host: ## run the host scripts' tests only (fleet_watchdog, watchdog_drill);
 # ec2_* targets. Not for
 # the multi-city fleet — use the Deploy section. `down` deletes its DB volume.
 
-.PHONY: setup verify-setup check-backup-age precheck build up down clean cleanup-on-failure _setup-precheck
+.PHONY: setup verify-setup check-backup-age precheck build up down logs clean cleanup-on-failure _setup-precheck
 
 setup: _setup-precheck ## load secrets (Secrets Manager + M5 bucket) and download the latest DB backup
 	@printf "$(call log_step,Starting EC2 setup...)\n"
@@ -873,15 +876,18 @@ precheck: ## check S3_BUCKET is exported
 	@printf "$(call log_success,env S3_BUCKET is exported)\n"
 
 build: ## build the db, ts and ws images
-	@docker-compose --env-file .env.prod build db
-	@docker-compose --env-file .env.prod build ts
-	@docker-compose --env-file .env.prod build ws
+	@$(COMPOSE) --env-file .env.prod build db
+	@$(COMPOSE) --env-file .env.prod build ts
+	@$(COMPOSE) --env-file .env.prod build ws
 
 up: ## start the single-project stack
-	docker-compose --env-file .env.prod up -d
+	$(COMPOSE) --env-file .env.prod up -d
 
 down: ## stop the single-project stack AND delete its DB volume (multi-city: undeploy-*)
-	docker-compose --env-file .env.prod down -v   # removes volumes (clears old PGDATA)
+	$(COMPOSE) --env-file .env.prod down -v   # removes volumes (clears old PGDATA)
+
+logs: ## tail the single-project stack logs (multi-city: collect-logs)
+	$(COMPOSE) --env-file .env.prod logs -f
 
 clean: ## delete setup files, DB dumps and project images (not containers)
 	@printf "$(call log_step,Cleaning up setup files...)\n"

@@ -31,6 +31,7 @@ Module requires:
 Mudule creates:
 [x] File pandas_df.csv and makes copy data/pandas_df.csv_2022-12-03.csv
 """
+import gc
 import os
 import re
 import shutil
@@ -133,6 +134,8 @@ def cloud_data_formater_main(city_name: str = None) -> None:
         detailed_cws_fp = get_detailed_file_path(city_name)
         df = create_oneline_report(detailed_cws_fp)
         df.to_csv(output_csv)
+        del df  # main cee3b32: release the DataFrame before the next stage
+        gc.collect()
         create_file_copy(output_csv)
     elif todays_cloud_ws_file_exist is False:
         log.warning("Lambda scraped raw-data file does not exist, "
@@ -145,8 +148,10 @@ def cloud_data_formater_main(city_name: str = None) -> None:
             df.to_csv(output_csv)
             log.info("Saving csv format data file "
                      "%s completed with success", output_csv)
+            del df  # main cee3b32: release the DataFrame before the next stage
+            gc.collect()
             create_file_copy(output_csv)
-        if df is None:
+        else:
             log.error('data_frame is None')
             log.error("Saving csv format data file %s has failed", output_csv)
     log.info(' --- Finished data_format_changer module --- ')
@@ -294,7 +299,7 @@ def validate_list_lengths(lists) -> None:
     if len(set(list_lengths)) > 1:
         error_message = f"All lists must have the same length. Found lengths: {list_lengths}"
         log.error(error_message)
-        # raise ValueError(error_message)
+        raise ValueError(error_message)
     log.info("Validation for all provided data element lists completed successfully")
 
 

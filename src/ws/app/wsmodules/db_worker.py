@@ -28,6 +28,7 @@ TODO:
 13.[] Write tests for db_worker module
 """
 
+import gc
 import os
 import sys
 import logging
@@ -119,6 +120,8 @@ def db_worker_main(city: str = None) -> None:
         )
         # Extract new msg data dict from df
         new_msg_data = extract_new_msg_data(df, new_msg_hashes)
+        del df  # main cee3b32: release the DataFrame before the DB writes
+        gc.collect()
         # Extract to_remove msg data dict from db listed_ads table
         # (days_listed is derived from list_date at removal time — M7 P3)
         to_removed_msg_data = extract_to_remove_msg_data(to_remove_msg_hashes, conn=conn)

@@ -5,6 +5,11 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 CONFIG_FILE="${SCRIPT_DIR}/../config/cities.yaml"
 
+# main (2277520, 9cc8efc): pin AWS calls to the region the buckets and the
+# sslv_creds secret live in. Secrets Manager is region-scoped, and s3api from
+# an EC2 host in another region (staging is eu-north-1) fails otherwise.
+AWS_RES_REGION="${AWS_RES_REGION:-eu-west-1}"
+
 # Defaults
 ENV="prod"
 CITY=""
@@ -66,7 +71,7 @@ download_latest() {
 
   echo "Fetching latest from bucket: $s3_bucket (city: $city)"
 
-  LATEST_FILE=$(aws s3api list-objects-v2 --bucket "$s3_bucket" --query 'Contents | sort_by(@, &LastModified)[-1].Key' --output text 2>/dev/null || echo "")
+  LATEST_FILE=$(aws --region "$AWS_RES_REGION" s3api list-objects-v2 --bucket "$s3_bucket" --query 'Contents | sort_by(@, &LastModified)[-1].Key' --output text 2>/dev/null || echo "")
 
   if [[ -z "$LATEST_FILE" || "$LATEST_FILE" == "None" ]]; then
     echo "No files found in the bucket: $s3_bucket"
@@ -81,7 +86,7 @@ download_latest() {
   fi
 
   echo "Downloading latest file: $LATEST_FILE from $s3_bucket as $out_name"
-  aws s3 cp "s3://$s3_bucket/$LATEST_FILE" "./$out_name"
+  aws --region "$AWS_RES_REGION" s3 cp "s3://$s3_bucket/$LATEST_FILE" "./$out_name"
 
   if [[ $? -eq 0 ]]; then
     echo "File downloaded successfully: $out_name"
@@ -95,7 +100,7 @@ CITIES=$(get_cities)
 
 if [[ -z "$CITIES" ]]; then
   # Legacy fallback: use secret
-  secret=$(aws secretsmanager get-secret-value --secret-id sslv_creds --query SecretString --output text)
+  secret=$(aws --region "$AWS_RES_REGION" secretsmanager get-secret-value --secret-id sslv_creds --query SecretString --output text)
   S3_BUCKET=$(echo $secret | jq -r '.s3_db_backups')
   download_latest "" || exit 1
 else

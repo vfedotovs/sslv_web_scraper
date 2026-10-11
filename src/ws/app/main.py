@@ -12,11 +12,14 @@ This module contains functions:
 
 """
 
+import atexit
 from datetime import datetime
+import gc
 import logging
 import logging.handlers as handlers
 from logging.handlers import RotatingFileHandler
 import os
+import psutil
 import sys
 import threading
 import uvicorn
@@ -52,6 +55,31 @@ fh = handlers.RotatingFileHandler("ws_main.log", maxBytes=(1048576 * 5), backupC
 fh.setFormatter(fastapi_log_format)
 log.addHandler(fh)
 
+
+def cleanup_logging_handlers() -> None:
+    """Close and remove handlers for all loggers to release file descriptors on shutdown."""
+    all_loggers = [logging.root] + [
+        logging.getLogger(name) for name in logging.root.manager.loggerDict
+    ]
+    for logger in all_loggers:
+        for handler in logger.handlers[:]:
+            try:
+                handler.close()
+            except Exception:
+                pass
+            logger.removeHandler(handler)
+
+
+atexit.register(cleanup_logging_handlers)
+
+
+def log_memory_usage():
+    """Log current memory usage"""
+    process = psutil.Process(os.getpid())
+    mem_info = process.memory_info()
+    log.info(f"Memory usage: RSS={mem_info.rss / 1024 / 1024:.2f} MB, VMS={mem_info.vms / 1024 / 1024:.2f} MB")
+
+
 app = FastAPI()
 
 # M7 P6: one pipeline run at a time per ws container. The endpoint acquires
@@ -85,15 +113,26 @@ def run_pipeline_stages(stages: list) -> None:
         except Exception as exc:
             log.error("Stage %s FAILED: %s", stage_name, exc)
             raise PipelineStageError(stage_name, exc) from exc
+        finally:
+            # From main's OOM fix (92221dc, 8debdfa): free each stage's
+            # DataFrames before the next one and log RSS, so growth shows up
+            # in ws_main.log. The ws container runs one long-lived worker.
+            gc.collect()
+            log_memory_usage()
         log.info("Completed %s stage", stage_name)
 
 
 @app.get("/")
 def home():
-    """Test enpoint to verify if fast-api is live"""
-    log.info("Recieved GET request on / FastAPI server is ready ...")
+    """Root endpoint"""
+    return {"message": "Welcome to the SS.LV Web Scraper application!"}
 
-    return {"FastAPI server is ready !!!"}
+
+@app.get("/health")
+def health_check():
+    """Health check endpoint for Docker HEALTHCHECK"""
+    log.info("Received GET request on /health")
+    return {"status": "ok", "message": "FastAPI server is ready and healthy."}
 
 
 @app.get("/status")

@@ -1,0 +1,30 @@
+# Cron jobs for SSLV project monitoring and backup
+# All times are in UTC
+
+# At 3:05 AM every day, create a PostgreSQL database backup
+# Calls helper script to perform backup inside the db container
+5 3 * * * /scripts/backup_db.sh >> /var/log/cron/backup.log 2>&1
+
+# At 3:07 AM every day, upload the database backup to S3
+# Calls helper script to upload the latest backup to S3
+7 3 * * * /scripts/upload_backup_to_s3.sh >> /var/log/cron/s3_upload.log 2>&1
+
+# At 3:10 AM every day, send database worker results to ntfy.sh
+# Extracts and sends recent database worker log results
+10 3 * * * /scripts/send_db_worker_results.sh >> /var/log/cron/ntfy.log 2>&1
+
+# At 3:12 AM every day, send database comparison logs to ntfy.sh
+# Extracts and sends comparison statistics from worker logs
+12 3 * * * /scripts/send_db_comparison.sh >> /var/log/cron/ntfy.log 2>&1
+
+# At 4:10 AM every day, send Docker container uptime information
+# Sends container uptime stats to monitoring service
+10 4 * * * /scripts/send_container_uptime.sh >> /var/log/cron/ntfy.log 2>&1
+
+# At 4:11 AM every day, send Docker container stats
+# Sends memory and CPU usage statistics
+11 4 * * * /scripts/send_container_stats.sh >> /var/log/cron/ntfy.log 2>&1
+
+# At 4:12 AM every day, send /tmp file information
+# Sends recent backup file information
+12 4 * * * /scripts/send_tmp_files_info.sh >> /var/log/cron/ntfy.log 2>&1

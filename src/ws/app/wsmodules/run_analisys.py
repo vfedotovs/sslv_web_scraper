@@ -2,8 +2,6 @@
 
 import pandas as pd
 
-data_frame = pd.read_csv('cleaned-sorted-df.csv')
-
 #segments = [ 'room_stats.txt',
 #             'house_stats.txt',
 #             'apt_loc_stats.txt' ]
@@ -41,5 +39,6 @@ def gen_image(data_frame: pd.DataFrame, xclmn: str, yclmn: str) -> None:
     fig.savefig(file_name)
 
 
-run_analisys()
-
+if __name__ == "__main__":
+    data_frame = pd.read_csv('cleaned-sorted-df.csv')
+    run_analisys()

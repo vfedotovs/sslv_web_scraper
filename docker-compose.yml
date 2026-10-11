@@ -27,6 +27,7 @@ services:
       DEST_EMAIL: ${DEST_EMAIL}
       SRC_EMAIL: ${SRC_EMAIL}
       RELEASE_VERSION: ${RELEASE_VERSION}
+      APP_ENV: ${APP_ENV}
       AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID}
       AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY}
       CITY_MAIN_URL: ${CITY_MAIN_URL}
@@ -48,7 +49,10 @@ services:
       db:
         condition: service_healthy
     healthcheck:
-      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8000/docs').read()\" || exit 1"]
+      # main's /health endpoint (cheaper than /docs). 30s, not main's 60s: ts waits
+      # for ws to be healthy, and 60s was only to cut worker churn from
+      # --limit-max-requests, which the multi-city ws no longer uses.
+      test: ["CMD-SHELL", "curl -f http://localhost:8000/health || exit 1"]
       interval: 30s
       timeout: 10s
       start_period: 15s

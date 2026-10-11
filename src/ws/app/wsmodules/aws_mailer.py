@@ -100,17 +100,21 @@ def remove_tmp_files(files_to_remove: list) -> None:
 def gen_subject_title() -> str:
     """Function generates uniq subject line to improve debugging
     Example of subject:
-    Ogre City Apartments for sale from ss.lv webscraper v1.4.8 20221001_1019"""
+    Ogre City Apartments for sale from ss.lv web_scraper_v1.5.12_20260502_1330 [production]"""
     log.info("Generating email subject with todays date")
-    release = "1.6.0"
-    # RELEASE_VERSION = os.environ['RELEASE_VERSION']
-    title_city_name = EMAIL_CITY_TITLE
+    # main (16ecc33): version and environment come from RELEASE_VERSION / APP_ENV,
+    # which the deploy injects; was hard-coded "1.6.0" on the multi-city chain.
+    # Title is per city (EMAIL_CITY_TITLE, from .env.<city>), used once.
+    release = os.environ.get('RELEASE_VERSION', 'unknown')
+    app_env = os.environ.get('APP_ENV', 'local')
+    title_city_name = EMAIL_CITY_TITLE or "Apartments for sale"
     now = datetime.now()
     email_created = now.strftime("%Y%m%d_%H%M")
-    city_name = " city Apartments for sale from ss.lv web_scraper_v"
-    email_subject = title_city_name + city_name + release + "_" + email_created
-    subject_ver = email_subject.split("ss.lv")[1]
-    log.info(f"Email subject: {subject_ver}")
+    email_subject = (
+        f"{title_city_name} from ss.lv web_scraper_"
+        f"{release}_{email_created} [{app_env}]"
+    )
+    log.info(f"Email subject: {email_subject}")
     return email_subject
 
 

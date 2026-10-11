@@ -30,12 +30,14 @@ Modulel TODO tasks:
     - [ ] refactor create file backup function
 """
 from datetime import datetime
+import gc
 import logging
+import re
 from logging.handlers import RotatingFileHandler
 import os
 import shutil
 import sys
-# from tabulate import tabulate
+from tabulate import tabulate
 import pandas as pd
 
 # M7 P7: city-scoped hand-off filenames; fall back for standalone runs.
@@ -225,7 +227,25 @@ def save_email_body_table(table_data, NEW_EMAIL_BODY_FILE) -> None:
             file.write('\n\n')  # Add an empty line between segments
 
 
-def create_email_body(clean_data_frame, file_name: str) -> None:
+def _report_title(city_name: str = None) -> str:
+    """Report header title: the city's EMAIL_CITY_TITLE (set per city in
+    .env.<city>, e.g. "Mārupes pagasts Apartments for sale"), else built from
+    the city name. cities.yaml is not in the ws image, so display names are
+    not available there."""
+    title = os.environ.get("EMAIL_CITY_TITLE")
+    if title:
+        return title
+    if not city_name:
+        return "Apartment Report"
+    try:
+        from app.wsmodules.city_config import get_display_name
+        city_name = get_display_name(city_name, city_name)
+    except Exception:
+        pass
+    return f"{city_name} Apartment Report"
+
+
+def create_email_body(clean_data_frame, file_name: str, city_name: str = None) -> None:
     """Creates categorized by room count ad hash : data for email body.
 
     Requires:
@@ -236,7 +256,19 @@ def create_email_body(clean_data_frame, file_name: str) -> None:
     log.info(f"Started creation of {file_name} file")
     rc_column_dtype = clean_data_frame['Room_count'].dtype
     log.info(f"DataFrame Room_count column dtype: {rc_column_dtype}")
+
+    today_str = datetime.today().strftime('%d.%m.%Y')
+    total_ads = len(clean_data_frame)
+
+    app_env = os.environ.get('APP_ENV', 'local')
     email_body_txt = []
+    # main (3f1fc7a, 16ecc33): report header with date, environment and total;
+    # the title is per city (was hard-coded "Ogre Apartment Report" on main).
+    email_body_txt.append(
+        f"=== {_report_title(city_name)} — {today_str} [{app_env}] ===")
+    email_body_txt.append(f"Total active listings: {total_ads}")
+    email_body_txt.append("")
+
     # Room count as a number whatever the column dtype; empty frames (nothing
     # scraped) and non-numeric values ("Citi") match no segment.
     room_counts = pd.to_numeric(clean_data_frame['Room_count'], errors='coerce')
@@ -249,7 +281,7 @@ def create_email_body(clean_data_frame, file_name: str) -> None:
         room_count_str = str(room_count)
         section_line = str(room_count_str + " room apartment segment:")
         email_body_txt.append(section_line)
-        colum_line = "[Rooms, Floor, Size, Price, SQM Price, Apartment Street, Pub_date,  URL]"
+        colum_line = "[Rooms, Floor, Size, Price EUR, SQM Price EUR, Apartment Street, Pub_date,  URL]"
         email_body_txt.append(colum_line)
         for index, row in filtered_by_room_count.iterrows():
             url_str = row["URL"]
@@ -260,14 +292,16 @@ def create_email_body(clean_data_frame, file_name: str) -> None:
             rooms_str = row['Room_count']
             street_str = row['Street']
             pub_date_str = row['Pub_date']
+            # UX-3: mark listings published today
+            new_marker = " [NEW]" if pub_date_str == today_str else ""
             report_line = "  " + str(rooms_str) + "     " + \
                           str(floor_str) + "    " + \
                           str(sqm_str) + "   " + \
-                          str(total_price) + "    " + \
-                          str(sqm_price) + "   " + \
+                          str(total_price) + " EUR    " + \
+                          str(sqm_price) + " EUR   " + \
                           str(street_str) + "   " + \
                           str(pub_date_str) + " " + \
-                          str(url_str)
+                          str(url_str) + new_marker
             email_body_txt.append(report_line)
     log.info(f"Completed creation of {file_name} file")
     save_text_report_to_file(email_body_txt, file_name)
@@ -323,8 +357,8 @@ def split_pub_dates_by_month(data: dict, months: list) -> list:
             if curr_month == month:
                 curr_dict[key_date] = add_count
         list_of_dicts.append(curr_dict)
-    for month_dict in list_of_dicts:
-        month_line = "\n--- Month: ---"
+    for month, month_dict in zip(months, list_of_dicts):
+        month_line = f"\n--- Month: {month} ---"
         pub_date_report_lines.append(month_line)
         sorted_month_dict = dict(sorted(month_dict.items()))
         for k, v in sorted_month_dict.items():
@@ -347,6 +381,26 @@ def save_pub_dates_report_to(pubdates_out_file_name: str, month_data: list) -> N
     text_line_cnt = len(month_data)
     log.info(
         f"Completed writing {text_line_cnt} lines to {pubdates_out_file_name} file ")
+
+
+# No trailing \b: after the dot comes a space or the end, and there is no word
+# boundary between "." and " ", so main's r'\bpr\.\b' never matched "Brīvības pr. 12".
+_STREET_ABBREVIATIONS = [
+    (r'\bpr\.', 'prospekts'),
+    (r'\biel\.', 'iela'),
+    (r'\bblv\.', 'bulvāris'),
+    (r'\bšos\.', 'šoseja'),
+]
+
+
+def normalise_street(street: str) -> str:
+    """Expand common Latvian street abbreviations to their full form."""
+    if not isinstance(street, str):
+        return street
+    result = street.strip()
+    for pattern, replacement in _STREET_ABBREVIATIONS:
+        result = re.sub(pattern, replacement, result, flags=re.IGNORECASE)
+    return result
 
 
 def df_cleaner_main(city_name: str = None):
@@ -374,11 +428,15 @@ def df_cleaner_main(city_name: str = None):
             clean_sqm_col = clean_sqm_column(clean_df)
             clean_price_col = split_price_column(clean_sqm_col)
             clean_df = clean_sqm_eur_col(clean_price_col)
+            clean_df['Street'] = clean_df['Street'].apply(normalise_street)
             sorted_df = clean_df.sort_values(by='Price_in_eur', ascending=True)
             sorted_df.to_csv(CLEANED_CSV_FILE)
+            # main cee3b32: release the cleaning DataFrames before the report stage
+            del raw_data_frame, clean_sqm_col, clean_price_col, clean_df, sorted_df
+            gc.collect()
             all_ads_df = pd.read_csv(CLEANED_CSV_FILE, index_col=False)
             create_file_copy(CLEANED_CSV_FILE)
-            create_email_body(all_ads_df, EMAIL_BODY_OUTPUT_FILE)
+            create_email_body(all_ads_df, EMAIL_BODY_OUTPUT_FILE, city_name)
             # TODO: fix bug incorrect room counts in 2 and more room segments
             # tbl_data = gen_email_body(all_ads_df)
             # save_email_body_table(tbl_data, NEW_EMAIL_BODY_FILE)
@@ -392,6 +450,8 @@ def df_cleaner_main(city_name: str = None):
             save_pub_dates_report_to(
                 city_file('email_body_add_dates_table.txt', city_name),
                 splited_dates)
+            del all_ads_df
+            gc.collect()
 
     except FileNotFoundError:
         log.error(f'File {RAW_DATA_FILE} not found')
