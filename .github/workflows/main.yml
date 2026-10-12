@@ -4,8 +4,8 @@ name: Test and deploy to production
 # Tests run on every push and PR to main. Production deploys are manual only
 # (R-0, docs/release-2.0.0_main_merge_inventory.md): the old job deployed the
 # single-city stack on every push to main, after removing every container and
-# image on the host. The multi-city deploy is `make deploy-prod`, run on the
-# host with the exact commit that passed the tests.
+# image on the host. The multi-city deploy is `make deploy-prod`, run in the
+# host's one deploy dir with the exact commit that passed the tests.
 on:
   push:
     branches:
@@ -111,25 +111,54 @@ jobs:
         env:
           HOSTNAME: ${{ secrets.PROD_M5_EC2_IP }}
           USER_NAME: ${{ secrets.PROD_USER_NAME }}
+          DEPLOY_REF: ${{ inputs.ref }}
           DEPLOY_SHA: ${{ needs.Test.outputs.sha }}
+          # The host's single deploy dir, relative to $HOME (repo variable to change it).
+          # One dir, like staging: the watchdog runs from it, and a second
+          # deployment can never run next to the first.
+          DEPLOY_DIR: ${{ vars.PROD_DEPLOY_DIR || 'sslv-prod' }}
           RELEASE_VERSION: ${{ steps.version.outputs.release_version }}
         run: |
           # Values are passed as arguments, not spliced into the remote script.
           ssh -o StrictHostKeyChecking=no -i private_key "${USER_NAME}@${HOSTNAME}" \
-            'bash -s' -- "$DEPLOY_SHA" "$RELEASE_VERSION" <<'EOF'
+            'bash -s' -- "$DEPLOY_REF" "$DEPLOY_SHA" "$DEPLOY_DIR" "$RELEASE_VERSION" <<'EOF'
             set -euo pipefail
-            sha="$1"; release="$2"
-            dir="$HOME/sslv-prod/$(date -u +%Y%m%d-%H%M)-${sha:0:7}"
-            echo "=== Checking out ${sha} into ${dir} ==="
-            mkdir -p "$dir" && cd "$dir"
-            git clone --quiet https://github.com/vfedotovs/sslv_web_scraper.git .
-            git checkout --quiet "$sha"
+            ref="$1"; sha="$2"; dir="$HOME/$3"; release="$4"
+
+            # The running deploy itself, as make starts it (not any process that
+            # merely mentions the script name, e.g. an editor or a log tail).
+            if pgrep -f '^(/usr)?(/bin/)?bash \./deploy-multi-city-ws\.sh' > /dev/null; then
+              echo "A deploy is already running on this host; not starting another." >&2
+              exit 1
+            fi
+            if [ ! -d "$dir/.git" ]; then
+              echo "=== No deploy dir yet: cloning into ${dir} ==="
+              git clone --quiet https://github.com/vfedotovs/sslv_web_scraper.git "$dir"
+            fi
+            cd "$dir"
+            if [ -n "$(git status --porcelain --untracked-files=no)" ]; then
+              echo "${dir} has uncommitted changes to tracked files; not deploying over them:" >&2
+              git status --short --untracked-files=no >&2
+              exit 1
+            fi
+
+            echo "=== Checking out ${ref} (${sha}) in ${dir} ==="
+            git fetch --quiet --tags origin
+            if git show-ref --verify --quiet "refs/remotes/origin/${ref}"; then
+              git checkout --quiet -B "$ref" "origin/${ref}"   # stay on the branch for later git pull
+            else
+              git checkout --quiet --detach "$sha"
+            fi
+            if [ "$(git rev-parse HEAD)" != "$sha" ]; then
+              echo "${ref} moved since the tests ran (now $(git rev-parse --short HEAD), tested ${sha:0:7}); not deploying." >&2
+              exit 1
+            fi
 
             echo "=== Deploying all cities: ${release} (production) ==="
             # make deploy-prod: host env guard, CICD bucket pre-flight,
             # deploy-multi-city-ws.sh (per-city build, up, post-deploy run check)
-            # and watchdog timer restart. Containers of other projects and
-            # the city DB volumes are left alone.
+            # and watchdog timer restart. Compose replaces each city's containers
+            # in place; DB volumes and other containers are untouched.
             DEPLOY_RELEASE_VERSION="$release" DEPLOY_APP_ENV=production make deploy-prod
 
             echo "=== Deployment complete ==="

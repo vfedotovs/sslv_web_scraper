@@ -54,3 +54,13 @@ def test_tests_run_on_the_release_python():
     setup = next(s for s in workflow["jobs"]["Test"]["steps"]
                  if str(s.get("uses", "")).startswith("actions/setup-python"))
     assert setup["with"]["python-version"] == "3.11"
+
+
+def test_deploys_into_one_fixed_dir_not_a_new_clone_per_run():
+    """A new <time>-<sha> folder per deploy left the watchdog and any manual
+    `docker compose` pointing at an old copy (fixed on staging the same way)."""
+    workflow, _ = load()
+    step = next(s for s in workflow["jobs"]["Deploy"]["steps"]
+                if s.get("name") == "Deploy all cities to production EC2")
+    assert step["env"]["DEPLOY_DIR"] == "${{ vars.PROD_DEPLOY_DIR || 'sslv-prod' }}"
+    assert "date -u +%Y%m%d" not in step["run"]
