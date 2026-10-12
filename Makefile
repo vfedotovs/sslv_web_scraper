@@ -476,11 +476,11 @@ print(json.dumps(cfg))' $(DOCKER_DAEMON_JSON)
 
 .PHONY: backup-city backup-all verify-backup backup-sizes repair-prices restore-city restore-all test-restore e2e-backup-restore fetch-last-db-dump fetch-dump fetch-dump-example
 
-backup-city: ## back up one city's DB to S3; bucket keeps the newest 5 (CITY=ogre M6_ENV=prod)
+backup-city: ## back up one city's DB to S3; deletes no old backups unless BACKUP_KEEP_LAST=N (CITY=ogre M6_ENV=prod)
 	$(call host_env_guard,$(M6_ENV))
 	@./scripts/backup_db_city.sh --city $(CITY) --env $(M6_ENV) $(KEEP_LAST_ARG)
 
-backup-all: ## back up every city's DB to S3; each bucket keeps the newest 5 (M6_ENV=)
+backup-all: ## back up every city's DB to S3; deletes no old backups unless BACKUP_KEEP_LAST=N (M6_ENV=)
 	$(call host_env_guard,$(M6_ENV))
 	@./scripts/backup_db_city.sh --all --env $(M6_ENV) $(KEEP_LAST_ARG)
 

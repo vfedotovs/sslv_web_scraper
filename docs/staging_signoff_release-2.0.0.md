@@ -75,6 +75,6 @@ Each morning: `make fleet-status M6_ENV=staging`, plus `scrape_runs`, the emails
   - Uses the existing `DEV_EC2_*` secrets. **Confirm `DEV_EC2_IP` is the staging host** (51.20.183.242 on 2026-10-12).
   - `tests/test_38_staging_workflow.py`: 8 tests, which run the remote script against throwaway git repos.
   - `main.yml` now deploys the same way, into one dir `~/sslv-prod` (`vars.PROD_DEPLOY_DIR`). Its remote script is covered by the same tests.
-- [ ] README top half for multi-city (M-7).
+- [x] README rewritten for multi-city (M-7): how it runs, the daily schedule, configuration, deploy and workflows, monitoring, backup/restore (S-5/P-2 behaviour), adding a city, development, and the legacy M5 targets. `make help` for `backup-city`/`backup-all` no longer says "keeps the newest 5".
 - [ ] Production cutover runbook (R-4/R-5): backup first (needs **S-5**), cities moved one at a time, rollback.
 - [ ] Deploys after the nightly run only skip the post-deploy check. Decide on a `force` option for `/run-task`.

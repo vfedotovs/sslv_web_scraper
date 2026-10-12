@@ -2,95 +2,142 @@
 
 | | |
 | --- | --- |
-| Production Deploy | [![Deploy to Production](https://github.com/vfedotovs/sslv_web_scraper/actions/workflows/main.yml/badge.svg)](https://github.com/vfedotovs/sslv_web_scraper/actions/workflows/main.yml) |
+| Tests / production deploy | [![Test and deploy to production](https://github.com/vfedotovs/sslv_web_scraper/actions/workflows/main.yml/badge.svg)](https://github.com/vfedotovs/sslv_web_scraper/actions/workflows/main.yml) |
 | Coverage | [![codecov](https://codecov.io/gh/vfedotovs/sslv_web_scraper/graph/badge.svg?token=Y9AQW4YEYH)](https://codecov.io/gh/vfedotovs/sslv_web_scraper) |
-| Explore Ogre City apartments for sale historical data | https://propertydata.lv/data/apartments-for-sale-data/ |
+| Historical data | https://propertydata.lv/data/apartments-for-sale-data/ |
 
 ## About
 
-This application scrapes the ss.lv website daily for apartments for sale in a specific city, stores the data in a PostgreSQL database, and sends a daily email report with analytics.
+Every night the scraper reads the ss.lv "apartments for sale" listings for each city in
+[`config/cities.yaml`](config/cities.yaml) and stores them in that city's own PostgreSQL
+database. It then emails a report of new ads and price statistics, and backs the database up to S3.
+
+Cities: Salaspils, Sigulda, Mārupes pagasts, Ādažu novads, Ogre, Jūrmala.
+
+## How it runs
+
+Each city is its own Docker Compose project (`--project-name <city>`) on one EC2 host, with four containers:
+
+| Container | What it does |
+|---|---|
+| `<city>-db-1` | PostgreSQL 15. Tables `listed_ads`, `removed_ads`, `scrape_runs`. Data in volume `<city>_db_data` |
+| `<city>-ws-1` | FastAPI (`/run-task/<city>`, `/status`, `/health`). Runs the pipeline in a background thread: scrape → format → clean → DB → analytics → email (AWS SES) |
+| `<city>-ts-1` | Scheduler: calls `/run-task/<city>`, then checks `/status` an hour later and emails an alert if the run failed |
+| `<city>-backup-1` | `pg_dump` (15, matching the server) to S3, checked after upload; plus a staleness check |
+
+On the host, a systemd watchdog (`scripts/fleet_watchdog.py`) checks every city's containers,
+runs, row counts and backups, and the host's memory and disk. It sends [ntfy](https://ntfy.sh) pushes when a problem
+appears or clears.
+
+**Daily schedule (UTC):**
+
+| Time | What |
+|---|---|
+| 00:40 | `ts` triggers the scrape (`TASK_TIME`) |
+| 01:40 | `ts` verifies the run in `/status` (`VERIFY_TIME`) |
+| 02:00 | `backup` dumps the DB to `s3://sslv-<env>-<city>-db-backups/db-backups/YYYY/MM/DD/` |
+| 06:35 | Watchdog heartbeat push ("fleet OK") |
+| 14:00 | `backup` staleness check (newest backup < 26 h) |
+| every 15 min | Watchdog check |
+
+The scraper reads every listing page (`get_total_pages()`), fetches details only for ads not
+already in the DB, and caps new ads per run at `SCRAPE_URL_LIMIT` (default 500; `0` = no cap).
 
 ## Requirements
 
-- Docker >= 25.0
-- Docker Compose >= 2.20 (plugin) or docker-compose >= 1.29 (standalone)
-- AWS CLI (for loading secrets from AWS Secrets Manager)
-- AWS EC2 ARM instance (aarch64) for production/staging deployment
+- An EC2 ARM (aarch64) host with Docker ≥ 25 and Compose v2 (`docker compose`), the AWS CLI, Python 3 and
+  `make`. An IAM role must allow reading the CICD bucket, S3 backups and SES.
+- For development: Python 3.11 (the images use `python:3.11-slim-bookworm`).
 
-## How to use
+## Configuration
 
-### 1. Clone repository
+| Where | What |
+|---|---|
+| `config/cities.yaml` | The city list: key (`ogre`), display name, listing URL, email title |
+| `s3://sslv-<env>-m6-cicd-files/.env.prod` | Shared settings: `POSTGRES_PASSWORD`, `AWS_ACCESS_KEY_ID`/`AWS_SECRET_ACCESS_KEY`, `SRC_EMAIL`, `DEST_EMAIL` |
+| `s3://sslv-<env>-m6-cicd-files/.env.<city>` | Per city: `CITY`, `CITY_MAIN_URL`, `EMAIL_CITY_TITLE`, `S3_BUCKET` (its `-db-backups` bucket). Optional: `SCRAPE_*`, `TASK_TIME`, `VERIFY_TIME`, `ALERT_*` |
+| `s3://sslv-<env>-m6-cicd-files/database.ini` | DB connection for `ws` |
+
+`<env>` is `prod`, `staging` or `dev`. `M6_ENV` must be one of these; `make` lowercases it and
+stops on anything else. City buckets use `-` in place of `_`: `sslv-prod-marupes-pag-db-backups`.
+
+The deploy downloads `.env.prod` and `database.ini` fresh on every run, and `.env.<city>` when missing.
+`RELEASE_VERSION` and `APP_ENV`, shown in every report email, are set by the deploy: CI passes them in, and a
+manual deploy uses `git describe` and the env. Stale values in the env files are ignored.
+
+## Deploy
+
+On the host, from the **one** deploy directory (a git checkout of the release branch):
 
 ```bash
-git clone https://github.com/vfedotovs/sslv_web_scraper.git
-cd sslv_web_scraper
+git pull --ff-only
+make deploy-staging      # or: make deploy-prod
 ```
 
-### 2. Load secrets from AWS Secrets Manager
+`deploy-multi-city-ws.sh` does this for each city in turn:
+1. Checks backup age.
+2. Builds and starts the city's project with `up -d --build`. Compose replaces only the changed containers, and DB volumes are kept.
+3. Triggers `/run-task/<city>` and waits for the result. The city fails the deploy if its run fails or times out.
+
+After the nightly run has succeeded, the trigger is skipped, because `/run-task` runs once a day.
+
+| Variable | Default | Effect |
+|---|---|---|
+| `POST_DEPLOY_VERIFY` | `true` | `false` skips the post-deploy run |
+| `POST_DEPLOY_VERIFY_TIMEOUT` | `1200` | Seconds to wait for each run. A city with a fresh volume fetches every ad and may need more |
+| `FAIL_ON_FRESH_VOLUME` | `false` | Fail a city that has no backup at all |
+
+`make undeploy-staging` / `make undeploy-prod` remove the containers and keep the DB volumes. `PURGE_DATA=1` also deletes
+the volumes, and asks first.
+
+**From GitHub Actions** (manual only; both refuse to deploy over local changes, during another deploy,
+or when the branch moved after the tests):
+
+| Workflow | Runs | Deploys |
+|---|---|---|
+| `main.yml` | Tests on every push / PR to `main` | **Run workflow** + `confirm = deploy-prod` → tested commit into `~/sslv-prod` |
+| `staging.yml` | Tests and builds every image | **Run workflow** + `confirm = deploy-staging` → tested commit into the staging deploy dir |
+
+Keep a single deploy directory per host. The watchdog runs from it, and a second checkout with its own
+`docker compose up` would start a second set of containers.
+
+## Monitoring
 
 ```bash
-source scripts/load_secrets.sh
+make fleet-status M6_ENV=staging            # one report now (read-only)
+make watchdog-install M6_ENV=staging        # systemd timers: check every 15 min + 06:35 heartbeat
+make watchdog-status                        # timers + recent output
+make watchdog-drill M6_ENV=staging          # fire every alert once as [DRILL] pushes and check recovery
 ```
 
-This downloads `.env.prod` and `database.ini` from S3 and exports environment variables from AWS Secrets Manager.
+`watchdog-install` points the systemd units at the directory it is run from, so run it from the
+deploy directory. The default ntfy topic for staging is `https://ntfy.sh/staging-sslv-mc-alerts`. Pass
+`NTFY_TOPIC_URL=` for other envs; production refuses the staging topic.
 
-### 3. Run setup, build and start
+## Backup and restore
 
-```bash
-make setup    # downloads secrets, DB backup, copies config files
-make build    # builds all containers (db, ws, ts)
-make up       # starts all containers
-```
+Nightly backups are made by each city's `backup` container. There is **no** host cron for backups.
+`scripts/add_cron.sh` is legacy and would add a second, host-side backup path.
 
-### Manual setup (alternative)
+| Command | Effect |
+|---|---|
+| `make backup-city CITY=ogre M6_ENV=prod` / `make backup-all M6_ENV=prod` | Manual backup to S3. Deletes **no** old backups unless `BACKUP_KEEP_LAST=N` is given |
+| `make verify-backup M6_ENV=prod` | Read-only: newest backup per city is fresh and big enough |
+| `make test-restore M6_ENV=prod` (`CITY=` for one) | Safe: loads the latest backup into a throwaway `postgres:15` container. **Fails on the first SQL error** |
+| `make e2e-backup-restore CITY=ogre M6_ENV=staging` | Fresh backup → S3 check → throwaway restore |
+| `make restore-city CITY=ogre M6_ENV=prod` | **Live**: keeps a safety copy, stops the city's writers, replaces the DB in one transaction (any error rolls back), restarts. Asks first |
 
-If not using AWS Secrets Manager, create files manually:
+`scripts/restore_db_city.sh` is the script behind the restore targets:
+- `--date YYYY_MM_DD` restores the newest backup of that day.
+- `--file <dump>` restores a local dump, such as the safety copy, to undo a restore.
+- `--prepare-init` stages a dump for a fresh volume.
 
-**database.ini:**
-```ini
-[postgresql]
-host=db
-database=new_docker_db
-user=new_docker_user
-password=<your db password>
-```
+Dumps from `pg_dump` 17, taken before the backup image moved to Python 3.11 / bookworm, contain `SET transaction_timeout`, which
+Postgres 15 rejects. The restore drops that line automatically.
 
-**.env.prod:**
-```bash
-DEST_EMAIL=user@example.com
-SRC_EMAIL=user@example.com
-POSTGRES_PASSWORD=<your db password>
-AWS_ACCESS_KEY_ID=<your aws key>
-AWS_SECRET_ACCESS_KEY=<your aws secret>
-```
+S3 buckets have no lifecycle rule: backups are kept until deleted. Staging buckets are versioned and prod buckets are not.
 
-## Daily DB Backup & Manual Restore Flow for Multi-City (M6)
-
-**Important:** Restore is **manual only**. `deploy-multi-city-ws.sh` does **not** auto-restore DBs.
-
-### Backup (Automated)
-- Scheduled inside dedicated `{city}-backup-1` container (cron at 02:00 UTC).
-- Per-city bucket: `sslv-prod-{city}-db-backups`
-- Key: `db-backups/YYYY/MM/DD/pg_backup_....sql.gz`
-- Script: `./scripts/backup_db_city.sh --all --env prod`
-- Install cron on EC2: `./scripts/add_cron.sh --env prod`
-
-### Manual Restore
-- Use `./scripts/restore_db_city.sh --city <city> [--date YYYY_MM_DD] [--prepare-init]`
-- `--prepare-init`: copies to `src/db/` for fresh volume init on next deploy.
-- Normal mode: pipes to running `psql` in the DB container.
-- Example for redeploy without losing data:
-  1. `./scripts/restore_db_city.sh --city ogre --date 2026_07_08`
-  2. `docker compose --project-name ogre --env-file .env.ogre up -d`
-
-### Troubleshooting
-- Failed pg_dump: check POSTGRES_PASSWORD in .env.city, container running.
-- Wrong city: verify CITY in .env and bucket name.
-- Permission errors: ensure AWS creds in env or IAM role on EC2.
-
-See `docs/M6_phase_1_backup_restore_service_plan.md` for full details.
-
-## Log collection (multi-city)
+## Log collection
 
 `scripts/collect_logs_v3.sh` gathers logs, pipeline artifacts and container
 state from every city into one timestamped, redacted bundle.
@@ -114,24 +161,24 @@ Or call the script directly for the full option set:
 `--upload-s3` writes to the **real** `sslv-{env}-{city}-scraped-data` bucket
 under `log-bundles/{date}/`. Check with `--upload-dry-run` first. A multi-city
 bundle is uploaded to each collected city's bucket (the same object more than
-once) — the CICD buckets must never hold scraped data. Upload is refused
+once). The CICD buckets must never hold scraped data. Upload is refused
 outright with `--no-redact`, and skipped if the self-test failed.
 
-**Output** — `log-bundles/sslv-logs-<UTC>/` plus a matching `.tar.gz`:
+**Output:** `log-bundles/sslv-logs-<UTC>/` plus a matching `.tar.gz`:
 
 | Path | Contents |
 |---|---|
-| `SUMMARY.txt` | **Read this first** — health matrix + last errors per city |
+| `SUMMARY.txt` | **Read this first**: health matrix + last errors per city |
 | `MANIFEST.txt` | Full inventory: what was collected, skipped, and why |
 | `REDACTION-SELF-TEST.txt` | PASS/FAIL proof that no secret survived |
 | `host/` | `docker ps`, images, disk, versions, `deploy-multi-city.log` |
 | `cities/<city>/<svc>/` | `logs/`, `artifacts/`, `stdout.log`, `inspect.json`, `health.json`, `config.txt` |
 
 Containers are matched on the compose labels `com.docker.compose.project`
-(the city) and `com.docker.compose.service` — never on a name substring, so
+(the city) and `com.docker.compose.service`, never on a name substring, so
 cities can never be mixed up. Stopped containers are collected too.
 
-**Secrets.** AWS keys, DB passwords and SendGrid keys are masked throughout,
+**Secrets.** AWS keys and DB passwords are masked throughout,
 and `.env.*` / `database.ini` are recorded by name and mtime only, never read.
 A self-test then re-scans the finished bundle, including inside the `.gz`
 dump. If anything survives, the run exits `3` and **no archive is created**.
@@ -139,61 +186,48 @@ dump. If anything survives, the run exits `3` and **no archive is created**.
 Exit codes: `0` complete · `1` partial · `2` fatal · `3` a secret survived
 redaction (do not share the bundle).
 
-> `scripts/collect_logs_v2.sh` is **deprecated** — it predates multi-city and
+> `scripts/collect_logs_v2.sh` is **deprecated**. It predates multi-city and
 > collects every city into the same filenames. Use v3.
 
-## Migration from 3-city to 6+ cities (one city at a time)
+## Adding a city
 
-To scale safely:
+One city at a time:
 
-1. Add city to `config/cities.yaml` (e.g. add `marupes_pag`).
-2. Create `.env.marupes_pag` with CITY_MAIN_URL, EMAIL_CITY_TITLE, and S3_BUCKET=sslv-prod-marupes-pag-db-backups (and other creds if needed).
-3. Create the S3 bucket: `make create-m6-bucket M6_CITY=marupes-pag M6_ENV=prod M6_PURPOSE=db-backups`
-4. (Optional) Create scraped-data bucket similarly.
-5. Test backup for the new city: `make backup-city CITY=marupes-pag ENV=prod`
-6. Deploy the new city: `./deploy-multi-city-ws.sh` (it will pick up from config)
-7. Simulate volume loss (e.g. `docker compose --project-name marupes_pag down -v`), then manual restore: `./scripts/restore_db_city.sh --city marupes_pag --env prod`
-8. Verify with `make verify-backup CITY=marupes_pag` (S3 age/size) and `make test-restore CITY=marupes_pag` (restores into a throwaway container; the live DB is untouched)
-9. Repeat for next city. Update CI/deploy if needed for per-city.
+1. Add it to `config/cities.yaml`, e.g. `riga:` with `display_name`, `main_url` and `email_title`.
+2. Create its buckets: `make create-m6-bucket M6_CITY=riga M6_ENV=prod M6_PURPOSE=db-backups` (and `scraped-data`).
+3. Upload `.env.riga` to `s3://sslv-prod-m6-cicd-files/` with `CITY=riga`, `CITY_MAIN_URL`, `EMAIL_CITY_TITLE` and
+   `S3_BUCKET=sslv-prod-riga-db-backups`.
+4. Check the scraper against ss.lv: `make verify-scrape CITY=riga`.
+5. Deploy: `make deploy-prod`. The new city starts with an empty DB and fetches every ad on its first run.
+6. After its first night: `make fleet-status M6_ENV=prod`, then `make test-restore CITY=riga M6_ENV=prod`.
 
-See also `docs/M6_MVP_problem_list.md` for full risks.
+## Development
 
-
-## Currently available features
-- [x] Scrape ss.lv website to extract advert data from Ogre city apartments for sale section
-- [x] Store scraped data in PostgreSQL database tables (listed_ads, removed_ads) for tracking price trends
-- [x] Daily email report with advert URLs and key data categorized by room count
-- [x] Automated deployment to AWS EC2 with GitHub Actions CI/CD (production + staging)
-- [x] Tests and test coverage with Codecov integration
-- [x] Container health checks for db, ws, and ts services
-- [x] Cron service for automated DB backups and monitoring via ntfy.sh
-- [x] OOM prevention with memory usage logging and garbage collection
-
-
-## Work in progress
-- [ ] Add Streamlit web service to CI/CD
-- [ ] Add doc coverage step in CI/CD
-
-## Dynamic Page Count & Multi-City (M6)
-
-The scraper no longer hard-codes "first page only".
-
-- `scrape_website(city_slug="jurmala")` automatically discovers the number of pages (e.g. 6 for Jūrmala).
-- Uses `get_total_pages()` (parses ss.lv pager) + `get_page_url()`.
-- City-prefixed report files: `jurmala-raw-data-report.txt`, `data/jurmala-raw-data-report-YYYY-MM-DD.txt`
-- All pipeline steps (`data_format_changer`, mailers, etc.) accept a city parameter.
-- Dev control: `SCRAPE_URL_LIMIT=0` to process all ads.
-
-### Verification (Item 10)
 ```bash
-make verify-scrape CITY=jurmala
-make verify-scrape-all
+make dev-setup     # .venv/ with pytest, coverage, httpx and the ws/ts requirements
+make test          # full suite
+make test-cov      # with coverage, as CI runs it
 ```
 
-### Adding a city with many pages (Item 11)
-1. Add to `config/cities.yaml`
-2. Create `.env.<city>` with `CITY_MAIN_URL` and `EMAIL_CITY_TITLE`
-3. Run `make up` (or the multi-city deploy script)
-4. `curl http://localhost:8000/run-task/<city>`
+Shell scripts are tested with stub `aws`/`docker` commands (no AWS or Docker needed), for example
+`tests/test_28_*`, `test_32_*`, `test_35_*` and `test_36_*`.
 
-See `docs/m6-dynamic-page-count-action-plan.md` for the full plan.
+## Legacy single-project stack (M5)
+
+`make setup`, `make build`, `make up`, `make down` and `make logs` still run the old one-city stack
+(`docker compose --env-file .env.prod`). Don't use them on a multi-city host. `make down` deletes that
+project's DB volume.
+
+## Further reading
+
+- [`docs/RELEASE_2.0.0_action_plan.md`](docs/RELEASE_2.0.0_action_plan.md): the release plan from single-city to multi-city
+- [`docs/release-2.0.0_main_merge_inventory.md`](docs/release-2.0.0_main_merge_inventory.md): what the `main` merge kept, ported and dropped
+- [`docs/staging_signoff_release-2.0.0.md`](docs/staging_signoff_release-2.0.0.md): staging sign-off status
+- [`docs/critical_monitoring_ntfy_plan.md`](docs/critical_monitoring_ntfy_plan.md): monitoring and alerts
+- [`docs/M6_phase_1_backup_restore_service_plan.md`](docs/M6_phase_1_backup_restore_service_plan.md): backup and restore design
+- [`docs/ROLLBACK_GUIDE.md`](docs/ROLLBACK_GUIDE.md): rollback, written for the single-city stack and to be updated for multi-city (I-5)
+
+## Work in progress
+
+- [ ] Add Streamlit web service to CI/CD
+- [ ] Add doc coverage step in CI/CD
