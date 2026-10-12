@@ -14,14 +14,18 @@ Staging passes when every item in sections 1–3 is done.
 - [x] **S-2 — `M6_ENV` case.** `make fleet-status M6_ENV=Staging` reported all six cities BAD, because it looked for `sslv-Staging-*` buckets. Now `make` lowercases `M6_ENV` and stops on unknown values, and `fleet_watchdog.py --env` does the same (`b2dd36e`). Verified on the host.
 - [x] **S-3 — Watchdog ran old code.** The systemd units used `~/prepord-test-branch-dev-1794`. They were reinstalled with `make watchdog-install M6_ENV=staging` from the release dir. Settings are unchanged, and the first check was OK (2026-10-12 17:41).
 - [x] **S-4 — Old deploy dirs.** Four old dirs that each had a `docker-compose.yml` were archived and removed, so only one deployment can exist.
-- [ ] **S-5 — Backup retention differs between the two backup paths. P0, before sign-off.**
-  - The nightly backup container (`src/backup-svc`) keeps every backup: ogre had 21.
-  - `scripts/backup_db_city.sh` hard-codes `keep_last=5` and deletes everything older from `db-backups/` after each upload. That script is behind `make backup-city`, `backup-all` and `e2e-backup-restore`.
-  - On 2026-10-12 one `e2e-backup-restore CITY=ogre` run deleted 17 ogre staging backups. They had been copied to `s3://sslv-staging-ogre-db-backups/archive-2026-10-12/` first, so nothing was lost.
-  - **Risk:** the production cutover runbook starts with a manual backup (R-4). `make backup-all M6_ENV=prod` would cut every production city bucket down to 5 backups.
-  - **Fix:** use one retention rule for both paths. Make the script's limit a setting (`BACKUP_KEEP_LAST`) that defaults to **no pruning**, or to a count well above the nightly history (e.g. 60 days). Log what would be pruned before deleting, and apply the same rule in the backup container if pruning is wanted there.
-  - **Tests:** a stub-`aws` test in the style of `test_28`: the default deletes nothing, an explicit limit deletes only the oldest beyond it, and `archive-*/` prefixes are never touched.
-  - **Later:** decide whether to move the 17 archived ogre objects back into `db-backups/`.
+- [x] **S-5 — Backup retention differs between the two backup paths. P0, before sign-off.**
+  - The nightly backup container (`src/backup-svc`) keeps every backup: ogre had 21. There is no S3 lifecycle rule on the staging or prod ogre buckets either.
+  - `scripts/backup_db_city.sh` hard-coded `keep_last=5` and deleted everything older from `db-backups/` after each upload. That script is behind `make backup-city`, `backup-all` and `e2e-backup-restore`.
+  - On 2026-10-12 one `e2e-backup-restore CITY=ogre` run deleted 17 ogre staging backups. They had been copied to `s3://sslv-staging-ogre-db-backups/archive-2026-10-12/` first. The staging bucket is also versioned, so the 17 are still there as delete markers.
+  - **Risk:** **prod buckets are not versioned** (checked: `sslv-prod-ogre-db-backups`). The production cutover runbook starts with a manual backup (R-4), and `make backup-all M6_ENV=prod` would have deleted all but 5 backups in every prod city bucket, permanently.
+  - **Fixed:**
+    - Pruning is opt-in: `--keep-last N`, or `BACKUP_KEEP_LAST=N` with `make`. The default is 0, which deletes nothing, matching the nightly container.
+    - The script logs `pruning X of Y` before deleting, and only touches dated `db-backups/YYYY/MM/DD/pg_backup_*.sql.gz` keys.
+    - The value is fixed before `.env.<city>` is sourced, and anything that isn't a number stops the script before any backup.
+    - The GNU-only `head -n -N` is gone.
+  - **Tests:** `tests/test_35_backup_retention.py` (10, stub `aws`/`docker`).
+  - **Later:** decide whether to move the 17 archived ogre objects back into `db-backups/`, and whether prod buckets should get versioning or a lifecycle rule.
 
 ## 2. Proofs
 

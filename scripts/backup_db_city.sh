@@ -30,6 +30,10 @@ Options:
   --env ENV            Environment (prod|staging|dev, default: prod)
   --bucket BUCKET      Upload to this bucket instead of
                        sslv-<env>-<city>-db-backups (rarely needed)
+  --keep-last N        After the upload, delete all but the newest N backups
+                       under db-backups/ (default: 0 = delete nothing; env
+                       BACKUP_KEEP_LAST). The nightly backup container never
+                       prunes, and prod buckets are not versioned.
   --help               Show this help
 
 The destination is derived from --env and the city. .env.<city> is sourced for
@@ -43,11 +47,40 @@ Examples:
 EOF
 }
 
+# prune_old_backups <bucket>
+# With PRUNE_KEEP_LAST > 0, delete all but the newest PRUNE_KEEP_LAST dated backups under
+# db-backups/. Only keys shaped like db-backups/YYYY/MM/DD/pg_backup_*.sql.gz
+# are candidates, so archive-*/ copies and anything else are never touched.
+prune_old_backups() {
+    local bucket="$1"
+    if [[ "$PRUNE_KEEP_LAST" -eq 0 ]]; then
+        log_info "Retention: keeping all backups in s3://${bucket}/db-backups/ (--keep-last N to prune)"
+        return 0
+    fi
+    local keys old_keys total
+    keys=$(aws s3 ls "s3://${bucket}/db-backups/" --recursive | awk '{print $4}' \
+        | grep -E '^db-backups/[0-9]{4}/[0-9]{2}/[0-9]{2}/pg_backup_[0-9_]+\.sql\.gz$' | sort || true)
+    total=$(printf '%s' "$keys" | grep -c . || true)
+    # Oldest first; everything before the newest PRUNE_KEEP_LAST (no GNU `head -n -N`).
+    old_keys=$(printf '%s\n' "$keys" | grep . | awk -v keep="$PRUNE_KEEP_LAST" -v total="$total" 'NR <= total - keep' || true)
+    if [[ -z "$old_keys" ]]; then
+        log_info "Retention: $total backup(s) in s3://${bucket}/db-backups/, keeping the newest $PRUNE_KEEP_LAST - nothing to prune"
+        return 0
+    fi
+    log_warn "Retention: pruning $(printf '%s\n' "$old_keys" | grep -c .) of $total backup(s) in s3://${bucket}/db-backups/ (keeping the newest $PRUNE_KEEP_LAST)"
+    local old_key
+    while read -r old_key; do
+        aws s3 rm "s3://${bucket}/${old_key}" --quiet
+        log_info "Pruned old backup key: $old_key"
+    done <<< "$old_keys"
+}
+
 # Parse args
 CITY=""
 ALL=false
 ENV="prod"
 BUCKET_OVERRIDE=""
+PRUNE_KEEP_LAST="${BACKUP_KEEP_LAST:-0}"
 
 while [[ $# -gt 0 ]]; do
     case $1 in
@@ -65,6 +98,10 @@ while [[ $# -gt 0 ]]; do
             ;;
         --bucket)
             BUCKET_OVERRIDE="$2"
+            shift 2
+            ;;
+        --keep-last)
+            PRUNE_KEEP_LAST="$2"
             shift 2
             ;;
         --help|-h)
@@ -88,6 +125,16 @@ fi
 # The env asked for on the command line. Sourcing .env.<city> below overwrites
 # any variable it defines, including ENV, so keep the intended value here.
 readonly TARGET_ENV="$ENV"
+
+# Retention, fixed before .env.<city> is sourced. 0 = keep every backup, like
+# the nightly backup container. This used to be a hard-coded 5: one
+# `make e2e-backup-restore CITY=ogre` deleted 17 ogre staging backups
+# (2026-10-12), and prod buckets have no versioning to undo that.
+if ! [[ "$PRUNE_KEEP_LAST" =~ ^[0-9]+$ ]]; then
+    log_error "--keep-last must be a number, got '$PRUNE_KEEP_LAST'"
+    exit 1
+fi
+readonly PRUNE_KEEP_LAST
 
 # Shared cities.yaml parser (provides parse_cities)
 source "${SCRIPT_DIR}/lib/cities.sh"
@@ -168,7 +215,7 @@ backup_city() {
     local bucket="${BUCKET_OVERRIDE:-sslv-${env}-${city_slug}-db-backups}"
 
     # Last line of defence: a staging run must never write into a prod bucket
-    # (the upload also prunes that bucket to the newest 5 objects).
+    # (and with --keep-last it would also prune that bucket).
     if [[ "$bucket" != "sslv-${env}-"* ]]; then
         log_error "Refusing to upload $city to $bucket: not an '${env}' bucket (sslv-${env}-...)"
         rm -f "$gzip_file"
@@ -187,14 +234,7 @@ backup_city() {
     if aws s3 cp "$gzip_file" "s3://${bucket}/${key}" --quiet; then
         log_info "Successfully uploaded backup for $city"
         
-        # Retention: keep last 5 backups in S3 (prune older ones)
-        local keep_last=5
-        aws s3 ls "s3://${bucket}/db-backups/" --recursive | sort | head -n -${keep_last} | awk '{print $4}' | while read -r old_key; do
-            if [ -n "$old_key" ]; then
-                aws s3 rm "s3://${bucket}/${old_key}" --quiet
-                log_info "Pruned old backup key: $old_key (kept last $keep_last)"
-            fi
-        done
+        prune_old_backups "$bucket"
         
         # Verification: check size and presence in S3 (basic health check)
         log_info "Verifying backup..."

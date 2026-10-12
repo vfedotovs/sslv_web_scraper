@@ -53,6 +53,10 @@ endif
 # in every env - a small DB dumps to 2-8 KB, so a size floor cannot tell it from
 # a lost one; fleet_watchdog.py compares the size with the DB row count instead.
 MIN_BACKUP_SIZE_KB ?= 1
+# backup-city / backup-all / e2e-backup-restore: BACKUP_KEEP_LAST=N deletes all but the
+# newest N backups after the upload. Unset (default) deletes nothing, like the nightly
+# backup container; prod buckets have no versioning (S-5, docs/staging_signoff_release-2.0.0.md).
+KEEP_LAST_ARG = $(if $(BACKUP_KEEP_LAST),--keep-last $(BACKUP_KEEP_LAST))
 
 # Watchdog ntfy alerts (see "Monitoring & alerts")
 NTFY_STAGING_TOPIC_URL := https://ntfy.sh/staging-sslv-mc-alerts
@@ -474,11 +478,11 @@ print(json.dumps(cfg))' $(DOCKER_DAEMON_JSON)
 
 backup-city: ## back up one city's DB to S3; bucket keeps the newest 5 (CITY=ogre M6_ENV=prod)
 	$(call host_env_guard,$(M6_ENV))
-	@./scripts/backup_db_city.sh --city $(CITY) --env $(M6_ENV)
+	@./scripts/backup_db_city.sh --city $(CITY) --env $(M6_ENV) $(KEEP_LAST_ARG)
 
 backup-all: ## back up every city's DB to S3; each bucket keeps the newest 5 (M6_ENV=)
 	$(call host_env_guard,$(M6_ENV))
-	@./scripts/backup_db_city.sh --all --env $(M6_ENV)
+	@./scripts/backup_db_city.sh --all --env $(M6_ENV) $(KEEP_LAST_ARG)
 
 verify-backup: ## read-only: newest S3 backup per city is < 26h old and >= MIN_BACKUP_SIZE_KB (CITY= or all, M6_ENV=)
 	$(call host_env_warn,$(M6_ENV))
@@ -508,8 +512,8 @@ test-restore: ## safe: restore the latest backup into a throwaway postgres conta
 e2e-backup-restore: ## take a fresh backup of CITY=, then prove it restores in a throwaway container (M6_ENV=)
 	$(call host_env_guard,$(M6_ENV))
 	@if [ -z "$(CITY)" ]; then printf "$(call log_error,CITY= is required (e.g. make e2e-backup-restore CITY=ogre M6_ENV=staging))\n"; exit 1; fi
-	@printf "$(call log_step,1/3 Backup $(CITY) (env $(M6_ENV)) to S3 — keeps the newest 5 backups...)\n"
-	@./scripts/backup_db_city.sh --city $(CITY) --env $(M6_ENV)
+	@printf "$(call log_step,1/3 Backup $(CITY) (env $(M6_ENV)) to S3 — $(if $(BACKUP_KEEP_LAST),then keeps the newest $(BACKUP_KEEP_LAST),deletes no old backups)...)\n"
+	@./scripts/backup_db_city.sh --city $(CITY) --env $(M6_ENV) $(KEEP_LAST_ARG)
 	@printf "$(call log_step,2/3 Check the new backup in S3...)\n"
 	@./scripts/verify_backup.sh --city $(CITY) --env $(M6_ENV)
 	@printf "$(call log_step,3/3 Restore it into a throwaway container (live DB untouched)...)\n"
