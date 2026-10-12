@@ -68,7 +68,12 @@ Each morning: `make fleet-status M6_ENV=staging`, plus `scrape_runs`, the emails
   - A file that is already gone is `DEBUG`. Any other failure to delete stays an `ERROR` that names the file.
   - `analytics`: "DataFrame is empty" on a night without new ads is `INFO`.
   - `tests/test_37_no_false_errors.py`: 5 tests, all fail on the old code.
-- [ ] Rewrite `staging.yml` like `main.yml`, or disable it. It still has the single-city deploy, which removes all containers and images.
+- [x] Rewrite `staging.yml` like `main.yml`.
+  - Manual only, with `confirm = deploy-staging`. `Test` runs on Python 3.11 and fails the job on a failing test. `Build` builds every image (db/ws/ts/backup).
+  - `Deploy` checks out the tested commit in the host's **one** deploy dir (`vars.STAGING_DEPLOY_DIR`, default `test-staging-1-7-9-23`) and runs `make deploy-staging`. It never clones a second folder and never removes other containers or images.
+  - It refuses to deploy if a deploy is running, if the dir has local changes to tracked files, or if the branch moved after the tests.
+  - Uses the existing `DEV_EC2_*` secrets. **Confirm `DEV_EC2_IP` is the staging host** (51.20.183.242 on 2026-10-12).
+  - `tests/test_38_staging_workflow.py`: 8 tests, which run the remote script against throwaway git repos.
 - [ ] README top half for multi-city (M-7).
 - [ ] Production cutover runbook (R-4/R-5): backup first (needs **S-5**), cities moved one at a time, rollback.
 - [ ] Deploys after the nightly run only skip the post-deploy check. Decide on a `force` option for `/run-task`.
