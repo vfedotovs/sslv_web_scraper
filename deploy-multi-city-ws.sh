@@ -50,6 +50,38 @@ if [[ ${#CITIES[@]} -eq 0 ]]; then
     exit 1
 fi
 
+# Optional subset (C-1, per-city rollout R-5): DEPLOY_CITIES="ogre" or
+# "salaspils,sigulda". Deployed in cities.yaml order. A name that is not in
+# cities.yaml stops the deploy: a typo must not "succeed" by deploying nothing.
+if [[ -n "${DEPLOY_CITIES:-}" ]]; then
+    requested=() parts=()
+    IFS=', ' read -r -a parts <<< "$DEPLOY_CITIES" || true
+    for part in ${parts[@]+"${parts[@]}"}; do   # safe when empty under set -u (bash < 4.4)
+        [[ -n "$part" ]] && requested+=("$part")   # ", " splits into empty fields
+    done
+    if [[ ${#requested[@]} -eq 0 ]]; then
+        log_error "DEPLOY_CITIES='$DEPLOY_CITIES' names no city"
+        exit 1
+    fi
+    for city in "${requested[@]}"; do
+        known=false
+        for c in "${CITIES[@]}"; do [[ "$c" == "$city" ]] && known=true; done
+        if [[ "$known" != true ]]; then
+            log_error "DEPLOY_CITIES: '$city' is not in $CONFIG_FILE (cities: ${CITIES[*]})"
+            exit 1
+        fi
+    done
+    all_count=${#CITIES[@]}
+    selected=()
+    for c in "${CITIES[@]}"; do
+        for r in "${requested[@]}"; do
+            if [[ "$c" == "$r" ]]; then selected+=("$c"); break; fi
+        done
+    done
+    CITIES=("${selected[@]}")
+    log_info "DEPLOY_CITIES: deploying ${#CITIES[@]} of $all_count cities"
+fi
+
 log_info "Found ${#CITIES[@]} cities to deploy: ${CITIES[*]}"
 
 # === Fresh Volume / Backup Enforcement ===

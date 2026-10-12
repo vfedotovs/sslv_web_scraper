@@ -35,7 +35,7 @@ Ogre's history. The steps below handle both.
 
 - [ ] Staging sign-off complete: `docs/staging_signoff_release-2.0.0.md`, all items, including L-1.
 - [ ] `release-2.0.0` merged into `main` (R-1) and tagged `v2.0.0` (R-2). `main.yml` only runs tests on push. Check it did **not** deploy.
-- [ ] **C-1: per-city deploy.** `deploy-multi-city-ws.sh` deploys every city in `config/cities.yaml`, which rules out a one-city-first rollout. Add a `DEPLOY_CITIES="ogre"` filter (tested like `test_32`) before the cutover.
+- [x] **C-1: per-city deploy.** `DEPLOY_CITIES="ogre"` (space- or comma-separated) deploys only those cities, in `cities.yaml` order. A name not in `cities.yaml` stops the deploy before anything runs (`tests/test_32`). Works as an env prefix or as `make deploy-prod DEPLOY_CITIES=ogre`.
 - [ ] SSH access to the production host for the operator. The instance key pair is `dev-branch-16x-ec2-key-2026-jan-v1`.
 - [ ] `s3://sslv-prod-m6-cicd-files/` holds `.env.prod`, `database.ini` and `.env.<city>` for all six cities. Each `.env.<city>` has `S3_BUCKET=sslv-prod-<city>-db-backups` and `CITY=<city>`.
 - [ ] All six `sslv-prod-<city>-db-backups` buckets exist. **Turn on versioning** on them (`make create-s3-bucket` hardening does it). Prod buckets are not versioned today, so any accidental delete is permanent (S-5).
@@ -107,7 +107,7 @@ From here until step 4 finishes, production sends no report. That's fine inside 
 
 1. Deploy only Ogre. The run check is skipped: its DB is empty until the restore.
    ```bash
-   DEPLOY_CITIES=ogre POST_DEPLOY_VERIFY=false DEPLOY_APP_ENV=production make deploy-prod     # needs C-1
+   DEPLOY_CITIES=ogre POST_DEPLOY_VERIFY=false DEPLOY_APP_ENV=production make deploy-prod
    ```
 2. Restore the old Ogre data into the new DB. Live, atomic, with a safety copy:
    ```bash
@@ -163,15 +163,14 @@ Check: 6/6 cities deployed, each post-deploy run `success`, six emails, `make fl
 | From | Do | Data |
 |---|---|---|
 | Steps 1–3 | `docker start "$OLD-db-1" "$OLD-ws-1" "$OLD-ts-1"`, then `docker update --restart=always` | Nothing lost |
-| Step 4 (ogre on v2) | `make undeploy-prod` (keeps volumes), then start the old stack as above | Ogre runs since cutover are only in `ogre_db_data`. The old DB misses those days; next run re-detects them |
-| Step 5+ | Same, or undeploy just the new cities once C-1 lands | Five new cities: nothing to lose; their volumes are kept |
+| Step 4 (ogre on v2) | `make clean-containers CITIES=ogre` (keeps `ogre_db_data` and images), then start the old stack as above | Ogre runs since cutover are only in `ogre_db_data`. The old DB misses those days; next run re-detects them |
+| Step 5+ | All: `make undeploy-prod` (keeps volumes), then start the old stack. Only the new five: `make clean-containers CITIES="salaspils sigulda marupes_pag adazu_nov jurmala"` | Five new cities: nothing to lose; their volumes are kept |
 | Host broken | Restore the EBS snapshot from step 1.1 | Back to the moment before cutover |
 
 After a rollback: `make watchdog-uninstall`, so the watchdog doesn't alert on the absent cities.
 
 ## Open questions
 
-- C-1 (`DEPLOY_CITIES`) has to be built first, or step 4 deploys all six at once.
 - Does the old stack have a `cron` service writing backups somewhere that should keep running until step 7?
 - Which address receives production email, and should the five new cities' first full-listing emails go there?
 - Prod bucket versioning and lifecycle: decide before step 1 (S-5 follow-up).

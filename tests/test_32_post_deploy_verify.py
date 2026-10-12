@@ -295,3 +295,53 @@ def test_deploy_without_ci_values_uses_m6_env(deploy_dir, stub_host, serve):
     # deploy_dir is not a git checkout, so the version is left to the env files
     assert "Release version: <from env files>  App env: staging" in log
     assert up_env_lines(stub_host) == ["up-env RELEASE_VERSION= APP_ENV=staging"] * 2
+
+
+# --- DEPLOY_CITIES: deploy a subset (C-1, per-city rollout in the cutover runbook) ---
+
+def compose_up_projects(stub_host):
+    calls_file = Path(stub_host[1]["DOCKER_CALLS"])
+    calls = calls_file.read_text().splitlines() if calls_file.exists() else []   # no docker call at all
+    return [c.split("--project-name ")[1].split()[0] for c in calls
+            if c.startswith("compose ") and " up " in f" {c} "]
+
+
+def ran_ok(stub_host, serve):
+    return serve(FakeWs(run_task=[(200, {"message": "already has run"})],
+                        status=[{"ogre": run_row(4, "success"),
+                                 "jurmala": run_row(4, "success", "jurmala")}]))
+
+
+def test_deploy_cities_deploys_only_those(deploy_dir, stub_host, serve):
+    result, log = deploy(deploy_dir, stub_host, ran_ok(stub_host, serve), DEPLOY_CITIES="ogre")
+    assert result.returncode == 0, log
+    assert compose_up_projects(stub_host) == ["ogre"]
+    assert "DEPLOY_CITIES: deploying 1 of 2 cities" in log
+    assert "Total cities: 1" in log
+
+
+def test_deploy_cities_keeps_cities_yaml_order(deploy_dir, stub_host, serve):
+    result, log = deploy(deploy_dir, stub_host, ran_ok(stub_host, serve),
+                         DEPLOY_CITIES="jurmala, ogre")
+    assert result.returncode == 0, log
+    assert compose_up_projects(stub_host) == ["ogre", "jurmala"]
+
+
+@pytest.mark.parametrize("value, message", [
+    ("jurmla", "'jurmla' is not in"),           # a typo must not deploy nothing and pass
+    ("ogre riga", "'riga' is not in"),
+    (" , ", "names no city"),
+    ("   ", "names no city"),
+])
+def test_deploy_cities_refuses_unknown_names(deploy_dir, stub_host, serve, value, message):
+    result, log = deploy(deploy_dir, stub_host, ran_ok(stub_host, serve), DEPLOY_CITIES=value)
+    assert result.returncode == 1
+    assert message in log
+    assert compose_up_projects(stub_host) == []
+
+
+def test_without_deploy_cities_every_city_is_deployed(deploy_dir, stub_host, serve):
+    result, log = deploy(deploy_dir, stub_host, ran_ok(stub_host, serve))
+    assert result.returncode == 0, log
+    assert compose_up_projects(stub_host) == ["ogre", "jurmala"]
+    assert "DEPLOY_CITIES" not in log
