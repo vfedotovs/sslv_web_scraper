@@ -40,9 +40,10 @@ Staging passes when every item in sections 1–3 is done.
     - Live (`--yes`): the 17 dump replaces the DB, and the broken dump rolls back with the previous data kept.
   - Also fixed `--date YYYY_MM_DD`. It guessed the key `pg_backup_YYYY_MM_DD.sql.gz`, which never matches the real `pg_backup_YYYYMMDD_HHMMSS.sql.gz` names, so it always failed. It now restores the newest backup of that day (3 more tests, 12 in total).
   - The staging run against real S3 backups is P-3.
-- [ ] **P-3 — A backup made by the backup container restores, with errors failing.** On staging, after pulling P-2:
-  - `make test-restore M6_ENV=staging` restores every city's latest backup in a throwaway container. It reads S3 only and deletes nothing. For five cities that is the 02:00 backup from the new container, whose header reads `deb12u1`. Ogre's latest is the 17:45 e2e backup made by the db container (`pgdg13`), so ogre counts from the next 02:00 backup (2026-10-13) onward.
-  - An old `pg_dump` 17 backup: `./scripts/restore_db_city.sh --city ogre --env staging --date 2026_10_11 --scratch`.
+- [x] **P-3 — A backup made by the backup container restores, with errors failing.** Run on staging with `5b3e8ee`, 2026-10-12 17:59. Read S3 only, throwaway containers, nothing left behind.
+  - `make test-restore M6_ENV=staging`: **6/6 OK** in strict mode. Five cities restored their 02:00 backup from the new backup container (`pg_dump 15.19 … deb12u1`), e.g. salaspils 24/18/24 and jurmala 301/141/23. Ogre restored its 17:45 e2e backup (db container, `pgdg13`): 43/36/23.
+  - Old `pg_dump` 17 backup, `--date 2026_10_11` for ogre (`17.11 … deb13u1`, has `SET transaction_timeout`): dropped the line and restored OK, 43/35/22.
+  - Follow-up in the soak: after the 2026-10-13 02:00 backup, `make test-restore CITY=ogre M6_ENV=staging` covers ogre's first backup from the new container.
 - [ ] **P-4 — Alerts still fire.** `make watchdog-drill M6_ENV=staging`.
 
 ## 3. Soak (V-6): 3 consecutive clean nights
