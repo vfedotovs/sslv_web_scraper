@@ -133,6 +133,41 @@ if [[ "$SCRATCH" == false && "$PREPARE_INIT" == false && "$ASSUME_YES" == false 
     fi
 fi
 
+# prepare_load_file <sql_file> <server_version_num> [psql command...]
+# Sets LOAD_FILE to the file to load: the dump itself, or a filtered copy
+# (<sql_file>.load) without the lines the target cannot run. (The log functions
+# write to stdout, so the result comes back in LOAD_FILE, not on stdout.)
+#  - \restrict / \unrestrict (pg_dump >= 15.14, Aug 2025): dropped when the
+#    given psql cannot run them (probed only when a psql command is given).
+#  - SET transaction_timeout (pg_dump 17+): dropped when the server is older
+#    than 17. PostgreSQL 15 rejects it, so ON_ERROR_STOP loads of every backup
+#    taken with the trixie-based backup image failed (B-3 / P-2).
+prepare_load_file() {
+    local sql_file="$1" server="$2"; shift 2
+    local drop=()
+    LOAD_FILE="$sql_file"
+    if [[ $# -gt 0 ]] && grep -q '^\\restrict ' "$sql_file" \
+            && ! printf '\\restrict probe\n\\unrestrict probe\n' | "$@" -q -v ON_ERROR_STOP=1 > /dev/null 2>&1; then
+        log_warn "psql predates \\restrict; loading the dump without those lines"
+        drop+=('^\\(un)?restrict ')
+    fi
+    if [[ "$server" =~ ^[0-9]+$ ]] && (( server < 170000 )) \
+            && grep -q '^SET transaction_timeout = ' "$sql_file"; then
+        log_warn "Dump is from pg_dump 17+ but the server is PostgreSQL $((server / 10000)): dropping SET transaction_timeout"
+        drop+=('^SET transaction_timeout = ')
+    fi
+    if [[ ${#drop[@]} -eq 0 ]]; then
+        return 0
+    fi
+    local pattern
+    pattern=$(IFS='|'; echo "${drop[*]}")
+    LOAD_FILE="${sql_file}.load"
+    if ! grep -v -E "$pattern" "$sql_file" > "$LOAD_FILE"; then
+        log_error "Could not write $LOAD_FILE"
+        return 1
+    fi
+}
+
 # Load a plain-SQL dump into a throwaway postgres container and report what
 # came back. Proves the backup restores without touching the live DB.
 scratch_restore() {
@@ -159,13 +194,27 @@ scratch_restore() {
         return 1
     fi
 
-    local errors rc=0
-    errors=$(docker exec -i "$name" psql -q -h 127.0.0.1 -U "$db_user" -d "$db_name" \
-        < "$sql_file" 2>&1 > /dev/null | grep -c 'ERROR' || true)
-    [[ "$errors" -gt 0 ]] && log_warn "psql reported $errors error(s) while loading the dump"
+    local psql_cmd=(docker exec -i "$name" psql -X -h 127.0.0.1 -U "$db_user" -d "$db_name")
+    local server errors rc=0
+    server=$("${psql_cmd[@]}" -t -A -c "SHOW server_version_num" 2>/dev/null | tr -d '[:space:]')
+    if ! prepare_load_file "$sql_file" "$server" "${psql_cmd[@]}"; then
+        rc=1
+    # Load exactly as the live restore does: one transaction, stop at the first
+    # error. Counting ERROR lines and only warning let dumps through that the
+    # live restore rejects (P-2, docs/staging_signoff_release-2.0.0.md).
+    elif ! errors=$("${psql_cmd[@]}" -q -v ON_ERROR_STOP=1 --single-transaction -f - \
+            < "$LOAD_FILE" 2>&1 > /dev/null); then
+        log_error "Scratch restore FAILED for $city: the dump does not load (psql stopped at the first error)"
+        log_error "  $(printf '%s\n' "$errors" | grep -m1 -E 'ERROR|FATAL' || printf '%s\n' "$errors" | tail -1)"
+        rc=1
+    fi
+    if [[ "$LOAD_FILE" != "$sql_file" ]]; then
+        rm -f "$LOAD_FILE"
+    fi
 
-    report_tables "Scratch restore" "$city" \
-        docker exec "$name" psql -X -h 127.0.0.1 -U "$db_user" -d "$db_name" || rc=1
+    if [[ $rc -eq 0 ]]; then
+        report_tables "Scratch restore" "$city" "${psql_cmd[@]}" || rc=1
+    fi
     docker rm -f "$name" > /dev/null 2>&1 || true
     return $rc
 }
@@ -248,16 +297,16 @@ live_restore() {
         return 1
     fi
 
-    # 2. Dumps from pg_dump >= 15.14 (Aug 2025) wrap the body in \restrict /
-    #    \unrestrict. An older psql in the city image rejects them, so strip
-    #    those two lines only when this psql cannot run them.
-    local load_file="$sql_file"
-    if grep -q '^\\restrict ' "$sql_file" && ! printf '\\restrict probe\n\\unrestrict probe\n' \
-            | live_psql "$container" "$db_user" "$db_name" "$password" -q -v ON_ERROR_STOP=1 > /dev/null 2>&1; then
-        log_warn "psql in $container predates \\restrict; loading the dump without those lines"
-        load_file="${sql_file}.norestrict"
-        grep -v -E '^\\(un)?restrict ' "$sql_file" > "$load_file"
+    # 2. Drop the lines this server or psql cannot run: \restrict from a newer
+    #    pg_dump, SET transaction_timeout from pg_dump 17 (prepare_load_file).
+    local server load_file
+    server=$(live_psql "$container" "$db_user" "$db_name" "$password" -t -A \
+        -c "SHOW server_version_num" 2>/dev/null | tr -d '[:space:]')
+    if ! prepare_load_file "$sql_file" "$server" live_psql "$container" "$db_user" "$db_name" "$password"; then
+        log_error "Could not prepare the dump; nothing was restored"
+        return 1
     fi
+    load_file="$LOAD_FILE"
 
     # 3. Stop the city's writers so nothing changes data or holds locks mid-restore.
     local stopped=() svc c
@@ -355,7 +404,18 @@ restore_city() {
     else
         local key
         if [[ -n "$date_str" ]]; then
-            key="db-backups/${date_str//_//}/pg_backup_${date_str}.sql.gz"
+            # Newest backup of that day. Keys are db-backups/YYYY/MM/DD/
+            # pg_backup_YYYYMMDD_HHMMSS.sql.gz; the old pg_backup_YYYY_MM_DD
+            # guess never matched one, so --date always failed.
+            if ! [[ "$date_str" =~ ^[0-9]{4}_[0-9]{2}_[0-9]{2}$ ]]; then
+                log_error "--date must be YYYY_MM_DD, got '$date_str'"
+                return 1
+            fi
+            key=$(aws s3 ls "s3://${bucket}/db-backups/${date_str//_//}/" --recursive | sort | tail -1 | awk '{print $4}')
+            if [[ -z "$key" ]]; then
+                log_error "No backup for $date_str in s3://${bucket}/db-backups/${date_str//_//}/"
+                return 1
+            fi
         else
             # Get latest
             key=$(aws s3 ls "s3://${bucket}/db-backups/" --recursive | sort | tail -1 | awk '{print $4}')
@@ -384,8 +444,17 @@ restore_city() {
     fi
 
     if [[ "$PREPARE_INIT" == true ]]; then
+        # The init scripts run on src/db's image (FROM postgres:<major>) with
+        # ON_ERROR_STOP, so drop what that major cannot run.
+        local init_major
+        init_major=$(sed -n 's/^FROM postgres:\([0-9][0-9]*\).*/\1/p' "${SCRIPT_DIR}/../src/db/Dockerfile" | head -1)
+        if ! prepare_load_file "$sql_file" "${init_major:+$((init_major * 10000))}"; then
+            rm -f "$sql_file"
+            return 1
+        fi
         mkdir -p src/db
-        cp "$sql_file" "src/db/pg_backup_$(date +%Y_%m_%d).sql"
+        cp "$LOAD_FILE" "src/db/pg_backup_$(date +%Y_%m_%d).sql"
+        [[ "$LOAD_FILE" != "$sql_file" ]] && rm -f "$LOAD_FILE"
         log_info "Prepared for init: src/db/pg_backup_....sql"
         rm -f "$sql_file"
         return 0

@@ -30,11 +30,19 @@ Staging passes when every item in sections 1–3 is done.
 ## 2. Proofs
 
 - [x] **P-1 — `make e2e-backup-restore CITY=ogre M6_ENV=staging`** (2026-10-12 17:45): passed. Backup, S3 check and scratch restore all worked, with rows 43/36/23 matching live, and no `psql` errors. It used the **db container's** `pg_dump` (via `backup_db_city.sh`), so it does not cover the backup container (P-3).
-- [ ] **P-2 — Restores fail on errors, and old dumps load.**
-  - `restore_db_city.sh --scratch` only counts `ERROR` lines and warns. Make it fail on any error, as the live restore does (`ON_ERROR_STOP`).
-  - Make the live and scratch restores drop `SET transaction_timeout` when loading a `pg_dump` 17 dump into Postgres 15, so the backups taken before B-3 can be restored.
-  - Test one old (17) and one new (15) dump.
-- [ ] **P-3 — A backup made by the backup container restores, with errors failing.** After P-2, run `make test-restore CITY=ogre M6_ENV=staging`. It restores the latest backup in a throwaway container, reads S3 only and deletes nothing. The latest backup must be a 02:00 one: the header should read `deb12u1`, not `pgdg13`.
+- [x] **P-2 — Restores fail on errors, and old dumps load.**
+  - `restore_db_city.sh --scratch` now loads like the live restore: `ON_ERROR_STOP`, one transaction, and it fails with psql's first error. Before, it counted `ERROR` lines and only warned.
+  - A shared `prepare_load_file` step is used by the scratch, live and `--prepare-init` restores. It drops `SET transaction_timeout` when the dump is from `pg_dump` 17+ and the target server is older than 17. It also keeps the existing `\restrict` handling for an older `psql`.
+  - `--prepare-init` targets the version in `src/db/Dockerfile` (`postgres:15`), whose init scripts also run with `ON_ERROR_STOP`.
+  - **Tests:** `tests/test_36_restore_load.py`, 9 tests with a stub `docker` acting as a Postgres 15 server. 6 of them fail on the old script.
+  - **Real Docker, locally (2026-10-12):** genuine `pg_dump` 17.11 and 15.19 dumps of the staging ogre data, and a broken dump.
+    - `--scratch`: the 17 dump loads with the line dropped (43/35/22), the 15 dump loads unchanged, and the broken dump fails with exit 1.
+    - Live (`--yes`): the 17 dump replaces the DB, and the broken dump rolls back with the previous data kept.
+  - Also fixed `--date YYYY_MM_DD`. It guessed the key `pg_backup_YYYY_MM_DD.sql.gz`, which never matches the real `pg_backup_YYYYMMDD_HHMMSS.sql.gz` names, so it always failed. It now restores the newest backup of that day (3 more tests, 12 in total).
+  - The staging run against real S3 backups is P-3.
+- [ ] **P-3 — A backup made by the backup container restores, with errors failing.** On staging, after pulling P-2:
+  - `make test-restore M6_ENV=staging` restores every city's latest backup in a throwaway container. It reads S3 only and deletes nothing. For five cities that is the 02:00 backup from the new container, whose header reads `deb12u1`. Ogre's latest is the 17:45 e2e backup made by the db container (`pgdg13`), so ogre counts from the next 02:00 backup (2026-10-13) onward.
+  - An old `pg_dump` 17 backup: `./scripts/restore_db_city.sh --city ogre --env staging --date 2026_10_11 --scratch`.
 - [ ] **P-4 — Alerts still fire.** `make watchdog-drill M6_ENV=staging`.
 
 ## 3. Soak (V-6): 3 consecutive clean nights
