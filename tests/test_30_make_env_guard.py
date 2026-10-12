@@ -157,3 +157,18 @@ def test_watchdog_status_flags_a_bare_topic_in_the_env_file(staging_host):
 
 def test_watchdog_status_quiet_about_an_https_topic(staging_host):
     assert "without https://" not in make(["watchdog-status"], staging_host).stdout
+
+
+# --- M6_ENV is lowercased and checked (2026-10-12: M6_ENV=Staging -> all BAD) ---
+
+@pytest.mark.parametrize("given, used", [("Staging", "staging"), ("PROD", "prod"), ("dev", "dev")])
+def test_m6_env_is_lowercased(given, used, staging_host):
+    result = make(["fleet-status", f"M6_ENV={given}"], staging_host, dry_run=True)
+    assert result.returncode == 0, result.stderr
+    assert f"--env {used} " in result.stdout
+
+
+def test_unknown_m6_env_stops_make(staging_host):
+    result = make(["fleet-status", "M6_ENV=qa"], staging_host, dry_run=True)
+    assert result.returncode != 0
+    assert "M6_ENV='qa' is not one of: prod staging dev" in result.stderr

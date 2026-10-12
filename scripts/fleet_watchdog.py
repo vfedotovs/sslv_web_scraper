@@ -973,7 +973,10 @@ def notify_ntfy(args, all_problems, lines, cities, state):
 def main(argv=None):
     parser = argparse.ArgumentParser(description="SSLV fleet watchdog (M6 Item 6)")
     parser.add_argument("--cities-file", default=DEFAULT_CITIES_FILE)
-    parser.add_argument("--env", default=os.getenv("ENV", "prod"),
+    # Lowercase like the bucket names: --env Staging listed sslv-Staging-* buckets
+    # and reported every city BAD (2026-10-12).
+    parser.add_argument("--env", default=os.getenv("ENV", "prod"), type=str.lower,
+                        choices=BACKUP_ENVS,
                         help="deployment env for bucket names (default: prod)")
     parser.add_argument("--email-mode", choices=["problems", "always", "never"],
                         default="problems",

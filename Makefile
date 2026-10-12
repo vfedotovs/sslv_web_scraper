@@ -25,7 +25,6 @@
 SHELL := /bin/bash
 OS := $(shell uname -s)
 ARCH := $(shell uname -m)
-COMPOSE := $(shell if command -v docker compose >/dev/null 2>&1; then echo "docker compose"; elif command -v docker-compose >/dev/null 2>&1; then echo "docker-compose"; else echo "docker compose"; fi)
 
 # Deployment environment for bucket names, backups and alerts: prod | staging | dev
 M6_ENV ?= prod
@@ -42,6 +41,13 @@ M6_BUCKET_NAME = sslv-$(M6_ENV)-$(M6_CITY)-$(M6_PURPOSE)
 M6_CITIES ?= salaspils sigulda marupes-pag adazu-nov ogre jurmala
 M6_PURPOSES ?= db-backups scraped-data
 M6_ENVS ?= prod staging dev
+# Bucket names are lowercase, so M6_ENV is too: Staging is read as staging, and an
+# unknown env stops make. M6_ENV=Staging listed sslv-Staging-* buckets and reported
+# every city BAD (2026-10-12).
+override M6_ENV := $(shell printf '%s' '$(M6_ENV)' | tr '[:upper:]' '[:lower:]')
+ifeq ($(filter $(M6_ENV),$(M6_ENVS)),)
+$(error M6_ENV='$(M6_ENV)' is not one of: $(M6_ENVS))
+endif
 
 # Hard floor for any backup: below it the dump is truncated or failed. The same
 # in every env - a small DB dumps to 2-8 KB, so a size floor cannot tell it from

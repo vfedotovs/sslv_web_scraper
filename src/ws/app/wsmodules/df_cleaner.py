@@ -262,11 +262,14 @@ def create_email_body(clean_data_frame, file_name: str, city_name: str = None) -
 
     app_env = os.environ.get('APP_ENV', 'local')
     email_body_txt = []
-    # main (3f1fc7a, 16ecc33): report header with date, environment and total;
+    # main (3f1fc7a, 16ecc33): report header with date, environment and count;
     # the title is per city (was hard-coded "Ogre Apartment Report" on main).
     email_body_txt.append(
         f"=== {_report_title(city_name)} — {today_str} [{app_env}] ===")
-    email_body_txt.append(f"Total active listings: {total_ads}")
+    # The frame holds only ads fetched in this run (M7 P1 diff-before-fetch: known
+    # ads are skipped), so this is the new-listing count. The active total is in
+    # the scrape_runs history the mailer appends ("LA TBL rows").
+    email_body_txt.append(f"New listings in this report: {total_ads}")
     email_body_txt.append("")
 
     # Room count as a number whatever the column dtype; empty frames (nothing

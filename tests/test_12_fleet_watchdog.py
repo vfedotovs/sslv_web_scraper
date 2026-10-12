@@ -1029,7 +1029,8 @@ STAGING_2026_09_26 = {
 }
 
 
-def replay_fleet(env, newest_age_hours, with_metadata, capsys, other_env_ages=None):
+def replay_fleet(env, newest_age_hours, with_metadata, capsys, other_env_ages=None,
+                 cli_env=None):
     """main() over the six cities with only docker and aws faked: five
     nightly backups per city growing ~70 B/day, as the staging bucket did.
     other_env_ages: {env: newest age} for the other envs' buckets; an env
@@ -1058,7 +1059,8 @@ def replay_fleet(env, newest_age_hours, with_metadata, capsys, other_env_ages=No
          patch.object(watchdog, "get_db_row_counts",
                       side_effect=lambda c: STAGING_2026_09_26[c][:2]), \
          patch.object(watchdog, "check_host", return_value=HOST_OK):
-        exit_code = watchdog.main(["--env", env, "--email-mode", "never", "--ntfy-mode", "never"])
+        exit_code = watchdog.main(["--env", cli_env or env, "--email-mode", "never",
+                                   "--ntfy-mode", "never"])
     return exit_code, capsys.readouterr().out
 
 
@@ -1272,3 +1274,20 @@ def test_hint_keeps_the_alert_fingerprint_stable():
     first = "newest backup is 91h old (> 26h): s3://b/k - but s3://o has one 12h old: wrong env"
     later = "newest backup is 92h old (> 26h): s3://b/k - but s3://o has one 13h old: wrong env"
     assert watchdog.problem_fingerprint(first) == watchdog.problem_fingerprint(later)
+
+
+def test_env_is_lowercased_like_the_bucket_names(capsys):
+    """make fleet-status M6_ENV=Staging listed sslv-Staging-* buckets and
+    reported all six cities BAD (2026-10-12). Bucket names are lowercase."""
+    exit_code, out = replay_fleet("staging", 12, with_metadata=True, capsys=capsys,
+                                  cli_env="Staging")
+    assert exit_code == 0
+    assert "SSLV fleet status [staging]" in out
+    assert "6 cities, 0 with problems" in out
+
+
+def test_unknown_env_is_refused(capsys):
+    with pytest.raises(SystemExit) as exc:
+        watchdog.main(["--env", "qa", "--email-mode", "never", "--ntfy-mode", "never"])
+    assert exc.value.code == 2
+    assert "invalid choice: 'qa'" in capsys.readouterr().err

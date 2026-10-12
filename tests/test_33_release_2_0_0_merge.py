@@ -4,7 +4,8 @@ main's single-city fixes were carried into multi-city code; these tests pin the
 combinations that neither side's own tests cover:
 - email subject: per-city EMAIL_CITY_TITLE + RELEASE_VERSION + APP_ENV
   (the chain hard-coded "1.6.0" and repeated the title; main hard-coded "Ogre")
-- report header: date, environment and total, titled per city (main: "Ogre")
+- report header: date, environment and new-listing count, titled per city (main: "Ogre";
+  its "Total active listings" counted only the new ads the multi-city frame holds)
 - pipeline stages: gc + memory log after every stage (main's OOM fix), also
   when a stage fails
 """
@@ -59,7 +60,7 @@ def test_report_header_is_titled_per_city(tmp_path, monkeypatch):
     row = ["https://ss.lv/a.html", 2, "2/5", 50.0, 100000, 2000.0, "Liepu iela 1", "01.10.2026"]
     lines = report_lines(tmp_path, pd.DataFrame([row], columns=COLUMNS), "marupes_pag")
     assert lines[0] == f"=== Mārupes pagasts Apartments for sale — {today} [staging] ==="
-    assert lines[1] == "Total active listings: 1"
+    assert lines[1] == "New listings in this report: 1"
     assert "Ogre" not in lines[0]
 
 
@@ -68,7 +69,7 @@ def test_report_header_falls_back_to_city_name(tmp_path, monkeypatch):
     lines = report_lines(tmp_path, pd.DataFrame(columns=COLUMNS), "jurmala")
     assert lines[0].startswith("=== ")
     assert "Apartment Report" in lines[0] and "Ogre" not in lines[0]
-    assert lines[1] == "Total active listings: 0"
+    assert lines[1] == "New listings in this report: 0"
 
 
 def test_listing_rows_carry_eur_labels_and_new_marker(tmp_path, monkeypatch):
