@@ -76,5 +76,5 @@ Each morning: `make fleet-status M6_ENV=staging`, plus `scrape_runs`, the emails
   - `tests/test_38_staging_workflow.py`: 8 tests, which run the remote script against throwaway git repos.
   - `main.yml` now deploys the same way, into one dir `~/sslv-prod` (`vars.PROD_DEPLOY_DIR`). Its remote script is covered by the same tests.
 - [x] README rewritten for multi-city (M-7): how it runs, the daily schedule, configuration, deploy and workflows, monitoring, backup/restore (S-5/P-2 behaviour), adding a city, development, and the legacy M5 targets. `make help` for `backup-city`/`backup-all` no longer says "keeps the newest 5".
-- [ ] Production cutover runbook (R-4/R-5): backup first (needs **S-5**), cities moved one at a time, rollback.
+- [x] Production cutover runbook (R-4/R-5), draft: [`production_cutover_runbook_release-2.0.0.md`](production_cutover_runbook_release-2.0.0.md). It needs the step-0 host inventory, which wasn't checked against the live host, and **C-1** (`DEPLOY_CITIES` filter in `deploy-multi-city-ws.sh`) for the one-city-first rollout.
 - [ ] Deploys after the nightly run only skip the post-deploy check. Decide on a `force` option for `/run-task`.
