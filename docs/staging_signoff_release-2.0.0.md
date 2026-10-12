@@ -63,7 +63,11 @@ Each morning: `make fleet-status M6_ENV=staging`, plus `scrape_runs`, the emails
 
 ## 4. Before production (not needed to pass staging)
 
-- [ ] Remove the false `ERROR` lines: `remove_tmp_files … No such file` and the analytics "DataFrame is empty" line (review item 7).
+- [x] Remove the false `ERROR` lines (review item 7). **Fixed in code, not deployed yet**: it changes the `ws` image, so it goes in after the soak.
+  - `aws_mailer`: dropped the three file names the pipeline no longer creates, and uses the scraper's raw-report name. Ogre's `Ogre-raw-data-report.txt` was never deleted.
+  - A file that is already gone is `DEBUG`. Any other failure to delete stays an `ERROR` that names the file.
+  - `analytics`: "DataFrame is empty" on a night without new ads is `INFO`.
+  - `tests/test_37_no_false_errors.py`: 5 tests, all fail on the old code.
 - [ ] Rewrite `staging.yml` like `main.yml`, or disable it. It still has the single-city deploy, which removes all containers and images.
 - [ ] README top half for multi-city (M-7).
 - [ ] Production cutover runbook (R-4/R-5): backup first (needs **S-5**), cities moved one at a time, rollback.

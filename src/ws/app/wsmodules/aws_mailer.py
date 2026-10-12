@@ -61,21 +61,22 @@ EMAIL_CITY_TITLE = os.getenv("EMAIL_CITY_TITLE")
 def get_data_files_to_remove(city_name: str = None) -> list:
     """City-aware list of temp files for cleanup (Phase 3 hygiene).
     M7 P7: hand-off files are city-scoped, so the cleanup list is too."""
+    # Only files the pipeline still writes: Mailer_report.txt, 1_rooms_tmp.txt
+    # and mrv2.txt are not created any more, and deleting them logged three
+    # false ERRORs per city per night.
     base = [
         city_file("email_body_txt_m4.txt", city_name),
-        "Mailer_report.txt",
         city_file("cleaned-sorted-df.csv", city_name),
         city_file("pandas_df.csv", city_name),
         city_file("basic_price_stats.txt", city_name),
         city_file("email_body_add_dates_table.txt", city_name),
         city_file("discovered-urls.txt", city_name),
-        "1_rooms_tmp.txt",
-        "mrv2.txt",
     ]
-    if city_name:
-        base.extend([
-            f"{city_name}-raw-data-report.txt",
-        ])
+    # The scraper's raw report name (web_scraper.scrape_website): ogre keeps the
+    # legacy "Ogre-raw-data-report.txt", so "ogre-raw-data-report.txt" was never
+    # found and ogre's report was never removed.
+    if city_name and city_name != "ogre":
+        base.append(f"{city_name}-raw-data-report.txt")
     else:
         base.append("Ogre-raw-data-report.txt")
     return base
@@ -85,16 +86,21 @@ data_files = get_data_files_to_remove()  # legacy default for backward compat
 
 
 def remove_tmp_files(files_to_remove: list) -> None:
-    """FIXME: Refactor this function to better code"""
+    """Delete the run's hand-off files. A file that is already gone is not an
+    error (DEBUG); any other failure is, and names the file."""
     directory = os.getcwd()
-    log.info(f"Attempting clean temp files from {directory} folder")
+    log.info(f"Removing {len(files_to_remove)} temp files from {directory}")
+    removed = 0
     for file in files_to_remove:
         try:
-            log.info(f"Trying to deleting file: {file} ")
             os.remove(file)
-            log.info(f"File: {file} deleted with success ")
+            removed += 1
+            log.debug(f"Removed {file}")
+        except FileNotFoundError:
+            log.debug(f"{file} already gone")
         except OSError as e:
-            log.error(f" {e.strerror} ")
+            log.error(f"Could not remove {file}: {e.strerror}")
+    log.info(f"Removed {removed} of {len(files_to_remove)} temp files")
 
 
 def gen_subject_title() -> str:

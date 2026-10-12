@@ -231,7 +231,9 @@ def split_dataframe_by_column(dataframe, column_name: str) -> dict:
         }
         return dataframes
     else:
-        log.error('Loaded DataFrame is empty')
+        # No new ads today: normal, not an error (it was the analytics ERROR
+        # line in every quiet night's logs).
+        log.info('Loaded DataFrame is empty: no new ads')
         return None
 
 
@@ -254,7 +256,9 @@ def get_column_dtype(dataframe, column_name: str) -> str:
         log.info(f'DataFrame column: {column_name} dtype is : {column_dtype}')
         return column_dtype
     else:
-        log.error('Loaded DataFrame is empty')
+        # No new ads today: normal, not an error (it was the analytics ERROR
+        # line in every quiet night's logs).
+        log.info('Loaded DataFrame is empty: no new ads')
         return None
 
 
