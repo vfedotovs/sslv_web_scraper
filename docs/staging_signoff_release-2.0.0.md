@@ -44,7 +44,10 @@ Staging passes when every item in sections 1–3 is done.
   - `make test-restore M6_ENV=staging`: **6/6 OK** in strict mode. Five cities restored their 02:00 backup from the new backup container (`pg_dump 15.19 … deb12u1`), e.g. salaspils 24/18/24 and jurmala 301/141/23. Ogre restored its 17:45 e2e backup (db container, `pgdg13`): 43/36/23.
   - Old `pg_dump` 17 backup, `--date 2026_10_11` for ogre (`17.11 … deb13u1`, has `SET transaction_timeout`): dropped the line and restored OK, 43/35/22.
   - Follow-up in the soak: after the 2026-10-13 02:00 backup, `make test-restore CITY=ogre M6_ENV=staging` covers ogre's first backup from the new container.
-- [ ] **P-4 — Alerts still fire.** `make watchdog-drill M6_ENV=staging`.
+- [x] **P-4 — Alerts still fire.** `make watchdog-drill M6_ENV=staging` on `5b3e8ee`, 2026-10-12 18:00: **8/8 PASS**.
+  - Alert and recovery pushes for memory, disk, backup, oom, stuck-run, collapse and container (a real `docker stop salaspils-ts-1`), plus the heartbeat: 15 `[DRILL]` pushes accepted by ntfy.
+  - Afterwards the watchdog timer resumed, `salaspils-ts-1` was healthy and rescheduled for 00:40, and all containers were healthy.
+  - **Manual:** confirm the 15 `[DRILL]` notifications arrived on the phone. Check #7 (missing heartbeat) stays a manual one-day test (`docs/critical_monitoring_ntfy_plan.md`).
 
 ## 3. Soak (V-6): 3 consecutive clean nights
 
