@@ -43,7 +43,7 @@ Staging passes when every item in sections 1–3 is done.
 - [x] **P-3 — A backup made by the backup container restores, with errors failing.** Run on staging with `5b3e8ee`, 2026-10-12 17:59. Read S3 only, throwaway containers, nothing left behind.
   - `make test-restore M6_ENV=staging`: **6/6 OK** in strict mode. Five cities restored their 02:00 backup from the new backup container (`pg_dump 15.19 … deb12u1`), e.g. salaspils 24/18/24 and jurmala 301/141/23. Ogre restored its 17:45 e2e backup (db container, `pgdg13`): 43/36/23.
   - Old `pg_dump` 17 backup, `--date 2026_10_11` for ogre (`17.11 … deb13u1`, has `SET transaction_timeout`): dropped the line and restored OK, 43/35/22.
-  - Follow-up in the soak: after the 2026-10-13 02:00 backup, `make test-restore CITY=ogre M6_ENV=staging` covers ogre's first backup from the new container.
+  - Follow-up done: on 2026-10-14 `make test-restore M6_ENV=staging` restored ogre's 02:00 backup from the new container (`deb12u1`): OK, 106 rows. All six cities are now covered by backups from the new image.
 - [x] **P-4 — Alerts still fire.** `make watchdog-drill M6_ENV=staging` on `5b3e8ee`, 2026-10-12 18:00: **8/8 PASS**.
   - Alert and recovery pushes for memory, disk, backup, oom, stuck-run, collapse and container (a real `docker stop salaspils-ts-1`), plus the heartbeat: 15 `[DRILL]` pushes accepted by ntfy.
   - Afterwards the watchdog timer resumed, `salaspils-ts-1` was healthy and rescheduled for 00:40, and all containers were healthy.
@@ -54,10 +54,12 @@ Staging passes when every item in sections 1–3 is done.
 | Night | Build | 00:40 scrape | 01:40 verify | 02:00 backup | Watchdog | Notes |
 |---|---|---|---|---|---|---|
 | 1 — 2026-10-12 | `3955e4f` | 6/6 success | 6/6 OK | 6/6, `pg_dump` 15.19 | no alerts | jurmala peak RSS 122 MB. Found S-1 and S-2 |
-| 2 — 2026-10-13 | `b2dd36e` | | | | | first night with S-1 |
-| 3 — 2026-10-14 | `b2dd36e` | | | | | |
+| 2 — 2026-10-13 | `b2dd36e` | 6/6 success (1–32 s) | 6/6 OK | 6/6, `pg_dump` 15.19 deb12u1, no `transaction_timeout` | no alerts | 6/6 emails, subject `v1.5.12-131-gb2dd36e … [staging]`, header "New listings in this report: N" (S-1). Peak `ws` RSS 111–113 MB. Only ERRORs: the known false ones (`remove_tmp_files`, analytics "DataFrame is empty" on quiet cities) |
+| 3 — 2026-10-14 | `b2dd36e` | 6/6 success (1–47 s) | 6/6 OK | 6/6, `pg_dump` 15.19 deb12u1, no `transaction_timeout`; `make test-restore` 6/6 OK | no alerts (188 checks since 10-12 18:10) | 6/6 emails, subject and header OK. Peak `ws` RSS 110–120 MB (no growth vs night 1's 122 MB); `ws` idle 94–102 MB. Host 379 MB available, swap 94 MB used (night 1: ~30 MB), watch on prod. 24 containers, no duplicates, all healthy |
 
 Each morning: `make fleet-status M6_ENV=staging`, plus `scrape_runs`, the emails (subject version, `[staging]`, header), backups (`pg_dump` header), and `ws` memory.
+
+**V-6 soak: PASSED.** Three consecutive clean nights (2026-10-12/13/14), with checks run 2026-10-14 ~17:00 UTC (the night-2 check ran late, together with night 3).
 
 - [ ] **L-1 — Final evidence.** After night 3, run `make collect-logs` on the host, review the bundle, and record the sign-off here.
 
