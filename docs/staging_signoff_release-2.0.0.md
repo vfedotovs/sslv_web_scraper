@@ -65,7 +65,9 @@ Each morning: `make fleet-status M6_ENV=staging`, plus `scrape_runs`, the emails
 
 ## 4. Before production (not needed to pass staging)
 
-- [x] Remove the false `ERROR` lines (review item 7). **Fixed in code, not deployed yet**: it changes the `ws` image, so it goes in after the soak.
+- [x] Remove the false `ERROR` lines (review item 7). **Deployed to staging 2026-10-14 17:09 UTC** with `d6f0b60` (after the soak, since it changes the `ws` image): 6/6 cities, 24/24 containers healthy.
+  - All six `ws` containers recreated 17:09–17:12 and run the new code; `RELEASE_VERSION` `v1.5.12-142-gd6f0b60`. `ts` untouched (`ws`-only change), still scheduled 00:40 trigger / 01:40 verify.
+  - Post-deploy check skipped (today's run had already succeeded), so the first run on this build is 2026-10-15 00:40. **To confirm:** no `remove_tmp_files` "No such file" ERRORs, "DataFrame is empty" at `INFO`, and ogre's `Ogre-raw-data-report.txt` removed.
   - `aws_mailer`: dropped the three file names the pipeline no longer creates, and uses the scraper's raw-report name. Ogre's `Ogre-raw-data-report.txt` was never deleted.
   - A file that is already gone is `DEBUG`. Any other failure to delete stays an `ERROR` that names the file.
   - `analytics`: "DataFrame is empty" on a night without new ads is `INFO`.
