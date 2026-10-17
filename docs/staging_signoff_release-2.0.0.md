@@ -47,7 +47,7 @@ Staging passes when every item in sections 1–3 is done.
 - [x] **P-4 — Alerts still fire.** `make watchdog-drill M6_ENV=staging` on `5b3e8ee`, 2026-10-12 18:00: **8/8 PASS**.
   - Alert and recovery pushes for memory, disk, backup, oom, stuck-run, collapse and container (a real `docker stop salaspils-ts-1`), plus the heartbeat: 15 `[DRILL]` pushes accepted by ntfy.
   - Afterwards the watchdog timer resumed, `salaspils-ts-1` was healthy and rescheduled for 00:40, and all containers were healthy.
-  - **Manual:** confirm the 15 `[DRILL]` notifications arrived on the phone. Check #7 (missing heartbeat) stays a manual one-day test (`docs/critical_monitoring_ntfy_plan.md`).
+  - **Manual:** the 15 `[DRILL]` notifications arrived on the phone (confirmed 2026-10-17). Check #7 (missing heartbeat) stays a manual one-day test (`docs/critical_monitoring_ntfy_plan.md`).
 
 ## 3. Soak (V-6): 3 consecutive clean nights
 
@@ -61,13 +61,18 @@ Each morning: `make fleet-status M6_ENV=staging`, plus `scrape_runs`, the emails
 
 **V-6 soak: PASSED.** Three consecutive clean nights (2026-10-12/13/14), with checks run 2026-10-14 ~17:00 UTC (the night-2 check ran late, together with night 3).
 
-- [ ] **L-1 — Final evidence.** After night 3, run `make collect-logs` on the host, review the bundle, and record the sign-off here.
+- [x] **L-1 — Final evidence.** 2026-10-17 14:40 UTC on `d6f0b60`, after three more nights (10-15/16/17) on the item-7 build.
+  - `make collect-logs`: `log-bundles/sslv-logs-2026-10-17T14-39-49Z.tar.gz` (2.0 MB), 186 files from 24 containers. All running and healthy, no ERROR/CRITICAL/Traceback lines in any city, redaction self-test passed.
+  - `make fleet-status M6_ENV=staging`: 6 cities, 0 with problems. Host 398 MB available, swap 136 MB used (rising: ~30 → 94 → 136 MB, watch on prod), disk 68%.
+  - 10-15/16/17: 1 email per city per night (subject `v1.5.12-142-gd6f0b60 … [staging]`), 6/6 backups in S3 at 02:00 each night, watchdog 279 runs since 10-14 17:00, all "0 with problems".
+
+**Staging sign-off: PASSED** (2026-10-17). Sections 1–3 are done.
 
 ## 4. Before production (not needed to pass staging)
 
 - [x] Remove the false `ERROR` lines (review item 7). **Deployed to staging 2026-10-14 17:09 UTC** with `d6f0b60` (after the soak, since it changes the `ws` image): 6/6 cities, 24/24 containers healthy.
   - All six `ws` containers recreated 17:09–17:12 and run the new code; `RELEASE_VERSION` `v1.5.12-142-gd6f0b60`. `ts` untouched (`ws`-only change), still scheduled 00:40 trigger / 01:40 verify.
-  - Post-deploy check skipped (today's run had already succeeded), so the first run on this build is 2026-10-15 00:40. **To confirm:** no `remove_tmp_files` "No such file" ERRORs, "DataFrame is empty" at `INFO`, and ogre's `Ogre-raw-data-report.txt` removed.
+  - Post-deploy check skipped (today's run had already succeeded), so the first run on this build is 2026-10-15 00:40. **Confirmed 2026-10-17** over the 10-15/16/17 runs: no ERROR lines in any city, no `remove_tmp_files` "No such file", "DataFrame is empty" at `INFO`, and ogre's `Ogre-raw-data-report.txt` is gone.
   - `aws_mailer`: dropped the three file names the pipeline no longer creates, and uses the scraper's raw-report name. Ogre's `Ogre-raw-data-report.txt` was never deleted.
   - A file that is already gone is `DEBUG`. Any other failure to delete stays an `ERROR` that names the file.
   - `analytics`: "DataFrame is empty" on a night without new ads is `INFO`.
@@ -76,7 +81,7 @@ Each morning: `make fleet-status M6_ENV=staging`, plus `scrape_runs`, the emails
   - Manual only, with `confirm = deploy-staging`. `Test` runs on Python 3.11 and fails the job on a failing test. `Build` builds every image (db/ws/ts/backup).
   - `Deploy` checks out the tested commit in the host's **one** deploy dir (`vars.STAGING_DEPLOY_DIR`, default `test-staging-1-7-9-23`) and runs `make deploy-staging`. It never clones a second folder and never removes other containers or images.
   - It refuses to deploy if a deploy is running, if the dir has local changes to tracked files, or if the branch moved after the tests.
-  - Uses the existing `DEV_EC2_*` secrets. **Confirm `DEV_EC2_IP` is the staging host** (51.20.183.242 on 2026-10-12).
+  - Uses the existing `DEV_EC2_*` secrets. `DEV_EC2_IP` is the staging host, confirmed 2026-10-17 by timing (the value can't be read): staging `i-01182e96a6d2d0e7f` has run since its launch 2026-05-09 14:30:53 UTC with no stop/start, so its public IP 51.20.183.242 hasn't changed (no Elastic IP), and the secret was set 2026-05-09 14:34:59, four minutes after launch.
   - `tests/test_38_staging_workflow.py`: 8 tests, which run the remote script against throwaway git repos.
   - `main.yml` now deploys the same way, into one dir `~/sslv-prod` (`vars.PROD_DEPLOY_DIR`). Its remote script is covered by the same tests.
 - [x] README rewritten for multi-city (M-7): how it runs, the daily schedule, configuration, deploy and workflows, monitoring, backup/restore (S-5/P-2 behaviour), adding a city, development, and the legacy M5 targets. `make help` for `backup-city`/`backup-all` no longer says "keeps the newest 5".
