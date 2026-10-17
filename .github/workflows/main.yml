@@ -1,40 +1,73 @@
 ---
-name: Deploy to Production
+name: Test and deploy to production
 
+# Tests run on every push and PR to main. Production deploys are manual only
+# (R-0, docs/release-2.0.0_main_merge_inventory.md): the old job deployed the
+# single-city stack on every push to main, after removing every container and
+# image on the host. The multi-city deploy is `make deploy-prod`, run in the
+# host's one deploy dir with the exact commit that passed the tests.
 on:
-  workflow_dispatch:
   push:
     branches:
       - main
     paths:
       - '**.py'
+      - '**.sh'
       - 'Dockerfile'
+      - '**/Dockerfile'
       - 'docker-compose.yml'
       - 'Makefile'
+      - 'config/**'
       - 'src/**'
+      - 'tests/**'
+      - '.github/workflows/main.yml'
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: 'Tag or commit to deploy (resolved to a commit SHA)'
+        required: true
+        default: 'main'
+      confirm:
+        description: 'Type deploy-prod to deploy all cities to PRODUCTION'
+        required: true
+        default: ''
 
 jobs:
   Test:
     runs-on: ubuntu-latest
+    outputs:
+      sha: ${{ steps.sha.outputs.sha }}
     steps:
       - name: Check out code
         uses: actions/checkout@v7
-      - name: Set up Python 3.9
+        with:
+          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.ref || github.sha }}
+          fetch-depth: 0
+      - name: Record tested commit
+        id: sha
+        run: echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+      - name: Set up Python 3.11
         uses: actions/setup-python@v7
         with:
-          python-version: '3.9'
+          python-version: '3.11'
       - name: Install dependencies
         run: |
           python -m pip install pytest
           python -m pip install coverage
+          python -m pip install httpx  # FastAPI TestClient (tests/test_11_status_endpoint.py)
           pip install -r ./src/ws/requirements.txt
           pip install -r ./src/ts/requirements.txt
       - name: Run pytest with coverage
-        run: |
-          coverage run -m pytest
-          coverage xml -o coverage.xml
-        continue-on-error: true
+        # No continue-on-error: a failing test must stop the deploy.
+        run: coverage run -m pytest
+      - name: Coverage report
+        if: always()
+        run: coverage xml -o coverage.xml
       - name: Upload coverage reports to Codecov
+        if: always()
         uses: codecov/codecov-action@v7
         with:
           name: coverage-report
@@ -45,10 +78,15 @@ jobs:
   Deploy:
     needs: Test
     runs-on: ubuntu-latest
-    if: github.ref == 'refs/heads/main'
+    # Manual and confirmed only; never on push or PR.
+    if: github.event_name == 'workflow_dispatch' && inputs.confirm == 'deploy-prod'
+    concurrency:
+      group: deploy-production
+      cancel-in-progress: false
     steps:
       - uses: actions/checkout@v7
         with:
+          ref: ${{ needs.Test.outputs.sha }}
           fetch-depth: 0
       - name: Compute release version
         id: version
@@ -69,54 +107,63 @@ jobs:
         run: |
           echo "${{ secrets.PROD_M5_EC2_PRIVATE_KEY }}" > private_key
           chmod 600 private_key
-      - name: Deploy to Production EC2
+      - name: Deploy all cities to production EC2
         env:
           HOSTNAME: ${{ secrets.PROD_M5_EC2_IP }}
           USER_NAME: ${{ secrets.PROD_USER_NAME }}
+          DEPLOY_REF: ${{ inputs.ref }}
+          DEPLOY_SHA: ${{ needs.Test.outputs.sha }}
+          # The host's single deploy dir, relative to $HOME (repo variable to change it).
+          # One dir, like staging: the watchdog runs from it, and a second
+          # deployment can never run next to the first.
+          DEPLOY_DIR: ${{ vars.PROD_DEPLOY_DIR || 'sslv-prod' }}
           RELEASE_VERSION: ${{ steps.version.outputs.release_version }}
-          APP_ENV: production
         run: |
-          ssh -o StrictHostKeyChecking=no -i private_key "${USER_NAME}@${HOSTNAME}" 'bash -s' <<EOF
-            set -e
-            echo "=== Stopping old containers ==="
-            docker ps
-            docker ps -aq | xargs docker rm -f || true
-            docker images -q | xargs docker rmi -f || true
-            echo "=== Old containers stopped ==="
+          # Values are passed as arguments, not spliced into the remote script.
+          ssh -o StrictHostKeyChecking=no -i private_key "${USER_NAME}@${HOSTNAME}" \
+            'bash -s' -- "$DEPLOY_REF" "$DEPLOY_SHA" "$DEPLOY_DIR" "$RELEASE_VERSION" <<'EOF'
+            set -euo pipefail
+            ref="$1"; sha="$2"; dir="$HOME/$3"; release="$4"
 
-            echo "=== Cloning repository ==="
-            curr_time=\$(date +%Y%m%d-%H%M)
-            folder_name="\${curr_time}-deploy"
-            mkdir -p "\$folder_name" && cd "\$folder_name"
-            git clone https://github.com/vfedotovs/sslv_web_scraper.git .
+            # The running deploy itself, as make starts it (not any process that
+            # merely mentions the script name, e.g. an editor or a log tail).
+            if pgrep -f '^(/usr)?(/bin/)?bash \./deploy-multi-city-ws\.sh' > /dev/null; then
+              echo "A deploy is already running on this host; not starting another." >&2
+              exit 1
+            fi
+            if [ ! -d "$dir/.git" ]; then
+              echo "=== No deploy dir yet: cloning into ${dir} ==="
+              git clone --quiet https://github.com/vfedotovs/sslv_web_scraper.git "$dir"
+            fi
+            cd "$dir"
+            if [ -n "$(git status --porcelain --untracked-files=no)" ]; then
+              echo "${dir} has uncommitted changes to tracked files; not deploying over them:" >&2
+              git status --short --untracked-files=no >&2
+              exit 1
+            fi
 
-            echo "=== Loading secrets ==="
-            source ./scripts/load_secrets.sh
+            echo "=== Checking out ${ref} (${sha}) in ${dir} ==="
+            git fetch --quiet --tags origin
+            if git show-ref --verify --quiet "refs/remotes/origin/${ref}"; then
+              git checkout --quiet -B "$ref" "origin/${ref}"   # stay on the branch for later git pull
+            else
+              git checkout --quiet --detach "$sha"
+            fi
+            if [ "$(git rev-parse HEAD)" != "$sha" ]; then
+              echo "${ref} moved since the tests ran (now $(git rev-parse --short HEAD), tested ${sha:0:7}); not deploying." >&2
+              exit 1
+            fi
 
-            echo "=== Running setup ==="
-            make setup
+            echo "=== Deploying all cities: ${release} (production) ==="
+            # make deploy-prod: host env guard, CICD bucket pre-flight,
+            # deploy-multi-city-ws.sh (per-city build, up, post-deploy run check)
+            # and watchdog timer restart. Compose replaces each city's containers
+            # in place; DB volumes and other containers are untouched.
+            DEPLOY_RELEASE_VERSION="$release" DEPLOY_APP_ENV=production make deploy-prod
 
-            echo "=== Injecting version and environment ==="
-            export RELEASE_VERSION="${RELEASE_VERSION}"
-            export APP_ENV="${APP_ENV}"
-            sed -i '/^RELEASE_VERSION=/d; /^APP_ENV=/d' .env.prod
-            echo "RELEASE_VERSION=${RELEASE_VERSION}" >> .env.prod
-            echo "APP_ENV=${APP_ENV}" >> .env.prod
-            echo "Shell env (what docker-compose actually uses):"
-            env | grep -E '^(RELEASE_VERSION|APP_ENV)='
-            echo ".env.prod values:"
-            grep -E '^(RELEASE_VERSION|APP_ENV)=' .env.prod
-            echo "Resolved docker-compose config:"
-            docker compose --env-file .env.prod config | grep -E 'RELEASE_VERSION|APP_ENV' || true
-
-            echo "=== Building containers ==="
-            make build
-
-            echo "=== Starting containers ==="
-            make up
-
-            echo "=== Verifying deployment ==="
-            sleep 15
-            docker ps
             echo "=== Deployment complete ==="
+            docker ps --format '{{.Names}}\t{{.Status}}' | sort
           EOF
+      - name: Remove SSH key
+        if: always()
+        run: rm -f private_key

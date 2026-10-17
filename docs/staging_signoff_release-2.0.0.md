@@ -1,0 +1,89 @@
+# Staging sign-off plan — `release-2.0.0`
+
+**Host:** `staging-eu-north-1`, deploy dir `~/test-staging-1-7-9-23` (the only one; older dirs are archived in `~/archive/old-deploys-2026-10-12/`).
+**Build on staging:** `b2dd36e` (`v1.5.12-131-gb2dd36e`), deployed 2026-10-12 17:38 UTC.
+**Related:** [`staging_review_dev-1.7.9.23.md`](staging_review_dev-1.7.9.23.md) (B-items), [`release-2.0.0_main_merge_inventory.md`](release-2.0.0_main_merge_inventory.md) (merge, R-0).
+
+Staging passes when every item in sections 1–3 is done.
+
+---
+
+## 1. Fixes found on staging
+
+- [x] **S-1 — Report header count.** `main`'s header said "Total active listings: 5" for jurmala, which has 301 active. The table only holds the ads fetched in this run, so the line is now "New listings in this report: N" (`b2dd36e`). *Check:* the 2026-10-13 emails.
+- [x] **S-2 — `M6_ENV` case.** `make fleet-status M6_ENV=Staging` reported all six cities BAD, because it looked for `sslv-Staging-*` buckets. Now `make` lowercases `M6_ENV` and stops on unknown values, and `fleet_watchdog.py --env` does the same (`b2dd36e`). Verified on the host.
+- [x] **S-3 — Watchdog ran old code.** The systemd units used `~/prepord-test-branch-dev-1794`. They were reinstalled with `make watchdog-install M6_ENV=staging` from the release dir. Settings are unchanged, and the first check was OK (2026-10-12 17:41).
+- [x] **S-4 — Old deploy dirs.** Four old dirs that each had a `docker-compose.yml` were archived and removed, so only one deployment can exist.
+- [x] **S-5 — Backup retention differs between the two backup paths. P0, before sign-off.**
+  - The nightly backup container (`src/backup-svc`) keeps every backup: ogre had 21. There is no S3 lifecycle rule on the staging or prod ogre buckets either.
+  - `scripts/backup_db_city.sh` hard-coded `keep_last=5` and deleted everything older from `db-backups/` after each upload. That script is behind `make backup-city`, `backup-all` and `e2e-backup-restore`.
+  - On 2026-10-12 one `e2e-backup-restore CITY=ogre` run deleted 17 ogre staging backups. They had been copied to `s3://sslv-staging-ogre-db-backups/archive-2026-10-12/` first. The staging bucket is also versioned, so the 17 are still there as delete markers.
+  - **Risk:** **prod buckets are not versioned** (checked: `sslv-prod-ogre-db-backups`). The production cutover runbook starts with a manual backup (R-4), and `make backup-all M6_ENV=prod` would have deleted all but 5 backups in every prod city bucket, permanently.
+  - **Fixed:**
+    - Pruning is opt-in: `--keep-last N`, or `BACKUP_KEEP_LAST=N` with `make`. The default is 0, which deletes nothing, matching the nightly container.
+    - The script logs `pruning X of Y` before deleting, and only touches dated `db-backups/YYYY/MM/DD/pg_backup_*.sql.gz` keys.
+    - The value is fixed before `.env.<city>` is sourced, and anything that isn't a number stops the script before any backup.
+    - The GNU-only `head -n -N` is gone.
+  - **Tests:** `tests/test_35_backup_retention.py` (10, stub `aws`/`docker`).
+  - **Later:** decide whether to move the 17 archived ogre objects back into `db-backups/`, and whether prod buckets should get versioning or a lifecycle rule.
+
+## 2. Proofs
+
+- [x] **P-1 — `make e2e-backup-restore CITY=ogre M6_ENV=staging`** (2026-10-12 17:45): passed. Backup, S3 check and scratch restore all worked, with rows 43/36/23 matching live, and no `psql` errors. It used the **db container's** `pg_dump` (via `backup_db_city.sh`), so it does not cover the backup container (P-3).
+- [x] **P-2 — Restores fail on errors, and old dumps load.**
+  - `restore_db_city.sh --scratch` now loads like the live restore: `ON_ERROR_STOP`, one transaction, and it fails with psql's first error. Before, it counted `ERROR` lines and only warned.
+  - A shared `prepare_load_file` step is used by the scratch, live and `--prepare-init` restores. It drops `SET transaction_timeout` when the dump is from `pg_dump` 17+ and the target server is older than 17. It also keeps the existing `\restrict` handling for an older `psql`.
+  - `--prepare-init` targets the version in `src/db/Dockerfile` (`postgres:15`), whose init scripts also run with `ON_ERROR_STOP`.
+  - **Tests:** `tests/test_36_restore_load.py`, 9 tests with a stub `docker` acting as a Postgres 15 server. 6 of them fail on the old script.
+  - **Real Docker, locally (2026-10-12):** genuine `pg_dump` 17.11 and 15.19 dumps of the staging ogre data, and a broken dump.
+    - `--scratch`: the 17 dump loads with the line dropped (43/35/22), the 15 dump loads unchanged, and the broken dump fails with exit 1.
+    - Live (`--yes`): the 17 dump replaces the DB, and the broken dump rolls back with the previous data kept.
+  - Also fixed `--date YYYY_MM_DD`. It guessed the key `pg_backup_YYYY_MM_DD.sql.gz`, which never matches the real `pg_backup_YYYYMMDD_HHMMSS.sql.gz` names, so it always failed. It now restores the newest backup of that day (3 more tests, 12 in total).
+  - The staging run against real S3 backups is P-3.
+- [x] **P-3 — A backup made by the backup container restores, with errors failing.** Run on staging with `5b3e8ee`, 2026-10-12 17:59. Read S3 only, throwaway containers, nothing left behind.
+  - `make test-restore M6_ENV=staging`: **6/6 OK** in strict mode. Five cities restored their 02:00 backup from the new backup container (`pg_dump 15.19 … deb12u1`), e.g. salaspils 24/18/24 and jurmala 301/141/23. Ogre restored its 17:45 e2e backup (db container, `pgdg13`): 43/36/23.
+  - Old `pg_dump` 17 backup, `--date 2026_10_11` for ogre (`17.11 … deb13u1`, has `SET transaction_timeout`): dropped the line and restored OK, 43/35/22.
+  - Follow-up done: on 2026-10-14 `make test-restore M6_ENV=staging` restored ogre's 02:00 backup from the new container (`deb12u1`): OK, 106 rows. All six cities are now covered by backups from the new image.
+- [x] **P-4 — Alerts still fire.** `make watchdog-drill M6_ENV=staging` on `5b3e8ee`, 2026-10-12 18:00: **8/8 PASS**.
+  - Alert and recovery pushes for memory, disk, backup, oom, stuck-run, collapse and container (a real `docker stop salaspils-ts-1`), plus the heartbeat: 15 `[DRILL]` pushes accepted by ntfy.
+  - Afterwards the watchdog timer resumed, `salaspils-ts-1` was healthy and rescheduled for 00:40, and all containers were healthy.
+  - **Manual:** the 15 `[DRILL]` notifications arrived on the phone (confirmed 2026-10-17). Check #7 (missing heartbeat) stays a manual one-day test (`docs/critical_monitoring_ntfy_plan.md`).
+
+## 3. Soak (V-6): 3 consecutive clean nights
+
+| Night | Build | 00:40 scrape | 01:40 verify | 02:00 backup | Watchdog | Notes |
+|---|---|---|---|---|---|---|
+| 1 — 2026-10-12 | `3955e4f` | 6/6 success | 6/6 OK | 6/6, `pg_dump` 15.19 | no alerts | jurmala peak RSS 122 MB. Found S-1 and S-2 |
+| 2 — 2026-10-13 | `b2dd36e` | 6/6 success (1–32 s) | 6/6 OK | 6/6, `pg_dump` 15.19 deb12u1, no `transaction_timeout` | no alerts | 6/6 emails, subject `v1.5.12-131-gb2dd36e … [staging]`, header "New listings in this report: N" (S-1). Peak `ws` RSS 111–113 MB. Only ERRORs: the known false ones (`remove_tmp_files`, analytics "DataFrame is empty" on quiet cities) |
+| 3 — 2026-10-14 | `b2dd36e` | 6/6 success (1–47 s) | 6/6 OK | 6/6, `pg_dump` 15.19 deb12u1, no `transaction_timeout`; `make test-restore` 6/6 OK | no alerts (188 checks since 10-12 18:10) | 6/6 emails, subject and header OK. Peak `ws` RSS 110–120 MB (no growth vs night 1's 122 MB); `ws` idle 94–102 MB. Host 379 MB available, swap 94 MB used (night 1: ~30 MB), watch on prod. 24 containers, no duplicates, all healthy |
+
+Each morning: `make fleet-status M6_ENV=staging`, plus `scrape_runs`, the emails (subject version, `[staging]`, header), backups (`pg_dump` header), and `ws` memory.
+
+**V-6 soak: PASSED.** Three consecutive clean nights (2026-10-12/13/14), with checks run 2026-10-14 ~17:00 UTC (the night-2 check ran late, together with night 3).
+
+- [x] **L-1 — Final evidence.** 2026-10-17 14:40 UTC on `d6f0b60`, after three more nights (10-15/16/17) on the item-7 build.
+  - `make collect-logs`: `log-bundles/sslv-logs-2026-10-17T14-39-49Z.tar.gz` (2.0 MB), 186 files from 24 containers. All running and healthy, no ERROR/CRITICAL/Traceback lines in any city, redaction self-test passed.
+  - `make fleet-status M6_ENV=staging`: 6 cities, 0 with problems. Host 398 MB available, swap 136 MB used (rising: ~30 → 94 → 136 MB, watch on prod), disk 68%.
+  - 10-15/16/17: 1 email per city per night (subject `v1.5.12-142-gd6f0b60 … [staging]`), 6/6 backups in S3 at 02:00 each night, watchdog 279 runs since 10-14 17:00, all "0 with problems".
+
+**Staging sign-off: PASSED** (2026-10-17). Sections 1–3 are done.
+
+## 4. Before production (not needed to pass staging)
+
+- [x] Remove the false `ERROR` lines (review item 7). **Deployed to staging 2026-10-14 17:09 UTC** with `d6f0b60` (after the soak, since it changes the `ws` image): 6/6 cities, 24/24 containers healthy.
+  - All six `ws` containers recreated 17:09–17:12 and run the new code; `RELEASE_VERSION` `v1.5.12-142-gd6f0b60`. `ts` untouched (`ws`-only change), still scheduled 00:40 trigger / 01:40 verify.
+  - Post-deploy check skipped (today's run had already succeeded), so the first run on this build is 2026-10-15 00:40. **Confirmed 2026-10-17** over the 10-15/16/17 runs: no ERROR lines in any city, no `remove_tmp_files` "No such file", "DataFrame is empty" at `INFO`, and ogre's `Ogre-raw-data-report.txt` is gone.
+  - `aws_mailer`: dropped the three file names the pipeline no longer creates, and uses the scraper's raw-report name. Ogre's `Ogre-raw-data-report.txt` was never deleted.
+  - A file that is already gone is `DEBUG`. Any other failure to delete stays an `ERROR` that names the file.
+  - `analytics`: "DataFrame is empty" on a night without new ads is `INFO`.
+  - `tests/test_37_no_false_errors.py`: 5 tests, all fail on the old code.
+- [x] Rewrite `staging.yml` like `main.yml`.
+  - Manual only, with `confirm = deploy-staging`. `Test` runs on Python 3.11 and fails the job on a failing test. `Build` builds every image (db/ws/ts/backup).
+  - `Deploy` checks out the tested commit in the host's **one** deploy dir (`vars.STAGING_DEPLOY_DIR`, default `test-staging-1-7-9-23`) and runs `make deploy-staging`. It never clones a second folder and never removes other containers or images.
+  - It refuses to deploy if a deploy is running, if the dir has local changes to tracked files, or if the branch moved after the tests.
+  - Uses the existing `DEV_EC2_*` secrets. `DEV_EC2_IP` is the staging host, confirmed 2026-10-17 by timing (the value can't be read): staging `i-01182e96a6d2d0e7f` has run since its launch 2026-05-09 14:30:53 UTC with no stop/start, so its public IP 51.20.183.242 hasn't changed (no Elastic IP), and the secret was set 2026-05-09 14:34:59, four minutes after launch.
+  - `tests/test_38_staging_workflow.py`: 8 tests, which run the remote script against throwaway git repos.
+  - `main.yml` now deploys the same way, into one dir `~/sslv-prod` (`vars.PROD_DEPLOY_DIR`). Its remote script is covered by the same tests.
+- [x] README rewritten for multi-city (M-7): how it runs, the daily schedule, configuration, deploy and workflows, monitoring, backup/restore (S-5/P-2 behaviour), adding a city, development, and the legacy M5 targets. `make help` for `backup-city`/`backup-all` no longer says "keeps the newest 5".
+- [x] Production cutover runbook (R-4/R-5), draft: [`production_cutover_runbook_release-2.0.0.md`](production_cutover_runbook_release-2.0.0.md). It needs the step-0 host inventory, which wasn't checked against the live host. **C-1** is done: `DEPLOY_CITIES` in `deploy-multi-city-ws.sh`, for the one-city-first rollout.
+- [ ] Deploys after the nightly run only skip the post-deploy check. Decide on a `force` option for `/run-task`.

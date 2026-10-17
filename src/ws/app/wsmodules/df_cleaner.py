@@ -26,7 +26,7 @@ Module creates output file:
     - email_body_add_date_table.txt
 
 Modulel TODO tasks:
-    - [ ] move gen_email_body function to sendgrid_mailer.py module
+    - [ ] (deprecated) move gen_email_body function to sendgrid_mailer.py module (sendgrid no longer used)
     - [ ] refactor create file backup function
 """
 from datetime import datetime
@@ -39,6 +39,13 @@ import shutil
 import sys
 from tabulate import tabulate
 import pandas as pd
+
+# M7 P7: city-scoped hand-off filenames; fall back for standalone runs.
+try:
+    from app.wsmodules.file_paths import city_file
+except Exception:
+    def city_file(base_name, city=None):
+        return f"{city}-{base_name}" if city else base_name
 
 
 log = logging.getLogger(__name__)
@@ -56,6 +63,22 @@ stdout_formatter = logging.Formatter(
     "%(asctime)s [%(levelname)-5.5s] : %(funcName)s: %(lineno)d: %(message)s")
 stdout_handler.setFormatter(stdout_formatter)
 log.addHandler(stdout_handler)
+
+
+def split_into_columns(series, separator, max_splits, expected_columns):
+    """str.split(expand=True) that always yields the expected columns.
+
+    pandas returns a frame with NO columns for an empty series, and fewer
+    columns than asked for when no value contains the separator. The callers
+    below then did df[0] / df[1] and raised KeyError, whose message is just
+    "0" - which is how a night that scraped nothing failed the whole pipeline
+    with "FAILED at stage df_cleaner: 0" (2026-09-21, ogre + adazu_nov).
+    Missing columns come back as NaN, so an empty input stays empty instead.
+    """
+    split = series.str.split(separator, n=max_splits, expand=True)
+    # astype(object): a column added by reindex is float64 (all NaN), and
+    # pandas refuses .str on a float column in the next cleaning step.
+    return split.reindex(columns=list(range(expected_columns))).astype(object)
 
 
 def clean_data_frame(df_name):
@@ -76,8 +99,7 @@ def clean_sqm_column(df_name):
     """ Removes m2 charecter from each sqm value """
     # Sptitting column value in to new columns by separator
     log.info("Started sqm column cleanup from data frame")
-    df = df_name["Size_sq_m"].str.split(
-        " ", n=1, expand=True)  # n=1 == in 2 slices
+    df = split_into_columns(df_name["Size_sq_m"], " ", 1, 2)  # n=1 == in 2 slices
     # Create new column and sourcing data from 0th split index
     df_name["Size_sqm"] = df[0]  # 0 - index at separation
     df = df_name.loc[:, df_name.columns !=
@@ -96,14 +118,17 @@ def split_price_column(df_name):
     # Spitting and cleanup for price column
     # value in to new columns by separator
     log.info("Started price column split")
-    new = df_name["Price"].str.split("(", n=1, expand=True)
+    new = split_into_columns(df_name["Price"], "(", 1, 2)
     # Creating separate columns for price and SQM new data frame
     df_name["Price_EUR"] = new[0]
     df_name["SQ_M_EUR"] = new[1]
-    # Remove EUR sign in price column and remove space (split at 3 slices)
-    no_euro_symb = df_name["Price_EUR"].str.split(" ", n=2, expand=True)
-    # Creates new column and combines 2 indexes
-    df_name["Price_in_eur"] = no_euro_symb[0] + no_euro_symb[1]
+    # Drop every space and the € sign, then make it a number. Joining the
+    # first two space-separated groups kept 1 130 000 € as "1130", and left
+    # a string column that sorted 145000 before 59000.
+    df_name["Price_in_eur"] = pd.to_numeric(
+        df_name["Price_EUR"].astype(str).str.replace(r"[\s€]", "", regex=True),
+        errors="coerce",
+    ).astype("Int64")
     # drop old split columns
     df = df_name.loc[:, df_name.columns != 'Price']
     final_df = df.loc[:, df.columns != 'Price_EUR']
@@ -114,7 +139,7 @@ def clean_sqm_eur_col(df_name):
     """sqm price column value cleanup removal of non int characters"""
     # Split value at EUR  symbol
     log.info("Started EUR sqm column cleanup")
-    new = df_name["SQ_M_EUR"].str.split("€", n=1, expand=True)
+    new = split_into_columns(df_name["SQ_M_EUR"], "€", 1, 2)
     # Create new column with from split df  and use only 0 index
     df_name["SQ_meter_price"] = new[0]
     # Remvoe space from clumn value strings
@@ -202,7 +227,25 @@ def save_email_body_table(table_data, NEW_EMAIL_BODY_FILE) -> None:
             file.write('\n\n')  # Add an empty line between segments
 
 
-def create_email_body(clean_data_frame, file_name: str) -> None:
+def _report_title(city_name: str = None) -> str:
+    """Report header title: the city's EMAIL_CITY_TITLE (set per city in
+    .env.<city>, e.g. "Mārupes pagasts Apartments for sale"), else built from
+    the city name. cities.yaml is not in the ws image, so display names are
+    not available there."""
+    title = os.environ.get("EMAIL_CITY_TITLE")
+    if title:
+        return title
+    if not city_name:
+        return "Apartment Report"
+    try:
+        from app.wsmodules.city_config import get_display_name
+        city_name = get_display_name(city_name, city_name)
+    except Exception:
+        pass
+    return f"{city_name} Apartment Report"
+
+
+def create_email_body(clean_data_frame, file_name: str, city_name: str = None) -> None:
     """Creates categorized by room count ad hash : data for email body.
 
     Requires:
@@ -219,26 +262,28 @@ def create_email_body(clean_data_frame, file_name: str) -> None:
 
     app_env = os.environ.get('APP_ENV', 'local')
     email_body_txt = []
-    email_body_txt.append(f"=== Ogre Apartment Report — {today_str} [{app_env}] ===")
-    email_body_txt.append(f"Total active listings: {total_ads}")
+    # main (3f1fc7a, 16ecc33): report header with date, environment and count;
+    # the title is per city (was hard-coded "Ogre Apartment Report" on main).
+    email_body_txt.append(
+        f"=== {_report_title(city_name)} — {today_str} [{app_env}] ===")
+    # The frame holds only ads fetched in this run (M7 P1 diff-before-fetch: known
+    # ads are skipped), so this is the new-listing count. The active total is in
+    # the scrape_runs history the mailer appends ("LA TBL rows").
+    email_body_txt.append(f"New listings in this report: {total_ads}")
     email_body_txt.append("")
 
-    if rc_column_dtype == 'int64':
-        unique_room_counts = sorted(clean_data_frame['Room_count'].unique())
-    else:
-        unique_room_counts = sorted(clean_data_frame['Room_count'].unique(), key=int)
-
-    headers = ['Rooms', 'Floor', 'Size', 'Price EUR', 'SQM EUR', 'Street', 'Date', 'URL']
-
-    for room_count_val in unique_room_counts:
-        room_count_str = str(room_count_val)
-        email_body_txt.append(room_count_str + " room apartment segment:")
-        if rc_column_dtype == 'int64':
-            filtered_by_room_count = clean_data_frame.loc[clean_data_frame['Room_count'] == int(
-                room_count_str)]
-        if rc_column_dtype == 'object':
-            filtered_by_room_count = clean_data_frame.loc[clean_data_frame['Room_count'] == str(
-                room_count_str)]
+    # Room count as a number whatever the column dtype; empty frames (nothing
+    # scraped) and non-numeric values ("Citi") match no segment.
+    room_counts = pd.to_numeric(clean_data_frame['Room_count'], errors='coerce')
+    # Segments 1-4 always (an empty one shows there was nothing new), plus any
+    # larger room count present: range(4) left 5- and 6-room ads out of the
+    # email while the analytics table still counted them.
+    present = {int(rc) for rc in room_counts.dropna()}
+    for room_count in sorted(present | {1, 2, 3, 4}):
+        filtered_by_room_count = clean_data_frame.loc[room_counts == room_count]
+        room_count_str = str(room_count)
+        section_line = str(room_count_str + " room apartment segment:")
+        email_body_txt.append(section_line)
         colum_line = "[Rooms, Floor, Size, Price EUR, SQM Price EUR, Apartment Street, Pub_date,  URL]"
         email_body_txt.append(colum_line)
         for index, row in filtered_by_room_count.iterrows():
@@ -322,8 +367,11 @@ def split_pub_dates_by_month(data: dict, months: list) -> list:
         for k, v in sorted_month_dict.items():
             data_line = f"Pub_date: {k} ->  Listed add count: {v} "
             pub_date_report_lines.append(data_line)
+    # M7 P9: the full per-date table goes to the report file; log it only
+    # at DEBUG and keep a count at INFO
+    log.info(f"Built pub-date report with {len(pub_date_report_lines)} lines")
     for line in pub_date_report_lines:
-        log.info(line)
+        log.debug(line)
     return pub_date_report_lines
 
 
@@ -338,11 +386,13 @@ def save_pub_dates_report_to(pubdates_out_file_name: str, month_data: list) -> N
         f"Completed writing {text_line_cnt} lines to {pubdates_out_file_name} file ")
 
 
+# No trailing \b: after the dot comes a space or the end, and there is no word
+# boundary between "." and " ", so main's r'\bpr\.\b' never matched "Brīvības pr. 12".
 _STREET_ABBREVIATIONS = [
-    (r'\bpr\.\b', 'prospekts'),
-    (r'\biel\.\b', 'iela'),
-    (r'\bblv\.\b', 'bulvāris'),
-    (r'\bšos\.\b', 'šoseja'),
+    (r'\bpr\.', 'prospekts'),
+    (r'\biel\.', 'iela'),
+    (r'\bblv\.', 'bulvāris'),
+    (r'\bšos\.', 'šoseja'),
 ]
 
 
@@ -356,42 +406,53 @@ def normalise_street(street: str) -> str:
     return result
 
 
-def df_cleaner_main():
-    """ Cleans df, sorts df by price in EUR, save to csv file """
+def df_cleaner_main(city_name: str = None):
+    """ Cleans df, sorts df by price in EUR, save to csv file.
+    M7 P7: all hand-off filenames are city-scoped when city_name given."""
     log.info(" --- Started df_cleaner module ---")
-    RAW_DATA_FILE = 'pandas_df.csv'
+    RAW_DATA_FILE = city_file('pandas_df.csv', city_name)
     DEFAULT_DATA_FILE = 'pandas_df_default.csv'
-    EMAIL_BODY_OUTPUT_FILE = 'email_body_txt_m4.txt'
+    CLEANED_CSV_FILE = city_file('cleaned-sorted-df.csv', city_name)
+    EMAIL_BODY_OUTPUT_FILE = city_file('email_body_txt_m4.txt', city_name)
     NEW_EMAIL_BODY_FILE = 'new_email_body.txt'
     try:
         log.info(f'Loading {RAW_DATA_FILE} file.')
         with open(RAW_DATA_FILE, 'r') as file:
             content = file.read()
             raw_data_frame = pd.read_csv(RAW_DATA_FILE)
+            if raw_data_frame.empty:
+                # Not an error: the scrape found nothing. Carry on so the run
+                # completes with zero rows - the zero-URL alert in
+                # alert_mailer is what should flag this, not a crashed stage.
+                log.warning(
+                    "%s has no rows: producing empty outputs for this run",
+                    RAW_DATA_FILE)
             clean_df = clean_data_frame(raw_data_frame)
             clean_sqm_col = clean_sqm_column(clean_df)
             clean_price_col = split_price_column(clean_sqm_col)
             clean_df = clean_sqm_eur_col(clean_price_col)
             clean_df['Street'] = clean_df['Street'].apply(normalise_street)
             sorted_df = clean_df.sort_values(by='Price_in_eur', ascending=True)
-            sorted_df.to_csv("cleaned-sorted-df.csv")
+            sorted_df.to_csv(CLEANED_CSV_FILE)
+            # main cee3b32: release the cleaning DataFrames before the report stage
             del raw_data_frame, clean_sqm_col, clean_price_col, clean_df, sorted_df
             gc.collect()
-            all_ads_df = pd.read_csv("cleaned-sorted-df.csv", index_col=False)
-            create_file_copy()
-            create_email_body(all_ads_df, EMAIL_BODY_OUTPUT_FILE)
+            all_ads_df = pd.read_csv(CLEANED_CSV_FILE, index_col=False)
+            create_file_copy(CLEANED_CSV_FILE)
+            create_email_body(all_ads_df, EMAIL_BODY_OUTPUT_FILE, city_name)
             # TODO: fix bug incorrect room counts in 2 and more room segments
             # tbl_data = gen_email_body(all_ads_df)
             # save_email_body_table(tbl_data, NEW_EMAIL_BODY_FILE)
             log.info(
                 f'Completed write data email template to {NEW_EMAIL_BODY_FILE} file.')
-            create_mb_file_copy()
+            create_mb_file_copy(EMAIL_BODY_OUTPUT_FILE)
             sorted_pub_dates = extract_uniq_date_count(all_ads_df)
             ordered_month_keys = order_keys_by_month(sorted_pub_dates)
             splited_dates = split_pub_dates_by_month(
                 sorted_pub_dates, ordered_month_keys)
             save_pub_dates_report_to(
-                'email_body_add_dates_table.txt', splited_dates)
+                city_file('email_body_add_dates_table.txt', city_name),
+                splited_dates)
             del all_ads_df
             gc.collect()
 
@@ -409,35 +470,42 @@ def df_cleaner_main():
                     f'Completed write empty email template to {EMAIL_BODY_OUTPUT_FILE} file.')
         except FileNotFoundError:
             log.error(f'{DEFAULT_DATA_FILE} does not exist.')
+            raise
         except Exception as e:
             log.error(f"An error occurred: {e}")
+            raise
     log.info(" --- Completed df_cleaner module ---")
 
 
-def create_file_copy() -> None:
-    """Creates file copy in data folder"""
-    log.info(
-        "Started copy of cleaned-sorted-df-YYYY-MM-DD.csv in data folder")
-    todays_date = datetime.today().strftime('%Y-%m-%d')
-    dest_file = 'cleaned-sorted-df-' + todays_date + '.csv'
-    dest_path = os.path.join('data', dest_file)
+def _copy_to_data_folder(source_file: str, dest_file: str) -> None:
+    """Copies a hand-off file into data/ (M7 P7: shutil, not os.system cp)."""
     if not os.path.exists('data'):
         os.makedirs('data')
-    shutil.copy2('cleaned-sorted-df.csv', dest_path)
-    log.info(f"Completed creating file copy of {dest_file}")
+    try:
+        shutil.copy2(source_file, os.path.join('data', dest_file))
+        log.info(f"Completed creating file copy of {dest_file}")
+    except OSError as e:
+        log.error(f"Failed to copy {source_file} to data/{dest_file}: {e}")
 
 
-def create_mb_file_copy() -> None:
-    """Creates file copy in data folder"""
+def create_file_copy(source_file: str = 'cleaned-sorted-df.csv') -> None:
+    """Creates dated csv copy in data folder"""
     log.info(
-        "Started copy of email_body_txt_m4-YYYY-MM-DD.txt in data folder")
+        "Started copy of %s (dated) in data folder", source_file)
     todays_date = datetime.today().strftime('%Y-%m-%d')
-    dest_file = 'email_body_txt_m4-' + todays_date + '.txt'
-    dest_path = os.path.join('data', dest_file)
-    if not os.path.exists('data'):
-        os.makedirs('data')
-    shutil.copy2('email_body_txt_m4.txt', dest_path)
-    log.info("Completed creating file copy of %s", dest_file)
+    base_name = source_file[:-len('.csv')] if source_file.endswith('.csv') else source_file
+    dest_file = base_name + '-' + todays_date + '.csv'
+    _copy_to_data_folder(source_file, dest_file)
+
+
+def create_mb_file_copy(source_file: str = 'email_body_txt_m4.txt') -> None:
+    """Creates dated mail-body copy in data folder"""
+    log.info(
+        "Started copy of %s (dated) in data folder", source_file)
+    todays_date = datetime.today().strftime('%Y-%m-%d')
+    base_name = source_file[:-len('.txt')] if source_file.endswith('.txt') else source_file
+    dest_file = base_name + '-' + todays_date + '.txt'
+    _copy_to_data_folder(source_file, dest_file)
 
 
 if __name__ == "__main__":
