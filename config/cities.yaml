@@ -1,0 +1,30 @@
+cities:
+  salaspils:
+    display_name: "Salaspils"
+    main_url: "https://www.ss.lv/lv/real-estate/flats/riga-region/salaspils/sell/"
+    email_title: "Salaspils City Apartments for sale"
+
+  sigulda:
+    display_name: "Sigulda"
+    main_url: "https://www.ss.lv/lv/real-estate/flats/riga-region/sigulda/sell/"
+    email_title: "Sigulda City Apartments for sale"
+
+  marupes_pag:
+    display_name: "Mārupes pagasts"
+    main_url: "https://www.ss.lv/lv/real-estate/flats/riga-region/marupes-pag/sell/"
+    email_title: "Mārupes pagasts Apartments for sale"
+
+  adazu_nov:
+    display_name: "Ādažu novads"
+    main_url: "https://www.ss.lv/lv/real-estate/flats/riga-region/adazu-nov/sell/"
+    email_title: "Ādažu novads Apartments for sale"
+
+  ogre:
+    display_name: "Ogre"
+    main_url: "https://www.ss.lv/lv/real-estate/flats/ogre-and-reg/ogre/sell/"
+    email_title: "Ogre City Apartments for sale"
+
+  jurmala:
+    display_name: "Jūrmala"
+    main_url: "https://www.ss.lv/lv/real-estate/flats/jurmala/sell/"
+    email_title: "Jūrmala Apartments for sale"

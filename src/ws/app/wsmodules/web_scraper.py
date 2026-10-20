@@ -1,16 +1,39 @@
 #!/usr/bin/env python3
 """
-This is ss.lv parser project web scraper module.
-Module main purpouse is to use ss.lv website as data source and
-using requests and bs4 libraries to extract data (price, URL, sqm, street)
-from Ogre city apartments for sale advertisements and save
-to file Ogre-raw-data-report.txt
+ss.lv web scraper module.
+
+Fetches apartment sale listings for a city (via CITY_MAIN_URL env or param),
+dynamically discovers the number of result pages (Phase 1 Items 2-4),
+and writes a raw report file.
+
+Phase 1 Item 5 support: can produce city-prefixed files such as
+"jurmala-raw-data-report.txt" (via city_slug or auto-derivation from URL)
+instead of the previous hard-coded "Ogre-raw-data-report.txt".
+
+See derive_city_slug(), get_total_pages(), get_page_url(), and scrape_website().
 """
+
+# --- Phase 1 Item 1: Pagination research notes ---
+# All cities in config/cities.yaml use the same pager structure:
+#   <div class=td2> ... <button class=navia>1</button> <a class="navi">2</a> ...
+#
+# Observed last page numbers (research performed 2026-07):
+#   jurmala     : 6
+#   marupes-pag : ~2
+#   ogre        : ~2
+#   sigulda     : ~1
+#   salaspils   : ~1
+#   adazu-nov   : ~1
+#
+# Non-existent pages (e.g. /page99.html) redirect to the base listing page.
+# This is why we must discover the count from page 1 instead of guessing.
+
 import re
 import os
 import sys
 import time
 from datetime import datetime
+from urllib.parse import urlparse
 import logging
 from logging import handlers
 from logging.handlers import RotatingFileHandler
@@ -18,183 +41,386 @@ import requests
 from bs4 import BeautifulSoup
 from requests.exceptions import ConnectionError, Timeout
 
+# Optional: runtime city config loader (Phase 4 Item 12)
+# Note on Item 13: Cloud Lambda scraper parity (full pages) should be verified
+# separately; this local path now handles dynamic pages fully.
+try:
+    from .city_config import get_display_name, validate_city_slug, get_city_info
+except Exception:
+    def get_display_name(slug, default=None): return default or slug
+    def validate_city_slug(slug): return True
+    def get_city_info(slug): return None
 
-logger = logging.getLogger('web_scraper')
+# Optional run bookkeeping (M6 monitoring Item 2). record_counts is
+# best-effort telemetry; fall back to a no-op for standalone runs.
+try:
+    from .scrape_runs import record_counts
+except Exception:
+    def record_counts(**counts): pass
+
+# M7 P1: skip detail fetches for ads already tracked in listed_ads.
+# extract_hash is the canonical URL-hash extractor shared with db_worker
+# so both sides of the diff agree; fall back for standalone runs.
+try:
+    from .db_worker import extract_hash, extract_listed_url_hashes_from_db
+except Exception:
+    def extract_hash(full_url):
+        chunks = full_url.split("/", 9)
+        return chunks[9].split(".")[0] if len(chunks) > 9 else full_url
+    def extract_listed_url_hashes_from_db():
+        raise RuntimeError("db_worker unavailable in standalone mode")
+
+# M7 P7: city-scoped hand-off filenames; fall back for standalone runs.
+try:
+    from .file_paths import city_file
+except Exception:
+    def city_file(base_name, city=None):
+        return f"{city}-{base_name}" if city else base_name
+
+
+# Hand-off file for db_worker (M7 P1): today's FULL discovered URL set.
+# The diff must see every URL found on the list pages — not only the new
+# ones detail-fetched below — otherwise skipped ads would look removed.
+DISCOVERED_URLS_FILE = "discovered-urls.txt"
+
+
+logger = logging.getLogger("web_scraper")
 logger.setLevel(logging.INFO)
 ws_log_format = logging.Formatter(
-    "%(asctime)s [%(levelname)-5.5s] %(name)s : %(funcName)s: %(lineno)d: %(message)s")
+    "%(asctime)s [%(levelname)-5.5s] %(name)s : %(funcName)s: %(lineno)d: %(message)s"
+)
 
 ch = logging.StreamHandler(sys.stdout)
 ch.setFormatter(ws_log_format)
 logger.addHandler(ch)
 
 fh = handlers.RotatingFileHandler(
-    'web_scraper.log', maxBytes=(1048576*5), backupCount=7)
+    "web_scraper.log", maxBytes=(1048576 * 5), backupCount=7
+)
 fh.setFormatter(ws_log_format)
 logger.addHandler(fh)
 
 
-FLATS_OGRE = "https://www.ss.lv/lv/real-estate/flats/ogre-and-reg/ogre/sell/"
-# Deplay between scraping each URL 5 sec
-# (for Ogre 5 sec x 70 URLs = 350 sec or < 6 min should last )
-SCRAPE_DELAY_SEC = 5
+# Get CITY_MAIN_URL from environment variable
+CITY_MAIN_URL = os.getenv("CITY_MAIN_URL")
+logger.info("Using CITY_MAIN_URL: %s", CITY_MAIN_URL)
+
+# Delay between scraping each individual ad URL (detail pages)
+# (for ~70 URLs: 5s x 70 = ~6 min)
+SCRAPE_DELAY_SEC = int(os.getenv("SCRAPE_DELAY_SEC", "5"))
+
+# Delay between fetching list pages (for politeness when scraping multiple pages)
+SCRAPE_LIST_DELAY_SEC = int(os.getenv("SCRAPE_LIST_DELAY_SEC", "1"))
+
+# URL_LIMIT caps how many NEW ads (not yet in listed_ads) get their detail
+# page fetched per run; ads over the cap are fetched on later runs. Known ads
+# and the still/removed diff use the full discovered set and ignore it.
+# Default 500 covers a first run into an empty DB for every city - the
+# largest, jurmala, lists ~320 ads - so a fresh deploy fills in one run
+# instead of the old default 5 taking ~65 days. 0 = no cap; set a small
+# value (e.g. 5) for quick dev runs.
+DEFAULT_URL_LIMIT = 500
+_raw_limit = os.getenv("SCRAPE_URL_LIMIT", str(DEFAULT_URL_LIMIT))
+try:
+    URL_LIMIT = int(_raw_limit) if _raw_limit else DEFAULT_URL_LIMIT
+except (ValueError, TypeError):
+    logger.warning("Invalid SCRAPE_URL_LIMIT value, falling back to %s", DEFAULT_URL_LIMIT)
+    URL_LIMIT = DEFAULT_URL_LIMIT
+
+if URL_LIMIT <= 0:
+    logger.info("SCRAPE_URL_LIMIT=%s → will process ALL discovered ads", _raw_limit)
+else:
+    logger.info("SCRAPE_URL_LIMIT=%s (cap on new ads fetched per run)", URL_LIMIT)
+
+# true
+SKIP_LAMBDA_FILE = True
 
 
-def scrape_website():
-    """Main function of module calls all sub-functions"""
+def scrape_website(main_url: str = None, report_file: str = None, city_slug: str = None):
+    """Main function of module calls all sub-functions.
+
+    Dynamically discovers the total number of pages from the ss.lv pager
+    and scrapes all pages (instead of hard-coded first page only).
+
+    For Phase 1 (Item 5), this function now supports producing city-prefixed
+    working files (e.g. "jurmala-raw-data-report.txt") instead of always
+    hard-coding "Ogre-raw-data-report.txt".
+
+    Args:
+        main_url: Optional override for the city listing URL.
+                  Falls back to CITY_MAIN_URL environment variable.
+        report_file: Explicit name for the raw report file.
+                     If None, will be derived from city_slug or main_url.
+        city_slug: Optional explicit city identifier (e.g. "jurmala", "ogre").
+                   Takes precedence over URL derivation when report_file is None.
+    """
+    if main_url is None:
+        main_url = CITY_MAIN_URL
+
+    # Item 5 (Phase 1): derive city-prefixed report file when not explicitly provided.
+    # We keep the legacy "Ogre-raw-data-report.txt" name for the classic Ogre URL
+    # so that the rest of the current pipeline continues to work without changes
+    # (per Phase 1 success criteria: "no change to file names outside the scraper yet").
+    if report_file is None:
+        if city_slug is None:
+            city_slug = derive_city_slug(main_url)
+        if city_slug == "ogre":
+            report_file = "Ogre-raw-data-report.txt"
+        else:
+            report_file = f"{city_slug}-raw-data-report.txt"
+
     logger.info("--- Starting web_scraper module ---")
+    logger.info("Using listing URL: %s", main_url)
+
+    city_display = city_slug or derive_city_slug(main_url)
+    display_name = get_display_name(city_display, city_display)
+
+    logger.info("Using report file: %s (city=%s / %s)", report_file, city_display, display_name)
     logger.info("Extracting BS4 objects")
-    remove_old_file()
-    # ogre_object = get_bs_object(FLATS_OGRE)
-    # logger.info("Building non-duplicate URL list from BS4 objects")
-    # valid_msg_urls = find_single_page_urls(ogre_object)
-    # Original code with bug
-    # page = requests.get("https://www.ss.lv/lv/real-estate/flats/ogre-and-reg/ogre/sell/")
-    # bs_ogre_object = BeautifulSoup(page.content, "html.parser")
-    # valid_msg_urls = find_single_page_urls(bs_ogre_object)
-    # New static way of extracting data from first three pages
-    # TODO: make page count extraction dynamic
-    page_one = requests.get(
-        "https://www.ss.lv/lv/real-estate/flats/ogre-and-reg/ogre/sell/", timeout=10)
-    page_two = requests.get(
-        "https://www.ss.lv/lv/real-estate/flats/ogre-and-reg/ogre/sell/page2.html", timeout=10)
-    page_three = requests.get(
-        "https://www.ss.lv/lv/real-estate/flats/ogre-and-reg/ogre/sell/page3.html", timeout=10)
-    # Error handling behavior by ss.lv
-    # If non existing page requested for example
-    # https://www.ss.lv/lv/real-estate/flats/ogre-and-reg/ogre/sell/page4.html
-    # it rederacts to first page
-    # https://www.ss.lv/lv/real-estate/flats/ogre-and-reg/ogre/sell/page.html
+    remove_old_file(report_file)
 
-    page_one_bs_obj = BeautifulSoup(page_one.content, "html.parser")
-    page_two_bs_obj = BeautifulSoup(page_two.content, "html.parser")
-    page_three_bs_obj = BeautifulSoup(page_three.content, "html.parser")
+    # Use a session for connection reuse + polite headers (Item 8)
+    session = requests.Session()
+    session.headers.update({
+        "User-Agent": "Mozilla/5.0 (compatible; SS.LV-Scraper/1.6; +http://propertydata.lv/)",
+        "Accept": "text/html,application/xhtml+xml",
+    })
 
-    page_one_msg_urls = find_single_page_urls(page_one_bs_obj)
-    page_two_msg_urls = find_single_page_urls(page_two_bs_obj)
-    page_three_msg_urls = find_single_page_urls(page_three_bs_obj)
-    combined_urls = page_one_msg_urls + page_two_msg_urls + page_three_msg_urls
-    # Since currently there is no dynamic page cound extraction avilable
-    # curent behavior of ss.lv if you request none existing page it redirects to
-    # first page current quick fix is to remove duplicate entries because of scenario
-    # if page 3 is missing an you have requested it will gra  urls from first page and
-    # it will end up with duplicate entries
-    valid_msg_urls = list(set(combined_urls))
+    # Fetch first page and determine total pages
+    page_one_bs_obj = _fetch_page(session, main_url)
+    if page_one_bs_obj is None:
+        logger.error("Failed to fetch first page %s", main_url)
+        raise RuntimeError(
+            f"web_scraper: failed to fetch first listing page {main_url} after retries"
+        )
 
-    logger.info("Found %s parsable message URLs", str(len(valid_msg_urls)))
-    logger.info(
-        "Extracting data for Ogre city apartments "
-        "for sell task and saving as Ogre-raw-data-report.txt")
-    extract_data_from_url(valid_msg_urls, 'Ogre-raw-data-report.txt')
-    logger.info("Creating file Ogre-raw-data-report.txt copy in data folder")
-    create_file_copy()
+    total_pages = get_total_pages(page_one_bs_obj)
+    logger.info("Detected %s page(s) of listings", total_pages)
+
+    # Collect ad URLs from all pages
+    all_msg_urls: list[str] = []
+    city_display = city_slug or derive_city_slug(main_url)
+    display_name = get_display_name(city_display, city_display)
+
+    # Always collect from page 1 (we already fetched it)
+    page_urls = find_single_page_urls(page_one_bs_obj)
+    all_msg_urls.extend(page_urls)
+    logger.info("Scraping page 1/%s (%s) — found %s new ad URLs (total so far: %s)",
+                total_pages, display_name, len(page_urls), len(all_msg_urls))
+
+    # Fetch remaining pages
+    for page_num in range(2, total_pages + 1):
+        page_url = get_page_url(main_url, page_num)
+        log_msg = f"Scraping page {page_num}/{total_pages} ({city_display})"
+        logger.info(log_msg)
+
+        bs = _fetch_page(session, page_url)
+        if bs is None:
+            logger.warning("Skipping page %s after failures: %s", page_num, page_url)
+            continue
+
+        page_urls = find_single_page_urls(bs)
+        all_msg_urls.extend(page_urls)
+        logger.info("Page %s/%s (%s) — found %s new ad URLs (total so far: %s)",
+                    page_num, total_pages, display_name, len(page_urls), len(all_msg_urls))
+
+        # Be polite between list pages (configurable)
+        if page_num < total_pages:
+            time.sleep(SCRAPE_LIST_DELAY_SEC)
+
+    valid_msg_urls = list(dict.fromkeys(all_msg_urls))  # preserve order, remove dups
+
+    logger.info("Found %s parsable message URLs across %s page(s)", len(valid_msg_urls), total_pages)
+    record_counts(pages_fetched=total_pages, urls_discovered=len(valid_msg_urls))
+
+    # M7 P1: persist today's full URL universe for db_worker's diff before
+    # any filtering — this is the "still listed" source of truth.
+    # M7 P7: city-scoped so parallel city runs cannot clobber each other.
+    write_discovered_urls(valid_msg_urls, dest_file=city_file(DISCOVERED_URLS_FILE, city_display))
+
+    # M7 P1: fetch details only for ads NOT already in listed_ads. Known
+    # ads are diffed/aged purely from the discovered set; re-fetching them
+    # daily was ~95% of all detail-page traffic.
+    try:
+        known_hashes = set(extract_listed_url_hashes_from_db())
+    except Exception as exc:
+        logger.warning(
+            "Could not load known hashes from DB (%s) — "
+            "falling back to fetching details for ALL discovered ads", exc)
+        known_hashes = set()
+    new_urls = select_new_urls(valid_msg_urls, known_hashes)
+
+    if URL_LIMIT > 0:
+        logger.info("URL limit active: at most %s new ads will be processed for details", URL_LIMIT)
+    else:
+        logger.info("No dev limit: processing all %s new ads for details", len(new_urls))
+
+    # Always create the report file, even on zero-new-ads days, so the
+    # downstream formatter gets a (possibly empty) input instead of failing.
+    open(report_file, "a").close()
+
+    logger.info("Extracting data for city apartments for sell task")
+    # M7 P2: reuse the same polite session for detail pages
+    extract_data_from_url(new_urls, report_file, session=session)
+    session.close()
+
+    logger.info("Creating file copy in data folder")
+    create_file_copy(report_file)
     logger.info("--- Finished web_scraper module ---")
 
 
-def remove_old_file() -> None:
+def write_discovered_urls(urls: list, dest_file: str = DISCOVERED_URLS_FILE) -> None:
+    """M7 P1: write today's full discovered URL set (one URL per line).
+
+    Overwrites on every scrape so db_worker can trust the file's mtime as
+    a same-day freshness signal (see db_worker.load_todays_discovered_hashes).
     """
-    Remove the 'Ogre-raw-data-report.txt' file in the current 
-    directory if it is older than a certain number of days.
+    with open(dest_file, "w") as fh:
+        for url in urls:
+            fh.write(url + "\n")
+    logger.info("Wrote %s discovered URLs to %s", len(urls), dest_file)
+
+
+def select_new_urls(urls: list, known_hashes: set) -> list:
+    """M7 P1: return only URLs whose hash is not yet in listed_ads."""
+    new_urls = [url for url in urls if extract_hash(url) not in known_hashes]
+    skipped = len(urls) - len(new_urls)
+    logger.info(
+        "M7 P1 diff-before-fetch: %s discovered, %s already in listed_ads"
+        " (detail fetch skipped), %s new ads to fetch",
+        len(urls), skipped, len(new_urls))
+    return new_urls
+
+
+def remove_old_file(filename: str = "Ogre-raw-data-report.txt") -> None:
+    """
+    Remove the given report file (default legacy Ogre name for compat)
+    if it is older than a certain number of days.
     """
     days_old = 1
-    filename = "Ogre-raw-data-report.txt"
     file_path = os.path.join(os.getcwd(), filename)
-    logger.info("Removing file %s  as if oloder "
-                "than %s  day(s)", filename, days_old)
+    logger.info("Removing file %s if older than %s day(s)", filename, days_old)
     if os.path.isfile(file_path):
         file_time = datetime.fromtimestamp(os.path.getmtime(file_path))
         now = datetime.now()
 
         if (now - file_time).days > days_old:
             os.remove(file_path)
-            logger.info("Removed %s  with sucess", file_path)
+            logger.info("Removed %s with success", file_path)
         else:
-            logger.info("The file %s is not older than %s "
-                        "day(s) and was not removed.", filename, str(days_old) )
+            logger.info(
+                "The file %s is not older than %s day(s) and was not removed.",
+                filename,
+                str(days_old),
+            )
     else:
-        logger.info("The file %s does not exist in the "
-                    "current directory.", filename)
+        logger.info("The file %s does not exist in the current directory.", filename)
 
 
-def extract_data_from_url(nondup_urls: list, dest_file: str) -> None:
-    """Iterate over all first page msg urls extract info from each url and write to file """
-    msg_url_count = len(nondup_urls)
-    for i in range(msg_url_count):
-        current_msg_url = nondup_urls[i] + "\n"
-        logger.info("Started scraping data from message URL %s" , str(i + 1))
-        table_opt_names = get_msg_table_data(nondup_urls[i], "ads_opt_name")
-        if table_opt_names:
-            pass
-        else:
-            logger.warning(f"Skipping {nondup_urls[i]} due to repeated connection failures.")
-        time.sleep(1)
-        table_opt_values = get_msg_table_data(nondup_urls[i], "ads_opt")
-        if table_opt_values:
-            pass
-        else:
-            logger.warning(f"Skipping {nondup_urls[i]} due to repeated connection failures.")
-        time.sleep(1)
-        table_price = get_msg_table_data(nondup_urls[i], "ads_price")
-        if table_price:
-            pass
-        else:
-            logger.warning(f"Skipping {nondup_urls[i]} due to repeated connection failures.")
-        try:
-            write_line(current_msg_url, dest_file)
+def extract_data_from_url(nondup_urls: list, dest_file: str, session: requests.Session = None) -> None:
+    """Extract ad details, fetching each detail page exactly ONCE (M7 P2).
+
+    Previously every ad page was downloaded 4 times (one request per table
+    section) with ~6s of hardcoded sleeps per ad. Now: one fetch per ad via
+    the shared polite session (timeout + retries + backoff in _fetch_page),
+    all four sections parsed from the same document, and one configurable
+    SCRAPE_DELAY_SEC pause between ads. Respects URL_LIMIT.
+
+    A page that cannot be fetched or parsed is skipped whole (no partial
+    record); the discovery diff (M7 P1) retries it on the next run.
+    """
+    if not nondup_urls:
+        logger.warning("No ad URLs to process.")
+        return
+
+    # Compute how many to process. URL_LIMIT <= 0 means "all"
+    if URL_LIMIT > 0:
+        num_to_process = min(URL_LIMIT, len(nondup_urls))
+    else:
+        num_to_process = len(nondup_urls)
+    if num_to_process < len(nondup_urls):
+        # Not an error - they are fetched on later runs - but a run that
+        # keeps hitting the cap means SCRAPE_URL_LIMIT is too low.
+        logger.warning(
+            "SCRAPE_URL_LIMIT=%s: %s new ads left for later runs"
+            " (raise the limit if this repeats)",
+            URL_LIMIT, len(nondup_urls) - num_to_process)
+
+    logger.info("Processing %s of %s discovered ads (URL_LIMIT=%s)",
+                num_to_process, len(nondup_urls), URL_LIMIT)
+
+    own_session = session is None
+    if own_session:
+        session = requests.Session()
+        session.headers.update({
+            "User-Agent": "Mozilla/5.0 (compatible; SS.LV-Scraper/1.7; +http://propertydata.lv/)",
+            "Accept": "text/html,application/xhtml+xml",
+        })
+
+    try:
+        for i in range(num_to_process):
+            msg_url = nondup_urls[i]
+            # M7 P9: per-ad progress at DEBUG; periodic summary at INFO so
+            # a 3000-ad first run doesn't write thousands of INFO lines
+            logger.debug("Scraping ad %s/%s: %s", i + 1, num_to_process, msg_url)
+            if (i + 1) % 25 == 0 or i + 1 == num_to_process:
+                logger.info("Detail fetch progress: %s/%s ads", i + 1, num_to_process)
+
+            bs_object = _fetch_page(session, msg_url)
+            if bs_object is None:
+                logger.warning("Skipping %s after repeated fetch failures.", msg_url)
+                continue
+
+            # Single document, four sections (previously 4 separate GETs)
+            table_opt_names = parse_msg_table_fields(bs_object, "ads_opt_name")
+            table_opt_values = parse_msg_table_fields(bs_object, "ads_opt")
+            table_price = parse_msg_table_fields(bs_object, "ads_price")
+            table_date = parse_msg_table_fields(bs_object, "msg_footer")
+
+            if not table_price:
+                logger.error(
+                    "Skipping %s: no price section found (layout change?)", msg_url)
+                continue
+
+            write_line(msg_url + "\n", dest_file)
             for idx in range(len(table_opt_names) - 1):
-                text_line = table_opt_names[idx] + \
-                    ">" + table_opt_values[idx] + "\n"
+                text_line = table_opt_names[idx] + ">" + table_opt_values[idx] + "\n"
                 write_line(text_line, dest_file)
-        except TypeError as e:
-            logger.error(f"Error writing data from {current_msg_url} to file : {e}")
+            write_line("Price:>" + table_price[0] + "\n", dest_file)
 
-        if not table_price:
-            logging.error(f"Error writing data from {current_msg_url} to file: table_price is None or empty")
-            continue  # Skip further processing for this URL
-        try:
-            # Assuming table_price is a list and we want the first element
-            price_line = "Price:>" + table_price[0] + "\n"
-            write_line(price_line, dest_file)
-        except (TypeError, IndexError) as e:
-            logging.error(f"Error writing data from {current_msg_url} to file: {e}")
+            date_field = None
+            if len(table_date) > 2:
+                date_and_time = table_date[2].replace("Datums:", "")
+                date_clean = date_and_time.split()[0]
+                date_field = "Date:>" + str(date_clean) + "\n"
+            if date_field:
+                write_line(date_field, dest_file)
+            else:
+                logger.error("No listing date found for %s", msg_url)
 
-        price_line = "Price:>" + table_price[0] + "\n"
-
-        time.sleep(1)
-        table_date = get_msg_table_data(nondup_urls[i], "msg_footer")
-        if table_date:
-            pass
-        else:
-            logger.warning(f"Skipping {nondup_urls[i]} due to repeated connection failures.")
-
-        try:
-            for date_idx in range(len(table_date)):
-                if date_idx == 2:
-                    date_str = table_date[date_idx]
-                    date_and_time = date_str.replace("Datums:", "")
-                    date_clean = date_and_time.split()[0]
-                    date_field = "Date:>" + str(date_clean) + "\n"
-            write_line(date_field, dest_file)
-        except TypeError as e:
-            logger.error(f"Error writing data from {current_msg_url} to file : {e}")
-        time.sleep(3)
+            # One polite pause between ads (SCRAPE_DELAY_SEC, finally used)
+            if i + 1 < num_to_process:
+                time.sleep(SCRAPE_DELAY_SEC)
+    finally:
+        if own_session:
+            session.close()
 
 
 def get_bs_object(page_url: str):
-    """ Function loads webpage from url and returns bs4 object"""
+    """Function loads webpage from url and returns bs4 object"""
     page = requests.get(page_url, timeout=10)
     bs_object = BeautifulSoup(page.content, "html.parser")
     return bs_object
 
 
 def find_single_page_urls(bs_object) -> list:
-    """ Function iterates over all a sections and gets all href lines
+    """Function iterates over all a sections and gets all href lines
     object: bs4 object
     returns:  list of strings with all message URLs
     """
     urls = []
-    for a in bs_object.find_all('a', href=True):
-        one_link = "https://ss.lv" + a['href']
+    for a in bs_object.find_all("a", href=True):
+        one_link = "https://ss.lv" + a["href"]
         re_match = re.search("msg", one_link)
         if re_match:
             urls.append(one_link)
@@ -206,8 +432,144 @@ def find_single_page_urls(bs_object) -> list:
     return valid_urls
 
 
+def get_page_url(base_url: str, page_num: int) -> str:
+    """Build URL for a given page number on an ss.lv listing.
+
+    ss.lv uses the pattern: <base>/pageN.html for N >= 2
+    Page 1 is the base URL itself.
+
+    Used together with get_total_pages() during the dynamic scraping loop
+    (see scrape_website, Phase 1 Item 4).
+    """
+    if not base_url:
+        # Graceful handling for empty base (mostly for tests)
+        return f"/page{page_num}.html" if page_num > 1 else ""
+    if page_num <= 1:
+        return base_url
+    # Ensure trailing slash for clean concatenation
+    base = base_url.rstrip("/")
+    return f"{base}/page{page_num}.html"
+
+
+def get_total_pages(bs_object: BeautifulSoup, default: int = 1) -> int:
+    """Extract the total number of result pages from the ss.lv pager.
+
+    ss.lv renders pagination inside a <div class="td2"> (or nearby) using:
+      - <button class=navia>1</button> for the current page
+      - <a class="navi" ...>N</a> for other pages
+      - "Nākamie" (next) and "Iepriekšējie" (previous) links
+
+    This function collects all integer labels from elements with "navi" or "navia"
+    classes and returns the maximum (i.e. the last page).
+
+    Observed page counts (as of research against config/cities.yaml):
+      - jurmala: 6 pages
+      - marupes_pag: ~2 pages
+      - ogre: ~2 pages
+      - salaspils, sigulda, adazu_nov: often 1 page
+
+    Edge cases handled:
+      - Single page listings (only the navia button "1")
+      - No pager present at all → returns `default` (1)
+      - Requesting a non-existent high page number redirects to the first page
+
+    This was implemented as part of Phase 1 (Item 2) to replace the previous
+    hard-coded "only scrape page 1" behavior.
+    """
+    if bs_object is None:
+        return default
+
+    page_nums: set[int] = set()
+
+    # Prefer searching inside the known pager container
+    pager = bs_object.find("div", class_="td2")
+    elements = pager.find_all(["a", "button"]) if pager else bs_object.find_all(["a", "button"])
+
+    for el in elements:
+        classes = " ".join(el.get("class", []))
+        if "navi" in classes or "navia" in classes:
+            text = el.get_text(strip=True)
+            if text.isdigit():
+                page_nums.add(int(text))
+
+    if page_nums:
+        return max(page_nums)
+    return default
+
+
+def _fetch_page(session: requests.Session, url: str, retries: int = 3, backoff: float = 0.5):
+    """Fetch a page with retries. Returns BeautifulSoup or None on failure.
+
+    Shared by list-page and (since M7 P2) detail-page fetches: one polite
+    session, real timeout, raise_for_status, exponential backoff.
+    """
+    for attempt in range(retries):
+        try:
+            resp = session.get(url, timeout=15)
+            resp.raise_for_status()
+            return BeautifulSoup(resp.content, "html.parser")
+        except Exception as exc:
+            wait = backoff * (2 ** attempt)
+            logger.warning("List page fetch failed (attempt %s/%s) for %s: %s. Retrying in %.1fs",
+                           attempt + 1, retries, url, exc, wait)
+            time.sleep(wait)
+    return None
+
+
+def derive_city_slug(main_url: str) -> str:
+    """Derive a filesystem-friendly city slug from an ss.lv listing URL.
+
+    Used by the scraper (Item 5) to generate city-prefixed report files
+    such as "jurmala-raw-data-report.txt" instead of hard-coded "Ogre-...".
+
+    Examples:
+      - https://www.ss.lv/lv/real-estate/flats/jurmala/sell/          → "jurmala"
+      - https://www.ss.lv/lv/real-estate/flats/ogre-and-reg/ogre/sell/ → "ogre"
+      - https://www.ss.lv/lv/real-estate/flats/riga-region/sigulda/sell/ → "sigulda"
+      - https://www.ss.lv/lv/real-estate/flats/riga-region/marupes-pag/sell/ → "marupes_pag"
+
+    Falls back to "city" when detection fails.
+    """
+    if not main_url:
+        return "city"
+    try:
+        path = urlparse(main_url).path.lower()
+        segments = [s for s in path.split("/") if s]
+
+        # Known city hints (from config/cities.yaml + common patterns)
+        known = {
+            "jurmala": "jurmala",
+            "ogre": "ogre",
+            "sigulda": "sigulda",
+            "salaspils": "salaspils",
+            "marupes-pag": "marupes_pag",
+            "marupes_pag": "marupes_pag",
+            "adazu-nov": "adazu_nov",
+            "adazu_nov": "adazu_nov",
+        }
+
+        for seg in segments:
+            if seg in known:
+                return known[seg]
+            # partial matches for compound paths
+            for key, val in known.items():
+                if key in seg:
+                    return val
+
+        # Fallback: segment immediately before "sell"
+        if "sell" in segments:
+            idx = segments.index("sell")
+            if idx > 0:
+                candidate = segments[idx - 1]
+                return candidate.replace("-", "_")
+
+        return "city"
+    except Exception:
+        return "city"
+
+
 def get_msg_field_info(msg_url: str, span_id: str):
-    """ Function finds span id in url and return value """
+    """Function finds span id in url and return value"""
     response = requests.get(msg_url, timeout=10)
     data = response.text
     soup = BeautifulSoup(data, "html.parser")
@@ -216,7 +578,7 @@ def get_msg_field_info(msg_url: str, span_id: str):
 
 
 def get_msg_table_info(msg_url: str, td_class: str) -> list:
-    """ Function parses message page and extracts td_class table fields
+    """Function parses message page and extracts td_class table fields
     Paramters:
     msg_url: message web page link
     td_class: table field name
@@ -224,71 +586,69 @@ def get_msg_table_info(msg_url: str, td_class: str) -> list:
     """
     page = requests.get(msg_url, timeout=10)
     soup = BeautifulSoup(page.content, "html.parser")
-    table = soup.find('table', id="page_main")
+    table = soup.find("table", id="page_main")
 
     table_fields = []
 
-    table_data = table.findAll('td', {"class": td_class})
+    table_data = table.findAll("td", {"class": td_class})
     for data in table_data:
         tostr = str(data)
         no_front = tostr.split('">', 1)[1]
         name = no_front.split("</", 1)[0]
-        clean_name = name.replace('\t', '').replace('\r', '').replace('\n', '')
+        clean_name = name.replace("\t", "").replace("\r", "").replace("\n", "")
         table_fields.append(clean_name)
     return table_fields
 
 
-def get_msg_table_data(msg_url: str, td_class: str, retries=3, backoff_factor=0.3):
+def parse_msg_table_fields(bs_object: BeautifulSoup, td_class: str) -> list:
+    """Extract td fields of the given class from an already-fetched ad page.
+
+    M7 P2: the parsing half of the former get_msg_table_data() — the page
+    is fetched once by the caller (see extract_data_from_url) and all four
+    sections are parsed from the same BeautifulSoup document.
+
+    Returns [] when the page lacks the expected table/fields (layout
+    change or ad removed between discovery and fetch): the caller skips
+    that ad instead of failing the whole run.
     """
-    Fetch data from the given URL with a retry mechanism.
-    
-    :param msg_url: The URL to scrape.
-    :param table_name: The table name to retrieve information from.
-    :param retries: Number of retries in case of a connection error.
-    :param backoff_factor: The factor by which the delay increases after each retry.
-    :return: Response content or None if the request fails.
-    """
-    attempt = 0
-    while attempt < retries:
-        try:
-            logging.info(f"Attempting to fetch data from {msg_url}")
-            page = requests.get(msg_url)
-            soup = BeautifulSoup(page.content, "html.parser")
-            table = soup.find('table', id="page_main")
+    table = bs_object.find("table", id="page_main")
+    if table is None:
+        logger.warning("No page_main table found while parsing %s fields", td_class)
+        return []
 
-            table_fields = []
-
-            table_data = table.findAll('td', {"class": td_class})
-            for data in table_data:
-                tostr = str(data)
-                no_front = tostr.split('">', 1)[1]
-                name = no_front.split("</", 1)[0]
-                clean_name = name.replace('\t', '').replace('\r', '').replace('\n', '')
-                table_fields.append(clean_name)
-            return table_fields
-        except ConnectionError as e:
-            logging.error(f"ConnectionError: {e}, retrying in {backoff_factor * (2 ** attempt)} seconds...")
-            attempt += 1
-            time.sleep(backoff_factor * (2 ** attempt))
-
-    logging.error(f"Failed to fetch data from {msg_url} after {retries} attempts.")
-    return None
+    table_fields = []
+    table_data = table.find_all("td", {"class": td_class})
+    for data in table_data:
+        tostr = str(data)
+        no_front = tostr.split('">', 1)[1]
+        name = no_front.split("</", 1)[0]
+        clean_name = name.replace("\t", "").replace("\r", "").replace("\n", "")
+        table_fields.append(clean_name)
+    return table_fields
 
 
 def write_line(text: str, file_name: str) -> None:
     """Append text to end of the file"""
-    with open(file_name, 'a') as the_file:
+    with open(file_name, "a") as the_file:
         the_file.write(text)
 
 
-def create_file_copy() -> None:
-    """Creates report file copy in data folder"""
-    todays_date = datetime.today().strftime('%Y-%m-%d')
-    dest_file = 'Ogre-raw-data-report-' + todays_date + '.txt'
-    copy_cmd = 'cp Ogre-raw-data-report.txt local_lambda_raw_scraped_data/' + dest_file
-    if not os.path.exists('local_lambda_raw_scraped_data'):
-        os.makedirs('local_lambda_raw_scraped_data')
-    os.system(copy_cmd)
+def create_file_copy(report_file: str = "Ogre-raw-data-report.txt") -> None:
+    """Creates a dated copy of the (city-aware) report file in the data/ folder
+    (for check_lst_run_state) and also in local_lambda_raw_scraped_data/."""
+    todays_date = datetime.today().strftime("%Y-%m-%d")
+    base = report_file.replace(".txt", "")
+    dest_file = f"{base}-{todays_date}.txt"
+
+    # Copy to data/ so check_lst_run_state and data_format_changer can find it
+    if not os.path.exists("data"):
+        os.makedirs("data")
+    os.system(f"cp {report_file} data/{dest_file}")
+
+    # Copy for cloud/lambda compatibility
+    if not os.path.exists("local_lambda_raw_scraped_data"):
+        os.makedirs("local_lambda_raw_scraped_data")
+    os.system(f"cp {report_file} local_lambda_raw_scraped_data/{dest_file}")
 
 
 if __name__ == "__main__":
