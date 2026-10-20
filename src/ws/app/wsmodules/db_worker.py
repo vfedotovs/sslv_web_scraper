@@ -360,7 +360,7 @@ def extract_new_msg_data(df, new_msg_hashes: list) -> dict:
         if url_hash not in new_hash_set:
             continue
         row_data = []
-        row_data.append(row["Room_count"])
+        row_data.append(to_room_count(row["Room_count"], url_hash))
         apt_and_house_floor = row["Floor"]  # apt floor and housefloor: 3/4
         floor_list = apt_and_house_floor.split("/", 1)
         row_data.append(floor_list[1])
@@ -379,6 +379,26 @@ def extract_new_msg_data(df, new_msg_hashes: list) -> dict:
     for k, v in data_dict.items():
         logger.debug(f"{k} {v}")
     return data_dict
+
+
+def to_room_count(value, url_hash: str = None):
+    """Room count as an int for the integer room_count column, or None.
+
+    ss.lv lists some flats with "Istabas: Citi" (other). Passed through as
+    the string "Citi", Postgres rejected the whole batched insert and the
+    jurmala run failed at db_worker (2026-10-20, ad bdpioh). The rollback
+    kept the ad out of listed_ads, so every later run would re-fetch it as
+    new and fail again. Storing NULL keeps the ad (price, sqm, address) and
+    lets removal tracking work; room-count stats already skip NULL.
+    """
+    try:
+        number = float(str(value).strip())
+        if number.is_integer():
+            return int(number)
+    except (TypeError, ValueError):
+        pass
+    logger.info(f"Non-numeric room count {value!r} for ad {url_hash}: storing NULL")
+    return None
 
 
 def get_days_listed_count(pub_date: str) -> int:
