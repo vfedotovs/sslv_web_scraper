@@ -3,9 +3,8 @@ fastapi
 requests
 bs4
 pandas
-sendgrid
 psycopg2-binary
 boto3
 tabulate
+pyyaml
 psutil
-

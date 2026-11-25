@@ -17,7 +17,11 @@ services:
     networks:
       - postgresql
   ws:
-    build: ./src/ws
+    build:
+      context: ./src/ws
+      cache_from:
+        - sslv-ws:latest
+    image: sslv-ws:latest
     restart: always
     environment:
       DEST_EMAIL: ${DEST_EMAIL}
@@ -26,30 +30,56 @@ services:
       APP_ENV: ${APP_ENV}
       AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID}
       AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY}
+      CITY_MAIN_URL: ${CITY_MAIN_URL}
+      EMAIL_CITY_TITLE: ${EMAIL_CITY_TITLE}
+      # Scraper control variables (can be set per-city in .env.<city>)
+      SCRAPE_URL_LIMIT: ${SCRAPE_URL_LIMIT:-500}
+      SCRAPE_DELAY_SEC: ${SCRAPE_DELAY_SEC:-5}
+      SCRAPE_LIST_DELAY_SEC: ${SCRAPE_LIST_DELAY_SEC:-1}
+      # Monitoring alert thresholds (M6 Item 3, see alert_mailer.py)
+      ALERT_REMOVED_PCT: ${ALERT_REMOVED_PCT:-30}
+      ALERT_ZERO_NEW_RUNS: ${ALERT_ZERO_NEW_RUNS:-3}
       DB_HOST: db
       DB_NAME: new_docker_db
       DB_USER: new_docker_user
       DB_PASSWORD: ${POSTGRES_PASSWORD}
-    ports:
-      - "8000:8000"
+    # ports:
+    #   - "8000:8000"
     depends_on:
       db:
         condition: service_healthy
     healthcheck:
+      # main's /health endpoint (cheaper than /docs). 30s, not main's 60s: ts waits
+      # for ws to be healthy, and 60s was only to cut worker churn from
+      # --limit-max-requests, which the multi-city ws no longer uses.
       test: ["CMD-SHELL", "curl -f http://localhost:8000/health || exit 1"]
-      interval: 60s
+      interval: 30s
       timeout: 10s
       start_period: 15s
       retries: 3
     networks:
       - postgresql
   ts:
-    build: ./src/ts
+    build:
+      context: ./src/ts
+      cache_from:
+        - sslv-ts:latest
+    image: sslv-ts:latest
     restart: always
     environment:
       WS_HOST: ws
-    ports:
-      - "8080:8080"
+      CITY: ${CITY:-ogre}
+      # Trigger feedback loop (M6 Item 7): SES alerts when the trigger is
+      # refused, the run never started, or the run failed (see ts.py)
+      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID}
+      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY}
+      DEST_EMAIL: ${DEST_EMAIL}
+      SRC_EMAIL: ${SRC_EMAIL}
+      TASK_TIME: ${TASK_TIME:-00:40}
+      VERIFY_TIME: ${VERIFY_TIME:-01:40}
+    # Health check port is only accessible within Docker network (no external exposure needed)
+    # ports:
+    #   - "8080:8080"  # Uncomment only if you need external monitoring
     depends_on:
       ws:
         condition: service_healthy
@@ -61,31 +91,63 @@ services:
       retries: 3
     networks:
       - postgresql
+  # One-shot debug trigger (kept for manual single-city testing only).
+  # In multi-city deploys, the immediate post-deploy trigger is run by
+  # deploy-multi-city-ws.sh from inside each city's ws container
+  # (scripts/lib/post_deploy.sh), and the deploy waits for the run's result.
+  # To run manually: docker compose --profile debug up -d curl
+  # (Note: still hardcoded to ogre in the compose definition)
   curl:
     image: curlimages/curl
     command: sh -c "sleep 30 && curl http://ws:8000/run-task/ogre"
+    profiles: ["debug"]
     networks:
       - postgresql
     depends_on:
       - ts
-  cron:
-    build: ./src/cron
+
+  # DB Backup Service (dedicated container for scheduled backups)
+  # Runs cron inside the container (src/backup-svc).
+  # Uses shared image name "sslv-backup:latest" so only one backup image is built
+  # across all cities (reduces build time and disk usage).
+  # Deployed per-city via --project-name <city> (container name becomes {city}-backup-1).
+  # The deploy-multi-city-ws.sh always includes --profile backup.
+  # For manual/single-city: docker compose --profile backup up -d
+  # Uses S3_BUCKET from .env (set per-city to *-db-backups).
+  # CITY/ENV passed for awareness (add CITY=xxx to .env.city if needed for logging/fallback).
+  backup:
+    build:
+      context: ./src/backup-svc
+      cache_from:
+        - sslv-backup:latest
+    image: sslv-backup:latest
     restart: always
+    profiles: ["backup"]
     environment:
-      TZ: UTC  # Set timezone (change to your timezone, e.g., Europe/Riga)
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      DB_USER: new_docker_user
+      DB_NAME: new_docker_db
+      DB_HOST: db
+      S3_BUCKET: ${S3_BUCKET}
       AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID}
       AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY}
-      S3_BUCKET: ${S3_BUCKET}
-    volumes:
-      # Mount Docker socket to allow cron container to control other containers
-      - /var/run/docker.sock:/var/run/docker.sock
-      # Shared volume for backup files
-      - backup_tmp:/tmp
+      CITY: ${CITY:-unknown}
+      ENV: ${ENV:-prod}
+      # Set to DEBUG for verbose logging (also written to /var/log/backup.log inside container)
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      # Backup alerting (M6 Item 4): SES failure/staleness alert emails
+      DEST_EMAIL: ${DEST_EMAIL}
+      SRC_EMAIL: ${SRC_EMAIL}
+      MIN_BACKUP_SIZE_KB: ${MIN_BACKUP_SIZE_KB:-1}
+      BACKUP_MIN_BYTES_PER_ROW: ${BACKUP_MIN_BYTES_PER_ROW:-5}
+      BACKUP_SHRINK_RATIO: ${BACKUP_SHRINK_RATIO:-0.5}
+      BACKUP_MAX_AGE_HOURS: ${BACKUP_MAX_AGE_HOURS:-26}
     depends_on:
-      - db
-      - ws
+      db:
+        condition: service_healthy
     networks:
       - postgresql
+
 # web:
 #  image:  vfedotovsdocker/st-web:latest-amd64   #Use the specified Docker image
 #  ports:
@@ -99,6 +161,4 @@ networks:
     driver: bridge
 volumes:
   db_data:
-    driver: local
-  backup_tmp:
     driver: local

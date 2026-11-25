@@ -16,16 +16,17 @@ import logging
 from logging import handlers
 from logging.handlers import RotatingFileHandler
 import sys
-from sendgrid.helpers.mail import (
-    Mail,
-    Attachment,
-    FileContent,
-    FileName,
-    FileType,
-    Disposition,
-    ContentId,
-)
-from sendgrid import SendGridAPIClient
+# SendGrid imports removed (no longer using sendgrid)
+# from sendgrid.helpers.mail import (
+#     Mail,
+#     Attachment,
+#     FileContent,
+#     FileName,
+#     FileType,
+#     Disposition,
+#     ContentId,
+# )
+# from sendgrid import SendGridAPIClient
 
 
 log = logging.getLogger("sendgrid_mailer")
@@ -130,7 +131,8 @@ def sendgrid_mailer_main() -> None:
         plain_text_content=final_mail_body,
     )
 
-    log.info("Checking if file Ogre_city_report.pdf exists")
+    log.info("Checking if city report pdf exists (Ogre_city_report.pdf or {city}_city_report.pdf)")
+    # legacy hardcoded for now
     report_file_exists = os.path.exists("Ogre_city_report.pdf")
     if report_file_exists:
         log.info("Found Ogre_city_report.pdf file")

@@ -1,0 +1,11 @@
+[Unit]
+Description=Run SSLV fleet watchdog heartbeat daily
+
+[Timer]
+# 06:35 UTC: after the night's scrape (00:40) and backup (02:00) windows, and
+# offset from the 15-minute timer so the two runs do not share the state file.
+OnCalendar=*-*-* 06:35:00 UTC
+Persistent=true
+
+[Install]
+WantedBy=timers.target

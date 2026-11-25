@@ -25,6 +25,21 @@ import os
 import boto3
 from botocore.exceptions import ClientError
 
+# Recent run history for the email body (M6 monitoring Item 2).
+# Fall back to a stub for standalone runs outside the app package.
+try:
+    from app.wsmodules.scrape_runs import format_recent_runs
+except Exception:
+    def format_recent_runs(city=None, limit=7):
+        return "Scrape run history unavailable (scrape_runs module not importable)."
+
+# M7 P7: city-scoped hand-off filenames; fall back for standalone runs.
+try:
+    from app.wsmodules.file_paths import city_file
+except Exception:
+    def city_file(base_name, city=None):
+        return f"{city}-{base_name}" if city else base_name
+
 
 log = logging.getLogger("aws_mailer")
 log.setLevel(logging.INFO)
@@ -40,31 +55,52 @@ fh = handlers.RotatingFileHandler(
 fh.setFormatter(fa_log_format)
 log.addHandler(fh)
 
+EMAIL_CITY_TITLE = os.getenv("EMAIL_CITY_TITLE")
 
-data_files = [
-    "email_body_txt_m4.txt",
-    "Mailer_report.txt",
-    "Ogre-raw-data-report.txt",
-    "cleaned-sorted-df.csv",
-    "pandas_df.csv",
-    "basic_price_stats.txt",
-    "email_body_add_dates_table.txt",
-    "1_rooms_tmp.txt",
-    "mrv2.txt",
-]
+
+def get_data_files_to_remove(city_name: str = None) -> list:
+    """City-aware list of temp files for cleanup (Phase 3 hygiene).
+    M7 P7: hand-off files are city-scoped, so the cleanup list is too."""
+    # Only files the pipeline still writes: Mailer_report.txt, 1_rooms_tmp.txt
+    # and mrv2.txt are not created any more, and deleting them logged three
+    # false ERRORs per city per night.
+    base = [
+        city_file("email_body_txt_m4.txt", city_name),
+        city_file("cleaned-sorted-df.csv", city_name),
+        city_file("pandas_df.csv", city_name),
+        city_file("basic_price_stats.txt", city_name),
+        city_file("email_body_add_dates_table.txt", city_name),
+        city_file("discovered-urls.txt", city_name),
+    ]
+    # The scraper's raw report name (web_scraper.scrape_website): ogre keeps the
+    # legacy "Ogre-raw-data-report.txt", so "ogre-raw-data-report.txt" was never
+    # found and ogre's report was never removed.
+    if city_name and city_name != "ogre":
+        base.append(f"{city_name}-raw-data-report.txt")
+    else:
+        base.append("Ogre-raw-data-report.txt")
+    return base
+
+
+data_files = get_data_files_to_remove()  # legacy default for backward compat
 
 
 def remove_tmp_files(files_to_remove: list) -> None:
-    """FIXME: Refactor this function to better code"""
+    """Delete the run's hand-off files. A file that is already gone is not an
+    error (DEBUG); any other failure is, and names the file."""
     directory = os.getcwd()
-    log.info(f"Attempting clean temp files from {directory} folder")
+    log.info(f"Removing {len(files_to_remove)} temp files from {directory}")
+    removed = 0
     for file in files_to_remove:
         try:
-            log.info(f"Trying to deleting file: {file} ")
             os.remove(file)
-            log.info(f"File: {file} deleted with success ")
+            removed += 1
+            log.debug(f"Removed {file}")
+        except FileNotFoundError:
+            log.debug(f"{file} already gone")
         except OSError as e:
-            log.error(f" {e.strerror} ")
+            log.error(f"Could not remove {file}: {e.strerror}")
+    log.info(f"Removed {removed} of {len(files_to_remove)} temp files")
 
 
 def gen_subject_title() -> str:
@@ -72,12 +108,16 @@ def gen_subject_title() -> str:
     Example of subject:
     Ogre City Apartments for sale from ss.lv web_scraper_v1.5.12_20260502_1330 [production]"""
     log.info("Generating email subject with todays date")
+    # main (16ecc33): version and environment come from RELEASE_VERSION / APP_ENV,
+    # which the deploy injects; was hard-coded "1.6.0" on the multi-city chain.
+    # Title is per city (EMAIL_CITY_TITLE, from .env.<city>), used once.
     release = os.environ.get('RELEASE_VERSION', 'unknown')
     app_env = os.environ.get('APP_ENV', 'local')
+    title_city_name = EMAIL_CITY_TITLE or "Apartments for sale"
     now = datetime.now()
     email_created = now.strftime("%Y%m%d_%H%M")
     email_subject = (
-        f"Ogre City Apartments for sale from ss.lv web_scraper_"
+        f"{title_city_name} from ss.lv web_scraper_"
         f"{release}_{email_created} [{app_env}]"
     )
     log.info(f"Email subject: {email_subject}")
@@ -127,7 +167,7 @@ def extract_file_contents(file_name: str) -> str:
         return extracted_file_contents
 
 
-def aws_mailer_main() -> None:
+def aws_mailer_main(city_name: str = None) -> None:
     """
     Send an email using AWS Simple Email Service (SES) with content assembled from multiple text files.
 
@@ -137,8 +177,8 @@ def aws_mailer_main() -> None:
       - Attempts to append additional content from optional files:
           * basic_price_stats.txt
           * email_body_add_dates_table.txt
-          * scraped_and_removed.txt
         If any of these files are missing, it logs a warning and continues without them.
+      - Appends recent run history from the scrape_runs DB table (M6 Item 2).
       - Generates the email subject dynamically using `gen_subject_title()`.
       - Sends the email via AWS SES with the specified sender and recipient addresses.
       - Logs the success or failure of the send operation.
@@ -160,16 +200,15 @@ def aws_mailer_main() -> None:
     RECIPIENT = "info@propertydata.lv"
     AWS_REGION = "eu-west-1"  # e.g., Ireland
     SUBJECT = gen_subject_title()
-    # TEXT_SECTION_URLS = extract_file_contents("email_body_txt_m4.txt")
 
-    with open("email_body_txt_m4.txt", "r", encoding="utf-8") as f:
+    # M7 P7: read the city-scoped hand-off files written upstream
+    with open(city_file("email_body_txt_m4.txt", city_name), "r", encoding="utf-8") as f:
         BODY_TEXT = f.read()
 
     # List the files you want to append in order
     extra_files = [
-        "basic_price_stats.txt",
-        "email_body_add_dates_table.txt",
-        "scraped_and_removed.txt",
+        city_file("basic_price_stats.txt", city_name),
+        city_file("email_body_add_dates_table.txt", city_name),
     ]
 
     # Append contents of each file
@@ -180,6 +219,15 @@ def aws_mailer_main() -> None:
             log.info(f"Appended contents of {filename} to BODY_TXT")
         except FileNotFoundError:
             log.warning(f"Missing file: {filename} — continuing without it.")
+
+    # M6 monitoring Item 2: append recent run history from the scrape_runs
+    # table (replaces the old scraped_and_removed.txt section). Best-effort:
+    # the report email must still go out if the summary query fails.
+    try:
+        BODY_TEXT += "\n\n" + format_recent_runs(city_name)
+        log.info("Appended scrape_runs history to BODY_TXT")
+    except Exception as e:
+        log.warning(f"Could not append scrape_runs history: {e}")
 
     log.info(f"--- Final email body length: {len(BODY_TEXT)} ")
 
@@ -211,13 +259,14 @@ def aws_mailer_main() -> None:
             Source=SENDER,
         )
     except ClientError as e:
-        print(f"Failed to send email: {e.response['Error']['Message']}")
         log.error(f"Failed to send email: {e.response['Error']['Message']}")
+        raise
     else:
         print(f"Email sent! Message ID: {response['MessageId']}")
         log.info(f"Email sent! Message ID: {response['MessageId']}")
-    log.info("--- AWS SES mailer module completed with succeess ---")
-    remove_tmp_files(data_files)
+    log.info("--- AWS SES mailer module completed with success ---")
+    files_to_remove = get_data_files_to_remove(city_name)
+    remove_tmp_files(files_to_remove)
 
 
 if __name__ == "__main__":

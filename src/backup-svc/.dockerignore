@@ -1,0 +1,6 @@
+# Ignore everything not needed for build context
+*
+!backup.py
+!cronfile
+!entrypoint.sh
+!run-job.sh

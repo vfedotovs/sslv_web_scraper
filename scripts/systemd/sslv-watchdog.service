@@ -1,0 +1,15 @@
+# Installed by `make watchdog-install` (@REPO_DIR@ / @USER@ are substituted).
+# Frequent check: ntfy push only when the problem set changes (+ reminders).
+[Unit]
+Description=SSLV fleet watchdog - ntfy alerts on problem change
+After=docker.service
+Wants=docker.service
+
+[Service]
+Type=oneshot
+User=@USER@
+WorkingDirectory=@REPO_DIR@
+EnvironmentFile=/etc/sslv-watchdog.env
+ExecStart=/usr/bin/python3 scripts/fleet_watchdog.py --email-mode never --ntfy-mode problems
+# Exit 1 means "problems found" (already pushed), not a unit failure.
+SuccessExitStatus=1
