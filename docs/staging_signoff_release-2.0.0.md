@@ -86,4 +86,14 @@ Each morning: `make fleet-status M6_ENV=staging`, plus `scrape_runs`, the emails
   - `main.yml` now deploys the same way, into one dir `~/sslv-prod` (`vars.PROD_DEPLOY_DIR`). Its remote script is covered by the same tests.
 - [x] README rewritten for multi-city (M-7): how it runs, the daily schedule, configuration, deploy and workflows, monitoring, backup/restore (S-5/P-2 behaviour), adding a city, development, and the legacy M5 targets. `make help` for `backup-city`/`backup-all` no longer says "keeps the newest 5".
 - [x] Production cutover runbook (R-4/R-5), draft: [`production_cutover_runbook_release-2.0.0.md`](production_cutover_runbook_release-2.0.0.md). It needs the step-0 host inventory, which wasn't checked against the live host. **C-1** is done: `DEPLOY_CITIES` in `deploy-multi-city-ws.sh`, for the one-city-first rollout.
-- [ ] Deploys after the nightly run only skip the post-deploy check. Decide on a `force` option for `/run-task`.
+- [x] Deploys after the nightly run only skip the post-deploy check. Decide on a `force` option for `/run-task`.
+  - **Decided 2026-11-25: deferred to 2.1.0** ([#433](https://github.com/vfedotovs/sslv_web_scraper/issues/433)). Not a blocker: the cutover deploys run before 00:40 UTC, so the post-deploy check runs normally, and a skipped check (`PDV_SKIPPED`) is a logged warning, not a failure.
+
+## 5. After sign-off
+
+- [x] **H-1 — Hotfix [#432](https://github.com/vfedotovs/sslv_web_scraper/pull/432)** (`948ef62`, 2026-10-20): a non-numeric room count (`"Citi"`) is stored as NULL instead of failing the insert. `tests/test_39_room_count_citi.py`. Deployed to staging 2026-10-20 (`staging.yml`, second attempt; the first failed).
+- [x] **Recheck 2026-11-25 17:00 UTC** on `ac695e1`, about 5 weeks after H-1. `make fleet-status M6_ENV=staging`: 6 cities, 0 with problems.
+  - All six: last run `success` 16 h ago, backup 15 h ago (4–18 KB, 72–812 rows), 4/4 containers each; host 24/24.
+  - jurmala LA 319 / RA 493 (was 301 active on 2026-10-12).
+  - Host: 484 MiB available, swap 186/2047 MiB, 0 OOM, disk 70% (4.7 G free).
+  - **Watch on prod:** swap keeps rising slowly (~30 → 94 → 136 MB in October, 186 MB now) while available memory is fine. Not a blocker.
