@@ -42,6 +42,7 @@ Ogre's history. The steps below handle both.
 - [ ] A prod ntfy topic (`NTFY_TOPIC_URL`). `make` refuses the staging topic for `M6_ENV=prod`.
 - [ ] A cutover window: start after 02:30 UTC and finish well before 00:40 UTC (the nightly run). Weekday morning recommended. The old `cron` service backs up at 03:05/03:07 UTC and sends reports until 04:12, so starting after 04:15 also gives a fresh old-format backup.
 - [x] **Host capacity** (done 2026-11-25): root EBS volume grown 16 → 30 GiB (`growpart` + `xfs_growfs`; 16 GB free after), and a 2 GiB `/swapfile` added (in `/etc/fstab`). Staging needs ~5 GB of images and uses ~190 MB of swap with six cities; prod had no swap and 4.0 GB free.
+- [x] **OS patched** (done 2026-11-25): Amazon Linux 2023 updated to `2023.12.20261120` (`dnf upgrade --releasever=latest`), kernel `6.1.190-237.442`, rebooted after an EBS snapshot. Swap and disk came back, and the old stack restarted by itself (`restart: always`): `db`/`ws`/`ts` healthy, `cron` up.
 
 ## Step 0 — Inventory (read-only, record the answers)
 
