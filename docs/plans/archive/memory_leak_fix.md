@@ -1,5 +1,7 @@
 # Memory Leak Fix - Action Items
 
+> **Archived 2026-11-25 (release 2.0.0, #431).** The garbage collection, memory logging, DataFrame release and logging-handler cleanup fixes shipped on `main` in May 2026 and were kept in 2.0.0. Fix #1 (`--workers 2 --limit-max-requests`) was **deliberately dropped** in 2.0.0: it breaks the per-process pipeline lock and kills background runs. Staging on 2.0.0 shows `ws` peak RSS steady at about 110–120 MB (`docs/staging_signoff_release-2.0.0.md`). Kept for history.
+
 ## Problem
 Uvicorn process memory consumption rises from 245 MB to 1.7 GB over 3 months, causing OOM crashes on 2 GB RAM AWS EC2 instance.
 
